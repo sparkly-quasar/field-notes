@@ -65,6 +65,24 @@ anywhere.
 - **User-added substances → opt-in PsychonautWiki contribution** (consent-gated).
 - **Encrypted-at-rest database** (passphrase) for this sensitive data.
 
+## Install & update
+
+Download an installer for your platform from the
+[Releases page](https://github.com/sparkly-quasar/field-notes/releases):
+
+- **macOS** — open the `.dmg`, drag Field Notes to Applications. Not notarized yet,
+  so on first launch **right-click → Open** (or `xattr -dr com.apple.quarantine
+  "/Applications/Field Notes.app"`).
+- **Linux** — the `.AppImage` (make it executable and run), or the `.deb` / `.rpm`.
+
+**To update:** grab the latest release and install it over the old version
+(replace the app in Applications, or the AppImage; reinstall the `.deb`/`.rpm`).
+**Your journal is safe** — all data lives in the OS app-data directory
+(`~/Library/Application Support/com.fieldnotes.journal` on macOS,
+`~/.local/share/com.fieldnotes.journal` on Linux), separate from the app bundle,
+so updating never touches it. Check the Releases page for new versions; there is
+no auto-update yet.
+
 ## Development
 
 ```bash
