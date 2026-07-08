@@ -1,6 +1,6 @@
 # Field Notes
 
-**An offline, private harm-reduction journal & trip-sitting workstation.**
+**An offline, private harm-reduction journal & trip-sitting workstation for psychonauts and all other explorers.**
 
 Field Notes lets you catalogue substances, log experiences and the doses taken
 during them, get flagged about dangerous interactions, and review your history
