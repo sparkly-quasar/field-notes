@@ -124,3 +124,13 @@ export const logDose = (input: DoseInput) => invoke<LogDoseResult>("log_dose", {
 export const addTimelineEvent = (input: TimelineInput) =>
   invoke<TimelineEvent>("add_timeline_event", { input });
 export const usageBySubstance = () => invoke<SubstanceUsage[]>("usage_by_substance");
+
+export interface ChatMsg {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export const ollamaUp = () => invoke<boolean>("ollama_up");
+export const ollamaModels = () => invoke<string[]>("ollama_models");
+export const companionChat = (model: string, history: ChatMsg[], experienceId: number | null) =>
+  invoke<string>("companion_chat", { model, history, experienceId });

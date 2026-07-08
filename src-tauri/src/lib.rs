@@ -5,6 +5,7 @@
 mod commands;
 mod db;
 mod interactions;
+mod ollama;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -34,6 +35,9 @@ pub fn run() {
             commands::log_dose,
             commands::add_timeline_event,
             commands::usage_by_substance,
+            commands::ollama_up,
+            commands::ollama_models,
+            commands::companion_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");

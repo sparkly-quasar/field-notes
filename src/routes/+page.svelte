@@ -12,14 +12,18 @@
     logDose,
     addTimelineEvent,
     addSubstance,
+    ollamaUp,
+    ollamaModels,
+    companionChat,
     type ExperienceSummary,
     type ExperienceDetail,
     type Substance,
     type SubstanceUsage,
     type Warning,
+    type ChatMsg,
   } from "$lib/api";
 
-  type Tab = "journal" | "substances" | "bysub";
+  type Tab = "journal" | "companion" | "substances" | "bysub";
 
   let acknowledged = $state(false);
   let tab = $state<Tab>("journal");
@@ -54,6 +58,15 @@
   let nsClasses = $state<string[]>([]);
   let nsDose = $state("");
   let nsNotes = $state("");
+
+  // companion (local LLM)
+  let cReady = $state<boolean | null>(null);
+  let cModels = $state<string[]>([]);
+  let cModel = $state("");
+  let cMessages = $state<ChatMsg[]>([]);
+  let cInput = $state("");
+  let cSending = $state(false);
+  let cShareSession = $state(true);
 
   const nowIso = () => new Date().toISOString();
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -155,12 +168,41 @@
     nsClasses = nsClasses.includes(c) ? nsClasses.filter((x) => x !== c) : [...nsClasses, c];
   }
 
+  async function loadCompanion() {
+    cReady = await ollamaUp();
+    if (cReady) {
+      cModels = await ollamaModels();
+      if (!cModel && cModels.length) cModel = cModels[0];
+      if (!experiences.length) await loadJournal();
+    }
+  }
+
+  // the experience the companion is aware of (most recent), if sharing is on
+  const attachedExp = $derived(cShareSession && experiences.length ? experiences[0] : null);
+
+  async function sendCompanion() {
+    if (!cInput.trim() || !cModel || cSending) return;
+    const history: ChatMsg[] = [...cMessages, { role: "user", content: cInput.trim() }];
+    cMessages = history;
+    cInput = "";
+    cSending = true;
+    try {
+      const reply = await companionChat(cModel, history, attachedExp ? attachedExp.id : null);
+      cMessages = [...cMessages, { role: "assistant", content: reply }];
+    } catch (e) {
+      cMessages = [...cMessages, { role: "assistant", content: `⚠️ ${typeof e === "string" ? e : String(e)}` }];
+    } finally {
+      cSending = false;
+    }
+  }
+
   async function goTab(t: Tab) {
     tab = t;
     selected = null;
     if (t === "bysub") await loadUsage();
     if (t === "substances") await loadSubstances();
     if (t === "journal") await loadJournal();
+    if (t === "companion") await loadCompanion();
   }
 
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
@@ -190,6 +232,7 @@
       <h1>Field Notes</h1>
       <nav>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
+        <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>By substance</button>
       </nav>
@@ -303,6 +346,62 @@
           {/if}
         </section>
       {/if}
+    {/if}
+
+    <!-- ============ COMPANION ============ -->
+    {#if tab === "companion"}
+      <section class="card companion">
+        <div class="exp-head">
+          <h2>Companion</h2>
+          {#if cReady && cModels.length}
+            <select bind:value={cModel} class="model-sel">
+              {#each cModels as m}<option value={m}>{m}</option>{/each}
+            </select>
+          {/if}
+        </div>
+
+        {#if cReady === null}
+          <p class="muted">Checking for a local model…</p>
+        {:else if !cReady}
+          <p class="notice">
+            No local model is running. Companion talks only to a model on <em>this</em> computer
+            (via Ollama) — nothing you say leaves the device. Start Ollama (or install it with
+            <strong>Cairn</strong>), then reopen this tab.
+          </p>
+        {:else if !cModels.length}
+          <p class="notice">Ollama is running but no models are installed. Pull one (e.g. <code>ollama pull qwen3:8b</code>), then reopen this tab.</p>
+        {:else}
+          <p class="muted small disclaimer">
+            A calm harm-reduction companion, running locally. Not medical advice. In an emergency,
+            contact emergency services or poison control.
+          </p>
+
+          <label class="share">
+            <input type="checkbox" bind:checked={cShareSession} />
+            Share current session with the companion
+            {#if attachedExp}<span class="muted small"> · aware of “{attachedExp.title || "Untitled"}”</span>{/if}
+          </label>
+
+          <div class="chat">
+            {#if !cMessages.length}
+              <p class="muted small chat-empty">Say hello, or ask about how you're feeling. It can see your logged doses if sharing is on.</p>
+            {/if}
+            {#each cMessages as m}
+              <div class="bubble {m.role}">{m.content}</div>
+            {/each}
+            {#if cSending}<div class="bubble assistant muted">…</div>{/if}
+          </div>
+
+          <div class="chat-input">
+            <input
+              placeholder="Type a message…"
+              bind:value={cInput}
+              onkeydown={(e) => e.key === "Enter" && sendCompanion()}
+            />
+            <button class="primary small-btn" disabled={cSending} onclick={sendCompanion}>Send</button>
+          </div>
+        {/if}
+      </section>
     {/if}
 
     <!-- ============ SUBSTANCES ============ -->
@@ -463,6 +562,19 @@
   .sub-list li { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.5rem; }
   .usage { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; }
   .usage-head { display: flex; justify-content: space-between; align-items: baseline; }
+
+  .notice { border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 12%, transparent); border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.5; }
+  .model-sel { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.6rem; max-width: 55%; }
+  .disclaimer { margin-top: 0; }
+  .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }
+  .share input { width: auto; }
+  .chat { display: flex; flex-direction: column; gap: 0.5rem; min-height: 220px; max-height: 46vh; overflow-y: auto; padding: 0.4rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+  .chat-empty { margin: auto; text-align: center; max-width: 26ch; }
+  .bubble { padding: 0.55rem 0.8rem; border-radius: 12px; max-width: 82%; line-height: 1.45; font-size: 0.92rem; white-space: pre-wrap; word-break: break-word; }
+  .bubble.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+  .bubble.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .chat-input { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
+  .chat-input input { flex: 1; }
 
   footer { margin-top: 1.6rem; text-align: center; color: var(--muted); font-size: 0.8rem; }
 </style>
