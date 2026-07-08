@@ -43,6 +43,8 @@
     type AiStatus,
   } from "$lib/api";
   import { listen } from "@tauri-apps/api/event";
+  import { check, type Update } from "@tauri-apps/plugin-updater";
+  import { relaunch } from "@tauri-apps/plugin-process";
 
   type Tab = "journal" | "companion" | "substances" | "bysub";
 
@@ -122,6 +124,12 @@
   let aiErr = $state<string | null>(null);
   const aiReady = $derived(!!ai && ai.running && ai.models.length > 0);
 
+  // app self-update
+  let update = $state<Update | null>(null);
+  let updateBusy = $state(false);
+  let updateMsg = $state("");
+  let updateDismissed = $state(false);
+
   // companion
   let cMessages = $state<ChatMsg[]>([]);
   let cInput = $state("");
@@ -140,11 +148,37 @@
 
   onMount(() => {
     interactionClasses().then((c) => (classesVocab = c));
+    checkForUpdate();
     const un = listen<string>("ai-progress", (e) => {
       aiLog = [...aiLog.slice(-200), e.payload];
     });
     return () => un.then((f) => f());
   });
+
+  async function checkForUpdate() {
+    try {
+      update = await check();
+    } catch (_) {
+      // offline, or no published release with an updater manifest yet — ignore
+    }
+  }
+
+  async function installUpdate() {
+    if (!update) return;
+    updateBusy = true;
+    updateMsg = "Downloading…";
+    try {
+      await update.downloadAndInstall((e) => {
+        if (e.event === "Progress") updateMsg = "Downloading…";
+        if (e.event === "Finished") updateMsg = "Installing…";
+      });
+      updateMsg = "Restarting…";
+      await relaunch();
+    } catch (e) {
+      updateMsg = `Update failed: ${typeof e === "string" ? e : String(e)}`;
+      updateBusy = false;
+    }
+  }
 
   async function enter() {
     acknowledged = true;
@@ -547,6 +581,19 @@
   {/snippet}
 
   <main>
+    {#if update && !updateDismissed}
+      <div class="update-banner">
+        <span>A new version <strong>v{update.version}</strong> of Field Notes is available.</span>
+        {#if updateBusy}
+          <span class="muted small">{updateMsg}</span>
+        {:else}
+          <span class="row-actions">
+            <button class="primary small-btn" onclick={installUpdate}>Install &amp; restart</button>
+            <button class="ghost small-btn" onclick={() => (updateDismissed = true)}>Later</button>
+          </span>
+        {/if}
+      </div>
+    {/if}
     <header>
       <h1>Field Notes</h1>
       <nav>
@@ -1026,6 +1073,7 @@
   .dose-class.caution { color: var(--caution); }
   .dose-class.danger { color: var(--danger); font-weight: 600; }
   .dose-class.muted { color: var(--muted); }
+  .update-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; justify-content: space-between; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 10px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.9rem; }
   .ai-log { max-height: 150px; overflow: auto; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 0.6rem; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: var(--muted); margin: 0.2rem 0 0; }
   .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }

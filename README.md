@@ -80,8 +80,10 @@ Download an installer for your platform from the
 **Your journal is safe** — all data lives in the OS app-data directory
 (`~/Library/Application Support/com.fieldnotes.journal` on macOS,
 `~/.local/share/com.fieldnotes.journal` on Linux), separate from the app bundle,
-so updating never touches it. Check the Releases page for new versions; there is
-no auto-update yet.
+so updating never touches it. **From v0.2.0 on, the app checks for updates on
+launch** and offers to install them in place ("Install & restart") — signed and
+verified, fully in-app. (v0.1.0 predates the updater, so update to v0.2.0 manually
+once; after that it's automatic.)
 
 ## Development
 

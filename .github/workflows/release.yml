@@ -63,6 +63,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing — required for self-update to verify downloads.
+          # Add TAURI_SIGNING_PRIVATE_KEY as a repo secret (contents of
+          # ~/.tauri/field-notes-updater.key). Password is empty for this key.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # macOS Developer ID signing + notarization.
           # Currently DISABLED — with no Apple Developer cert, passing empty
           # APPLE_* values makes Tauri attempt (and fail) an empty codesign, so
@@ -87,5 +92,7 @@ jobs:
             The Companion and text-import features need a local model via
             [Ollama](https://ollama.com) (or install one with Cairn).
           releaseDraft: true
-          prerelease: true
+          # Published as a normal (non-prerelease) "latest" release so the
+          # updater endpoint (/releases/latest/download/latest.json) resolves.
+          prerelease: false
           args: ${{ matrix.args }}

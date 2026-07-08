@@ -18,6 +18,8 @@ pub struct Db(pub Mutex<rusqlite::Connection>);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let conn = db::init(&dir.join("journal.db")).expect("failed to open journal database");
