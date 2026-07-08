@@ -24,7 +24,13 @@
     companionChat,
     parseExperience,
     importExperience,
+    pwUpdate,
+    pwStatus,
+    pwLookup,
     type ParsedExperience,
+    type PwInfo,
+    type PwStatus,
+    type PwRoa,
     type ExperienceSummary,
     type ExperienceDetail,
     type Substance,
@@ -58,6 +64,12 @@
   let dUnit = $state("mg");
   let dRoute = $state("oral");
   let dTime = $state("");
+
+  // PsychonautWiki reference data
+  let pwStat = $state<PwStatus | null>(null);
+  let pwBusy = $state(false);
+  let pwErr = $state<string | null>(null);
+  let dRef = $state<PwInfo | null>(null); // reference for the dose being logged
 
   // import-from-text state
   let showImport = $state(false);
@@ -137,6 +149,7 @@
     lastWarnings = [];
     editExp = false;
     editingDoseId = null;
+    dRef = null;
     selected = await getExperience(id);
     dTime = nowLocalInput();
   }
@@ -369,9 +382,39 @@
     tab = t;
     selected = null;
     if (t === "bysub") await loadUsage();
-    if (t === "substances") await loadSubstances();
+    if (t === "substances") { await loadSubstances(); await loadPwStatus(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadCompanion();
+  }
+
+  // ---- PsychonautWiki reference ----
+  async function loadPwStatus() {
+    pwStat = await pwStatus();
+  }
+  async function updatePw() {
+    pwBusy = true;
+    pwErr = null;
+    try {
+      await pwUpdate();
+      pwStat = await pwStatus();
+    } catch (e) {
+      pwErr = typeof e === "string" ? e : String(e);
+    } finally {
+      pwBusy = false;
+    }
+  }
+  async function lookupRef(name: string) {
+    dRef = name.trim() ? await pwLookup(name.trim()) : null;
+  }
+  const num = (n: number | null) => (n == null ? "" : `${n}`);
+  function roaSummary(r: PwRoa): string {
+    const u = r.units ?? "";
+    const parts: string[] = [];
+    if (r.threshold != null) parts.push(`thresh ${r.threshold}`);
+    if (r.common.min != null) parts.push(`common ${num(r.common.min)}–${num(r.common.max)}`);
+    if (r.strong.min != null) parts.push(`strong ${num(r.strong.min)}–${num(r.strong.max)}`);
+    if (r.heavy != null) parts.push(`heavy ${r.heavy}+`);
+    return `${parts.join(" · ")} ${u}`.trim();
   }
 
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
@@ -484,13 +527,23 @@
           {/if}
 
           <div class="dose-form">
-            <input list="subnames" placeholder="Substance" bind:value={dSubstance} />
+            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => lookupRef(dSubstance)} />
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
             <input type="datetime-local" bind:value={dTime} title="Time taken" />
             <button class="primary small-btn" onclick={submitDose}>Log dose</button>
           </div>
+          {#if dRef}
+            <div class="ref-inline">
+              <strong>{dRef.name}</strong> — reference doses
+              {#each dRef.roas as r}
+                {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{r.total ? ` · ${r.total}` : ""}</div>{/if}
+              {/each}
+              {#if dRef.interactions.length}<div class="small warn-text">⚠ dangerous with: {dRef.interactions.join(", ")}</div>{/if}
+              <div class="muted attribution">via PsychonautWiki · CC-BY-SA · reference only, verify before dosing</div>
+            </div>
+          {/if}
           <datalist id="subnames">
             {#each substances as s}<option value={s.name}></option>{/each}
           </datalist>
@@ -674,6 +727,21 @@
 
     <!-- ============ SUBSTANCES ============ -->
     {#if tab === "substances"}
+      <section class="card ref-card">
+        <div class="exp-head">
+          <h2>Dose reference</h2>
+          <button class="primary small-btn" disabled={pwBusy} onclick={updatePw}>{pwBusy ? "Updating…" : "Update from PsychonautWiki"}</button>
+        </div>
+        {#if pwStat && pwStat.count > 0}
+          <p class="muted small">{pwStat.count} substances cached{pwStat.last_fetched ? ` · updated ${pwStat.last_fetched.slice(0, 10)}` : ""}. Dose ranges &amp; interactions show while you log.</p>
+        {:else}
+          <p class="muted small">Download dose ranges, durations, and interaction data for hundreds of substances to use offline. One request to PsychonautWiki; stored locally afterward — nothing is sent when you look things up.</p>
+        {/if}
+        {#if pwBusy}<p class="muted small">Fetching from PsychonautWiki…</p>{/if}
+        {#if pwErr}<p class="notice bad-notice">{pwErr}</p>{/if}
+        <p class="muted attribution">Reference data from <strong>PsychonautWiki</strong>, licensed CC-BY-SA 4.0. Reference only — not a prescription.</p>
+      </section>
+
       <section class="card">
         <h2>Substances</h2>
         <p class="muted small">Catalogue substances you track. Assign classes so the safety checker can flag interactions — or leave them blank and common ones are auto-classified.</p>
@@ -844,6 +912,11 @@
   .tl-note { flex: 1; }
   .sub-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 
+  .ref-card { margin-bottom: 1rem; }
+  .ref-inline { border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.8rem; margin-top: 0.5rem; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .ref-inline > strong { font-size: 0.95rem; }
+  .attribution { font-size: 0.75rem; margin: 0.4rem 0 0; }
+  .warn-text { color: var(--caution); margin-top: 0.3rem; }
   .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }
 

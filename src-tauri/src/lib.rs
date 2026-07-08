@@ -6,6 +6,7 @@ mod commands;
 mod db;
 mod interactions;
 mod ollama;
+mod pw;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -46,6 +47,9 @@ pub fn run() {
             commands::companion_chat,
             commands::parse_experience,
             commands::import_experience,
+            commands::pw_update,
+            commands::pw_status,
+            commands::pw_lookup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");

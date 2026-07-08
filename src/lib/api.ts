@@ -137,6 +137,38 @@ export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
+// ---- PsychonautWiki reference cache ----
+export interface PwRange {
+  min: number | null;
+  max: number | null;
+}
+export interface PwRoa {
+  name: string;
+  units: string | null;
+  threshold: number | null;
+  light: PwRange;
+  common: PwRange;
+  strong: PwRange;
+  heavy: number | null;
+  onset: string | null;
+  total: string | null;
+}
+export interface PwInfo {
+  name: string;
+  common_names: string[];
+  psychoactive: string[];
+  chemical: string[];
+  roas: PwRoa[];
+  interactions: string[];
+}
+export interface PwStatus {
+  count: number;
+  last_fetched: string | null;
+}
+export const pwUpdate = () => invoke<number>("pw_update");
+export const pwStatus = () => invoke<PwStatus>("pw_status");
+export const pwLookup = (name: string) => invoke<PwInfo | null>("pw_lookup", { name });
+
 export const interactionClasses = () => invoke<string[]>("interaction_classes");
 export const listSubstances = () => invoke<Substance[]>("list_substances");
 export const addSubstance = (input: SubstanceInput) => invoke<Substance>("add_substance", { input });

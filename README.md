@@ -29,6 +29,11 @@ anywhere.
 - **Companion** — a calm, non-judgmental harm-reduction chat, also fully local
   (Ollama). It can be made aware of your current session (logged doses + interaction
   flags) and never encourages use.
+- **Dose reference (PsychonautWiki)** — download dose ranges, durations, and
+  dangerous-interaction data for hundreds of substances **once** into a local
+  cache, then see them inline while logging — fully offline afterward. Data from
+  [PsychonautWiki](https://psychonautwiki.org) (CC-BY-SA 4.0); attribution shown
+  in-app.
 - **Safety checker** — every dose is checked against the others in that experience
   for widely-documented dangerous combinations (opioid + benzodiazepine, MAOI +
   serotonin releaser, lithium + psychedelics, SSRI + MDMA, …), rated

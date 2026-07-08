@@ -5,6 +5,7 @@
 use crate::db::{self, *};
 use crate::interactions::{self, Warning};
 use crate::ollama::{self, ChatMsg};
+use crate::pw::{self, PwInfo};
 use crate::Db;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -114,6 +115,34 @@ pub fn delete_timeline_event(db: State<'_, Db>, id: i64) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_substance(db: State<'_, Db>, id: i64) -> Result<(), String> {
     db::delete_substance(&db.0.lock().unwrap(), id).map_err(err)
+}
+
+// ---------- PsychonautWiki reference cache ----------
+
+#[derive(Serialize)]
+pub struct PwStatus {
+    pub count: i64,
+    pub last_fetched: Option<String>,
+}
+
+/// Fetch fresh reference data from PsychonautWiki and replace the local cache.
+/// This is the only outbound network call the app makes, and only on request.
+#[tauri::command]
+pub fn pw_update(db: State<'_, Db>) -> Result<usize, String> {
+    let subs = pw::fetch_all()?;
+    let mut conn = db.0.lock().unwrap();
+    db::pw_replace_all(&mut conn, &subs).map_err(err)
+}
+
+#[tauri::command]
+pub fn pw_status(db: State<'_, Db>) -> Result<PwStatus, String> {
+    let (count, last_fetched) = db::pw_status(&db.0.lock().unwrap()).map_err(err)?;
+    Ok(PwStatus { count, last_fetched })
+}
+
+#[tauri::command]
+pub fn pw_lookup(db: State<'_, Db>, name: String) -> Result<Option<PwInfo>, String> {
+    db::pw_lookup(&db.0.lock().unwrap(), &name).map_err(err)
 }
 
 // ---------- companion (local LLM) ----------

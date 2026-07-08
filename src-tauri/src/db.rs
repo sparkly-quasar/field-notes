@@ -4,7 +4,8 @@
 //! Everything stays on-device. Timestamps are ISO-8601 strings supplied by the
 //! frontend; `created_at` columns default to SQLite's clock.
 
-use rusqlite::{params, Connection};
+use crate::pw::PwInfo;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 /// Open (creating if needed) the journal database at `path` and run migrations.
@@ -64,6 +65,14 @@ CREATE TABLE IF NOT EXISTS timeline_events (
     note           TEXT NOT NULL DEFAULT '',
     mood           TEXT NOT NULL DEFAULT '',
     intensity      INTEGER
+);
+
+-- Cached PsychonautWiki reference data (CC-BY-SA 4.0). One row per substance;
+-- `data` is a serialized pw::PwInfo. Populated only on explicit user refresh.
+CREATE TABLE IF NOT EXISTS pw_substances (
+    name       TEXT PRIMARY KEY,
+    data       TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 "#;
 
@@ -539,6 +548,49 @@ pub fn delete_timeline_event(conn: &Connection, id: i64) -> rusqlite::Result<()>
 pub fn delete_substance(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM substances WHERE id = ?1", [id])?;
     Ok(())
+}
+
+// ---------- PsychonautWiki reference cache ----------
+
+/// Replace the whole cache with a freshly fetched set, in one transaction.
+pub fn pw_replace_all(conn: &mut Connection, subs: &[PwInfo]) -> rusqlite::Result<usize> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM pw_substances", [])?;
+    {
+        let mut stmt = tx.prepare("INSERT OR REPLACE INTO pw_substances (name, data) VALUES (?1, ?2)")?;
+        for s in subs {
+            let data = serde_json::to_string(s).unwrap_or_default();
+            stmt.execute(params![s.name, data])?;
+        }
+    }
+    tx.commit()?;
+    Ok(subs.len())
+}
+
+/// Look up cached reference data by substance name, falling back to an alias
+/// match against the stored common names.
+pub fn pw_lookup(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInfo>> {
+    let exact: Option<String> = conn
+        .query_row("SELECT data FROM pw_substances WHERE name = ?1 COLLATE NOCASE", [name], |r| r.get(0))
+        .optional()?;
+    let data = match exact {
+        Some(d) => Some(d),
+        None => conn
+            .query_row(
+                "SELECT data FROM pw_substances WHERE data LIKE ?1 COLLATE NOCASE LIMIT 1",
+                [format!("%\"{name}\"%")],
+                |r| r.get(0),
+            )
+            .optional()?,
+    };
+    Ok(data.and_then(|d| serde_json::from_str(&d).ok()))
+}
+
+/// (number of cached substances, most recent fetch timestamp).
+pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM pw_substances", [], |r| r.get(0))?;
+    let last: Option<String> = conn.query_row("SELECT MAX(fetched_at) FROM pw_substances", [], |r| r.get(0))?;
+    Ok((count, last))
 }
 
 #[cfg(test)]

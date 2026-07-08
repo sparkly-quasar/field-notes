@@ -1,0 +1,19 @@
+Field Notes
+Copyright © 2026 sparkly-quasar
+
+Licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
+Non-commercial use is permitted free of charge. Commercial use requires a
+separate commercial license (a contract) from the author.
+
+Third-party data:
+
+  - Substance reference data (dose ranges, durations, dangerous interactions) is
+    fetched at the user's explicit request from PsychonautWiki
+    (https://psychonautwiki.org), which is licensed under Creative Commons
+    Attribution-ShareAlike 4.0 (CC-BY-SA 4.0). This data is NOT bundled with the
+    source; it is downloaded and cached locally on the user's device only when the
+    user chooses to update it. Attribution is shown in-app wherever this data is
+    displayed.
+
+The Companion and text-import features talk to a local Ollama instance on the
+user's own machine. Model weights are governed by their own licenses.
