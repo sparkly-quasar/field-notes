@@ -55,7 +55,9 @@ installer).
    drive the journal from chat ("log 100 mg MDMA", "how am I doing?"), plus a
    calm, altered-state-friendly **live session UI** (large text, one-tap logging,
    running timeline, panic → grounding). Fully offline, against a local model
-   (via Cairn / Ollama).
+   (via Cairn / Ollama). **The support model, session intake, and crisis
+   guardrails are specified in [Companion design principles](#companion-design-principles-peer-support-model)
+   below — that spec is load-bearing, not optional polish.**
 
 3. **Obsidian vault integration.** Read/parse journal entries from an Obsidian
    vault and write **structured experience summaries** back. Bidirectional, fully
@@ -71,6 +73,66 @@ installer).
    **export / backup & restore** so data survives a lost DB or a machine switch.
 
 ---
+
+## Companion design principles (peer-support model)
+
+The Companion is modeled on established **psychedelic peer-support** practice —
+the **Zendo Project's Four Principles** and the **Fireside Project's**
+non-directive, compassionate approach. It is a *peer sitter*, **not** a therapist,
+guide, or medical authority, and it says so.
+
+**The Four Principles (Zendo):**
+1. **Create a safe space** — calm, warm, reassuring, non-judgmental.
+2. **Sitting, not guiding** — follow the person's experience; don't steer,
+   interpret, analyze, or impose an agenda.
+3. **Talk through, not down** — stay present *with* difficult material instead of
+   trying to shut it down or "rescue" the person; be a companion, not a fixer.
+4. **Difficult is not the same as bad** — hard moments can be meaningful; don't
+   pathologize them.
+
+**Fireside-inspired stance:** meet people exactly where they are; empower their
+own process; active, present listening; never medical or legal advice; fully
+confidential and on-device.
+
+**Session intake / check-in (before and at the start of a session):**
+- *What kind of session are you planning?* — substance(s), rough dose, setting,
+  solo or with others, intention (reuse journal data where it already exists).
+- Experience level and any worries going in.
+- **What kind of support do you want?** Offer concrete modes and let the user
+  pick (and change anytime): *mostly just listen · help me stay grounded · talk
+  me through the hard parts · stay quiet unless I reach out · gentle periodic
+  check-ins · practical reminders (water, rest, breathing)*.
+- Store the chosen support style and **honor it**; proactively re-offer to adjust
+  ("want more space, or more check-ins?"). The user sets the tone; the Companion
+  calibrates to it — consent-based support.
+
+**Crisis guardrails — direct to real-world help (deterministic, not left to the
+model's judgment):**
+- The Companion is **not** an emergency service and must state that plainly. When
+  red flags appear it **calmly directs to IRL help** rather than trying to manage
+  the situation itself, and it never discourages seeking help or tries to talk
+  someone out of calling for it.
+- **Medical emergency signs → call emergency services (911 / local number):**
+  unresponsiveness, seizures, chest pain, trouble breathing, dangerously high
+  body temperature, signs of serotonin syndrome (see the interaction checker),
+  relentless vomiting, or anything the interaction checker flags as dangerous.
+  US Poison Control: **1-800-222-1222**.
+- **Psychiatric emergency signs → get IRL help now:** suicidal or self-harm
+  intent, intent to harm others, or acute distress that isn't easing. US Suicide
+  & Crisis Lifeline: **988**. Encourage getting a trusted sober person present.
+- **Non-emergency peer support:** **Fireside Project** psychedelic peer-support
+  line — call/text **62-FIRESIDE (623-473-7433)** (US).
+- **Implementation:** a **deterministic escalation layer** — symptom/intent
+  detection (plus interaction-checker signals) that surfaces a persistent,
+  unmissable **"Get help now"** banner with the right numbers, *independent of the
+  model*. The live-session **panic button** opens the same always-available
+  emergency-resources screen. Localize numbers where feasible (911 US, 112 EU,
+  etc.). The model's system prompt reinforces the same escalation behavior but is
+  never the sole safety net.
+
+**Hard boundaries:** no medical or dosing prescriptions; never encourage (re)dosing;
+no synthesis/sourcing help; always defer to trained humans for anything beyond
+emotional presence.
 
 ## Cross-cutting constraints (read before building)
 
