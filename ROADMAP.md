@@ -71,8 +71,6 @@ installer).
    So Part 2 *can* be bundled as a **separate non-commercial, share-alike pack with
    the required notices** — but NC forecloses any future commercial-license path for
    that pack, so keep it **separately licensed**, never mixed into the PolyForm code.
-   (Other openly-licensed sources like PsychonautWiki / TripSit remain fallback
-   options, but each re-imposes CC-BY-SA attribution + share-alike.)
 
 3. **Local LLM companion with tool access + live-session mode.** Today the
    Companion only *reads* injected context. Give the model **tools** to actually
