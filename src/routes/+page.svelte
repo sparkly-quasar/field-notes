@@ -19,8 +19,11 @@
     deleteTimelineEvent,
     deleteSubstance,
     type Dose,
-    ollamaUp,
-    ollamaModels,
+    aiStatus,
+    aiRecommendedModels,
+    aiInstall,
+    aiStart,
+    aiPull,
     companionChat,
     parseExperience,
     importExperience,
@@ -37,7 +40,9 @@
     type SubstanceUsage,
     type Warning,
     type ChatMsg,
+    type AiStatus,
   } from "$lib/api";
+  import { listen } from "@tauri-apps/api/event";
 
   type Tab = "journal" | "companion" | "substances" | "bysub";
 
@@ -107,10 +112,17 @@
   let nsDose = $state("");
   let nsNotes = $state("");
 
-  // companion (local LLM)
-  let cReady = $state<boolean | null>(null);
-  let cModels = $state<string[]>([]);
-  let cModel = $state("");
+  // local AI (Ollama) — shared setup used by Companion & Import
+  let ai = $state<AiStatus | null>(null);
+  let aiModel = $state("");
+  let aiRecommended = $state<[string, string][]>([]);
+  let aiPullTag = $state("");
+  let aiLog = $state<string[]>([]);
+  let aiBusy = $state(false);
+  let aiErr = $state<string | null>(null);
+  const aiReady = $derived(!!ai && ai.running && ai.models.length > 0);
+
+  // companion
   let cMessages = $state<ChatMsg[]>([]);
   let cInput = $state("");
   let cSending = $state(false);
@@ -126,8 +138,12 @@
   const isoToLocalInput = (iso: string) => localOffset(new Date(iso)).toISOString().slice(0, 16);
   const localInputToIso = (local: string) => (local ? new Date(local).toISOString() : nowIso());
 
-  onMount(async () => {
-    classesVocab = await interactionClasses();
+  onMount(() => {
+    interactionClasses().then((c) => (classesVocab = c));
+    const un = listen<string>("ai-progress", (e) => {
+      aiLog = [...aiLog.slice(-200), e.payload];
+    });
+    return () => un.then((f) => f());
   });
 
   async function enter() {
@@ -165,17 +181,17 @@
     if (showImport) {
       importParsed = null;
       importErr = null;
-      await loadCompanion(); // populates cReady / cModels / cModel
+      await loadAi();
     }
   }
 
   async function runParse() {
-    if (!importText.trim() || !cModel || importBusy) return;
+    if (!importText.trim() || !aiModel || importBusy) return;
     importBusy = true;
     importErr = null;
     importParsed = null;
     try {
-      const p = await parseExperience(cModel, importText);
+      const p = await parseExperience(aiModel, importText);
       importParsed = p;
       importTitle = p.title || "Imported experience";
       importStart = p.started_at ? isoToLocalInput(p.started_at) : nowLocalInput();
@@ -350,12 +366,60 @@
     nsClasses = nsClasses.includes(c) ? nsClasses.filter((x) => x !== c) : [...nsClasses, c];
   }
 
-  async function loadCompanion() {
-    cReady = await ollamaUp();
-    if (cReady) {
-      cModels = await ollamaModels();
-      if (!cModel && cModels.length) cModel = cModels[0];
-      if (!experiences.length) await loadJournal();
+  async function loadAi() {
+    ai = await aiStatus();
+    if (!aiRecommended.length) aiRecommended = await aiRecommendedModels();
+    if (!aiPullTag && aiRecommended.length) aiPullTag = aiRecommended[0][0];
+    if (ai.running && ai.models.length) {
+      const saved = localStorage.getItem("fn.model");
+      if (!aiModel || !ai.models.includes(aiModel)) {
+        aiModel = saved && ai.models.includes(saved) ? saved : ai.models[0];
+      }
+    }
+    if (!experiences.length) await loadJournal();
+  }
+  $effect(() => {
+    if (aiModel) localStorage.setItem("fn.model", aiModel);
+  });
+
+  async function doInstall() {
+    aiBusy = true;
+    aiErr = null;
+    aiLog = [];
+    try {
+      await aiInstall();
+      await loadAi();
+    } catch (e) {
+      aiErr = typeof e === "string" ? e : String(e);
+    } finally {
+      aiBusy = false;
+    }
+  }
+  async function doStart() {
+    aiBusy = true;
+    aiErr = null;
+    try {
+      await aiStart();
+      await loadAi();
+    } catch (e) {
+      aiErr = typeof e === "string" ? e : String(e);
+    } finally {
+      aiBusy = false;
+    }
+  }
+  async function doPull() {
+    if (!aiPullTag) return;
+    aiBusy = true;
+    aiErr = null;
+    aiLog = [];
+    try {
+      await aiPull(aiPullTag);
+      aiModel = aiPullTag;
+      await loadAi();
+    } catch (e) {
+      aiErr = typeof e === "string" ? e : String(e);
+    } finally {
+      aiBusy = false;
     }
   }
 
@@ -363,13 +427,13 @@
   const attachedExp = $derived(cShareSession && experiences.length ? experiences[0] : null);
 
   async function sendCompanion() {
-    if (!cInput.trim() || !cModel || cSending) return;
+    if (!cInput.trim() || !aiModel || cSending) return;
     const history: ChatMsg[] = [...cMessages, { role: "user", content: cInput.trim() }];
     cMessages = history;
     cInput = "";
     cSending = true;
     try {
-      const reply = await companionChat(cModel, history, attachedExp ? attachedExp.id : null);
+      const reply = await companionChat(aiModel, history, attachedExp ? attachedExp.id : null);
       cMessages = [...cMessages, { role: "assistant", content: reply }];
     } catch (e) {
       cMessages = [...cMessages, { role: "assistant", content: `⚠️ ${typeof e === "string" ? e : String(e)}` }];
@@ -384,7 +448,7 @@
     if (t === "bysub") await loadUsage();
     if (t === "substances") { await loadSubstances(); await loadPwStatus(); }
     if (t === "journal") await loadJournal();
-    if (t === "companion") await loadCompanion();
+    if (t === "companion") await loadAi();
   }
 
   // ---- PsychonautWiki reference ----
@@ -462,6 +526,26 @@
     </div>
   </div>
 {:else}
+  {#snippet aiSetup()}
+    {#if !ai}
+      <p class="muted small">Checking for local AI…</p>
+    {:else if !ai.installed}
+      <button class="primary small-btn" disabled={aiBusy} onclick={doInstall}>{aiBusy ? "Installing Ollama…" : "Install Ollama"}</button>
+      <p class="muted small">A one-time install of Ollama, the local model runner. macOS uses Homebrew; Linux uses the official installer.</p>
+    {:else if !ai.running}
+      <button class="primary small-btn" disabled={aiBusy} onclick={doStart}>{aiBusy ? "Starting…" : "Start Ollama"}</button>
+      <p class="muted small">Ollama is installed but not running.</p>
+    {:else if ai.models.length === 0}
+      <p class="muted small">Almost there — download a model to power this.</p>
+      <select bind:value={aiPullTag} class="model-sel">
+        {#each aiRecommended as [tag, label]}<option value={tag}>{label}</option>{/each}
+      </select>
+      <button class="primary small-btn" disabled={aiBusy} onclick={doPull}>{aiBusy ? "Downloading…" : "Download model"}</button>
+    {/if}
+    {#if aiErr}<p class="notice bad-notice">{aiErr}</p>{/if}
+    {#if aiLog.length}<pre class="ai-log">{aiLog.slice(-14).join("\n")}</pre>{/if}
+  {/snippet}
+
   <main>
     <header>
       <h1>Field Notes</h1>
@@ -621,21 +705,19 @@
 
           {#if showImport}
             <div class="import-panel">
-              {#if cReady === null}
-                <p class="muted">Checking for a local model…</p>
-              {:else if !cReady}
-                <p class="notice">Import uses a local model (via Ollama) to read your text — nothing leaves this computer. Start Ollama (or install it with Cairn), then try again.</p>
+              {#if !aiReady}
+                <p class="muted small">Import uses a local model to read your text — nothing leaves this computer. Let's get it set up:</p>
+                {@render aiSetup()}
+                <button class="ghost small-btn" onclick={() => (showImport = false)}>Cancel</button>
               {:else if !importParsed}
                 <p class="muted small">Paste a past experience in your own words. The local model extracts the substances, doses, and timeline for you to review before saving.</p>
-                {#if cModels.length}
-                  <select bind:value={cModel} class="model-sel">
-                    {#each cModels as m}<option value={m}>{m}</option>{/each}
-                  </select>
-                {/if}
+                <select bind:value={aiModel} class="model-sel">
+                  {#each ai?.models ?? [] as m}<option value={m}>{m}</option>{/each}
+                </select>
                 <textarea class="import-text" rows="6" placeholder="e.g. Last Saturday around 9pm I took 100mg of MDMA at a friend's place. About an hour later I redosed 50mg…" bind:value={importText}></textarea>
                 {#if importErr}<p class="notice bad-notice">{importErr}</p>{/if}
                 <div class="row-actions">
-                  <button class="primary small-btn" disabled={importBusy || !importText.trim() || !cModels.length} onclick={runParse}>
+                  <button class="primary small-btn" disabled={importBusy || !importText.trim()} onclick={runParse}>
                     {importBusy ? "Reading…" : "Read & preview"}
                   </button>
                   <button class="ghost small-btn" onclick={() => (showImport = false)}>Cancel</button>
@@ -700,23 +782,19 @@
       <section class="card companion">
         <div class="exp-head">
           <h2>Companion</h2>
-          {#if cReady && cModels.length}
-            <select bind:value={cModel} class="model-sel">
-              {#each cModels as m}<option value={m}>{m}</option>{/each}
+          {#if aiReady}
+            <select bind:value={aiModel} class="model-sel">
+              {#each ai?.models ?? [] as m}<option value={m}>{m}</option>{/each}
             </select>
           {/if}
         </div>
 
-        {#if cReady === null}
-          <p class="muted">Checking for a local model…</p>
-        {:else if !cReady}
-          <p class="notice">
-            No local model is running. Companion talks only to a model on <em>this</em> computer
-            (via Ollama) — nothing you say leaves the device. Start Ollama (or install it with
-            <strong>Cairn</strong>), then reopen this tab.
+        {#if !aiReady}
+          <p class="muted small">
+            A calm harm-reduction companion that runs a model entirely on <em>this</em> computer —
+            nothing you say leaves the device. Let's get it set up:
           </p>
-        {:else if !cModels.length}
-          <p class="notice">Ollama is running but no models are installed. Pull one (e.g. <code>ollama pull qwen3:8b</code>), then reopen this tab.</p>
+          {@render aiSetup()}
         {:else}
           <p class="muted small disclaimer">
             A calm harm-reduction companion, running locally. Not medical advice. In an emergency,
@@ -948,6 +1026,7 @@
   .dose-class.caution { color: var(--caution); }
   .dose-class.danger { color: var(--danger); font-weight: 600; }
   .dose-class.muted { color: var(--muted); }
+  .ai-log { max-height: 150px; overflow: auto; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 0.6rem; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: var(--muted); margin: 0.2rem 0 0; }
   .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }
 

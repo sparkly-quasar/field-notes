@@ -217,6 +217,17 @@ export const parseExperience = (model: string, text: string) =>
 export const importExperience = (parsed: ParsedExperience) =>
   invoke<Experience>("import_experience", { parsed });
 
+export interface AiStatus {
+  installed: boolean;
+  running: boolean;
+  models: string[];
+}
+export const aiStatus = () => invoke<AiStatus>("ai_status");
+export const aiRecommendedModels = () => invoke<[string, string][]>("ai_recommended_models");
+export const aiInstall = () => invoke<void>("ai_install");
+export const aiStart = () => invoke<void>("ai_start");
+export const aiPull = (tag: string) => invoke<void>("ai_pull", { tag });
+
 export const ollamaUp = () => invoke<boolean>("ollama_up");
 export const ollamaModels = () => invoke<string[]>("ollama_models");
 export const companionChat = (model: string, history: ChatMsg[], experienceId: number | null) =>

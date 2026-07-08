@@ -4,12 +4,12 @@
 
 use crate::db::{self, *};
 use crate::interactions::{self, Warning};
-use crate::ollama::{self, ChatMsg};
+use crate::ollama::{self, AiStatus, ChatMsg};
 use crate::pw::{self, PwInfo};
 use crate::Db;
 use serde::Serialize;
 use std::collections::BTreeSet;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -143,6 +143,39 @@ pub fn pw_status(db: State<'_, Db>) -> Result<PwStatus, String> {
 #[tauri::command]
 pub fn pw_lookup(db: State<'_, Db>, name: String) -> Result<Option<PwInfo>, String> {
     db::pw_lookup(&db.0.lock().unwrap(), &name).map_err(err)
+}
+
+// ---------- local AI setup (Ollama) ----------
+
+#[tauri::command]
+pub fn ai_status() -> AiStatus {
+    ollama::status()
+}
+
+#[tauri::command]
+pub fn ai_recommended_models() -> Vec<(String, String)> {
+    ollama::RECOMMENDED_MODELS.iter().map(|(t, l)| (t.to_string(), l.to_string())).collect()
+}
+
+#[tauri::command]
+pub async fn ai_install(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ollama::install(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn ai_start() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(ollama::ensure_serving)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn ai_pull(app: AppHandle, tag: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ollama::pull(&app, &tag))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ---------- companion (local LLM) ----------

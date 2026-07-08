@@ -4,10 +4,136 @@
 //! leaves the machine.
 
 use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
+use std::process::{Command, Stdio};
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 
 const BASE: &str = "http://127.0.0.1:11434";
+
+/// Models offered in the guided setup picker (tag, human label).
+pub const RECOMMENDED_MODELS: &[(&str, &str)] = &[
+    ("llama3.1:8b", "Llama 3.1 8B — well-rounded, ~4.7 GB"),
+    ("qwen3:8b", "Qwen3 8B — strong reasoning, ~5 GB"),
+    ("llama3.2:3b", "Llama 3.2 3B — small & fast, ~2 GB"),
+];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiStatus {
+    pub installed: bool,
+    pub running: bool,
+    pub models: Vec<String>,
+}
+
+/// Is the `ollama` binary installed (on PATH)?
+pub fn is_installed() -> bool {
+    Command::new("ollama")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Combined readiness snapshot for the setup flow.
+pub fn status() -> AiStatus {
+    let running = api_up();
+    AiStatus {
+        installed: is_installed() || running,
+        running,
+        models: if running { list_models() } else { Vec::new() },
+    }
+}
+
+/// Stream a child process's stdout+stderr to a Tauri event, line by line.
+fn run_streamed(app: &AppHandle, event: &str, mut cmd: Command) -> Result<(), String> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start: {e}"))?;
+    let mut handles = Vec::new();
+    for pipe in [child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+                 child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)]
+    {
+        if let Some(p) = pipe {
+            let app = app.clone();
+            let event = event.to_string();
+            handles.push(std::thread::spawn(move || {
+                for line in BufReader::new(p).lines().map_while(Result::ok) {
+                    if !line.trim().is_empty() {
+                        let _ = app.emit(&event, line);
+                    }
+                }
+            }));
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    for h in handles {
+        let _ = h.join();
+    }
+    if status.success() {
+        Ok(())
+    } else {
+        Err("The command exited with an error. See the log above.".into())
+    }
+}
+
+/// Install Ollama (macOS: Homebrew; Linux: official script), streaming progress.
+pub fn install(app: &AppHandle) -> Result<(), String> {
+    let _ = app.emit("ai-progress", "Installing Ollama…".to_string());
+
+    #[cfg(target_os = "macos")]
+    {
+        let has_brew = Command::new("brew").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+        if !has_brew {
+            return Err("Homebrew isn't installed. Install Ollama from https://ollama.com/download, then reopen this.".into());
+        }
+        let mut cmd = Command::new("brew");
+        cmd.args(["install", "ollama"]);
+        run_streamed(app, "ai-progress", cmd)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "curl -fsSL https://ollama.com/install.sh | sh"]);
+        run_streamed(app, "ai-progress", cmd)?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        return Err("Automatic install isn't supported on this platform. Install Ollama from https://ollama.com/download.".into());
+    }
+
+    ensure_serving()
+}
+
+/// Ensure the Ollama server is answering, starting `ollama serve` if needed.
+pub fn ensure_serving() -> Result<(), String> {
+    if api_up() {
+        return Ok(());
+    }
+    Command::new("ollama")
+        .arg("serve")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("couldn't start Ollama: {e}"))?;
+    for _ in 0..24 {
+        if api_up() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Err("Ollama didn't start in time. Try starting it manually, then retry.".into())
+}
+
+/// Pull a model, streaming download progress.
+pub fn pull(app: &AppHandle, tag: &str) -> Result<(), String> {
+    ensure_serving()?;
+    let _ = app.emit("ai-progress", format!("Downloading {tag}…"));
+    let mut cmd = Command::new("ollama");
+    cmd.args(["pull", tag]);
+    run_streamed(app, "ai-progress", cmd)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMsg {
