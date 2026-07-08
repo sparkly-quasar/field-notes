@@ -29,11 +29,13 @@ anywhere.
 - **Companion** — a calm, non-judgmental harm-reduction chat, also fully local
   (Ollama). It can be made aware of your current session (logged doses + interaction
   flags) and never encourages use.
-- **Dose reference (PsychonautWiki)** — download dose ranges, durations, and
-  dangerous-interaction data for hundreds of substances **once** into a local
-  cache, then see them inline while logging — fully offline afterward. Data from
-  [PsychonautWiki](https://psychonautwiki.org) (CC-BY-SA 4.0); attribution shown
-  in-app.
+- **Dose reference** — download dose ranges, durations, and dangerous-interaction
+  data for hundreds of substances **once** into a local cache, then see them inline
+  while logging — fully offline afterward. Currently sourced from
+  [PsychonautWiki](https://psychonautwiki.org) (CC-BY-SA 4.0; attribution in-app);
+  **being migrated to [DoseWiki](https://dose.wiki)** — a public-domain (CC0)
+  open-source dataset that ships as one file we can bundle fully offline (see the
+  [roadmap](./ROADMAP.md) and [`data/dosewiki/`](./data/dosewiki/)).
 - **Safety checker** — every dose is checked against the others in that experience
   for widely-documented dangerous combinations (opioid + benzodiazepine, MAOI +
   serotonin releaser, lithium + psychedelics, SSRI + MDMA, …), rated
@@ -55,14 +57,20 @@ anywhere.
 
 ## Roadmap (not yet built)
 
+- **DoseWiki dose reference (CC0)** — replace the live PsychonautWiki scrape with
+  [DoseWiki](https://dose.wiki)'s public-domain `SubstanceIndex.json` (577
+  substances, graded interactions, full duration stages). One CC0 file, bundleable
+  offline. Snapshot + integration plan staged in [`data/dosewiki/`](./data/dosewiki/).
 - **Substance knowledge pack** — an offline RAG corpus from openly-licensed sources
-  (PsychonautWiki CC-BY-SA, TripSit). *Licensing must be settled first; PiHKAL /
-  TiHKAL are copyrighted and cannot be bundled — pointer / user-import only.*
+  (DoseWiki CC0, PsychonautWiki CC-BY-SA, TripSit). *Licensing must be settled first
+  for any share-alike sources; PiHKAL / TiHKAL are copyrighted and cannot be bundled
+  — pointer / user-import only.*
 - **Local LLM companion** — a calm trip-sitting assistant with tool access to the
   journal, running against a local model (via Cairn / Ollama). Fully offline.
 - **Obsidian vault integration** — process journal entries, write structured
   summaries back.
-- **User-added substances → opt-in PsychonautWiki contribution** (consent-gated).
+- **User-added substances → opt-in upstream contribution** (consent-gated; DoseWiki
+  once the migration lands).
 - **Encrypted-at-rest database** (passphrase) for this sensitive data.
 
 ## Install & update

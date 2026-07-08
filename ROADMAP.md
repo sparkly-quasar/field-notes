@@ -25,12 +25,13 @@ installer).
   current experience's doses and interaction flags (opt-in "share session").
 - **Text import** — paste a past experience in plain words; the local model
   extracts substances, doses, and timeline into a **review-before-save** preview.
-- **PsychonautWiki dose reference** (`pw.rs`) — an **offline, on-request cache**
-  (~373 substances) of dose ranges, durations, routes, and dangerous
-  interactions. One "update database" fetch, then all lookups are offline/private.
-  Attribution shown in-app + NOTICE (CC-BY-SA 4.0).
+- **Dose reference** (`pw.rs`) — an **offline, on-request cache** of dose ranges,
+  durations, routes, and dangerous interactions. One "update database" fetch, then
+  all lookups are offline/private. Currently sourced from **PsychonautWiki**
+  (~373 substances, CC-BY-SA 4.0, attribution in-app + NOTICE). **Being migrated to
+  DoseWiki** — see roadmap item #1 below.
 - **Deterministic safety checker** (`interactions.rs`) — flags dangerous combos,
-  now wired to PsychonautWiki's interaction data; inline dose-range + interaction
+  wired to the dose-reference interaction data; inline dose-range + interaction
   warnings appear while logging a dose.
 - **Distribution** — cross-platform signed installers (macOS universal `.dmg` +
   Linux `.AppImage`/`.deb`/`.rpm`) via `tauri-action` CI on `v*` tags, plus
@@ -42,15 +43,31 @@ installer).
 
 ## Roadmap (not yet built)
 
-1. **Substance knowledge pack — offline RAG corpus.** Beyond the structured
-   PsychonautWiki dose data already shipped, add a **retrieval corpus** over
-   openly-licensed full-text sources for richer Q&A (semantic search, not just
-   dose lookups). Sources: **PsychonautWiki (CC-BY-SA)** + **TripSit**.
-   ⚠️ **Licensing must be settled first.** **PiHKAL / TiHKAL are copyrighted and
-   cannot be bundled — pointer / user-import only.** Ship the corpus as a
-   **separately-licensed CC-BY-SA data pack**, never mixed into the PolyForm code.
+1. **Switch the dose reference from PsychonautWiki to DoseWiki (CC0).** DoseWiki
+   (<https://dose.wiki>) publishes its whole encyclopedia as a single **public-domain
+   (CC0)** static file, `SubstanceIndex.json` — **577 substances**, richer than what
+   we scrape from PsychonautWiki's live GraphQL API: graded interactions
+   (dangerous / unsafe / caution), full duration stages (onset, come-up, peak,
+   offset, after-effects, half-life), and per-route dose ranges. The snapshot is
+   **already staged in `data/dosewiki/`** with a full schema→`PwInfo` mapping and
+   integration plan in [`data/dosewiki/README.md`](data/dosewiki/README.md).
+   Because it's one CC0 file, we can **bundle it offline** and drop the live-API
+   dependency (and the CC-BY-SA share-alike constraint) entirely. **Do this first —
+   it simplifies the licensing story below.** Work: rewrite `pw.rs`'s fetch/parse to
+   read DoseWiki's JSON, map graded interactions onto our danger/caution/note model,
+   reword the `interactions.rs` message + in-app attribution, update NOTICE to CC0.
 
-2. **Local LLM companion with tool access + live-session mode.** Today the
+2. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
+   data, add a **retrieval corpus** over openly-licensed full-text sources for
+   richer Q&A (semantic search, not just dose lookups). Sources: **DoseWiki (CC0)**,
+   **PsychonautWiki (CC-BY-SA)**, **TripSit**. ⚠️ **Licensing must be settled first**
+   for the share-alike sources — DoseWiki's CC0 text is unencumbered, but mixing in
+   CC-BY-SA material re-imposes attribution + share-alike. **PiHKAL / TiHKAL are
+   copyrighted and cannot be bundled — pointer / user-import only.** Keep any
+   CC-BY-SA corpus as a **separately-licensed data pack**, never mixed into the
+   PolyForm code.
+
+3. **Local LLM companion with tool access + live-session mode.** Today the
    Companion only *reads* injected context. Give the model **tools** to actually
    drive the journal from chat ("log 100 mg MDMA", "how am I doing?"), plus a
    calm, altered-state-friendly **live session UI** (large text, one-tap logging,
@@ -59,16 +76,17 @@ installer).
    guardrails are specified in [Companion design principles](#companion-design-principles-peer-support-model)
    below — that spec is load-bearing, not optional polish.**
 
-3. **Obsidian vault integration.** Read/parse journal entries from an Obsidian
+4. **Obsidian vault integration.** Read/parse journal entries from an Obsidian
    vault and write **structured experience summaries** back. Bidirectional, fully
    offline. (Reuse the filesystem/obsidian-MCP patterns from prior work.)
 
-4. **User-added substances → opt-in PsychonautWiki contribution.** Local CRUD for
+5. **User-added substances → opt-in upstream contribution.** Local CRUD for
    uncatalogued substances already exists; add a **consent-gated** export that
-   generates a PsychonautWiki-formatted draft the user reviews and submits
-   manually. **Never auto-upload** — this is sensitive, legally fraught data.
+   generates a draft the user reviews and submits manually to the upstream source
+   (**DoseWiki** once the migration lands; it's CC0 and open-source). **Never
+   auto-upload** — this is sensitive, legally fraught data.
 
-5. **Encrypted-at-rest database (passphrase).** Protect this sensitive, local-only
+6. **Encrypted-at-rest database (passphrase).** Protect this sensitive, local-only
    data with an encrypted DB (e.g. SQLCipher + passphrase). Pair with
    **export / backup & restore** so data survives a lost DB or a machine switch.
 
@@ -136,8 +154,11 @@ emotional presence.
 
 ## Cross-cutting constraints (read before building)
 
-- **Data licensing** — ship substance data as a separate CC-BY-SA pack with
-  attribution + share-alike; keep it out of the PolyForm-licensed source.
+- **Data licensing** — the dose reference is moving to **DoseWiki (CC0, public
+  domain)**, which can be bundled freely with only a courtesy credit — no
+  share-alike, no attribution obligation. Any *additional* CC-BY-SA sources (e.g. a
+  RAG corpus from PsychonautWiki/TripSit) must still ship as a separate,
+  attributed, share-alike pack kept out of the PolyForm-licensed source.
   PiHKAL/TiHKAL: pointer/user-import only.
 - **Safety** — the model must **retrieve** dosage/interaction facts, never invent
   them; keep the interaction checker **deterministic**; harm-reduction framing
@@ -149,9 +170,11 @@ emotional presence.
 
 ## Suggested next increment
 
-Highest value / lowest cost: **#5 encryption + export** (protect the data), then
-**#3 Obsidian** or **#2 tool-enabled Companion** as the next headline feature.
-**#1 (RAG corpus)** is gated on the data-licensing decision — settle that first.
+Do **#1 (DoseWiki migration)** next — it's staged in `data/dosewiki/`, low-risk, and
+clears the licensing story for everything after it. Then highest value / lowest cost:
+**#6 encryption + export** (protect the data), then **#4 Obsidian** or **#3
+tool-enabled Companion** as the next headline feature. **#2 (RAG corpus)** stays
+gated on the licensing decision for any share-alike sources.
 
 ---
 
