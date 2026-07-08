@@ -85,12 +85,20 @@ jobs:
           releaseBody: |
             Download an installer for your platform below.
 
-            **macOS:** not yet notarized — on first launch, right-click the app and
-            choose **Open** to get past Gatekeeper.
+            **macOS:** not yet notarized — on first launch, **right-click the app and
+            choose Open** to get past Gatekeeper.
+
+            If you still have a problem opening it, use the **"Open Anyway"** setting:
+            1. Try to open the app and dismiss the warning dialog.
+            2. Open the **Apple menu** and select **System Settings**.
+            3. Click **Privacy & Security** in the left sidebar.
+            4. Scroll to the **Security** section — you'll see a message that the app was blocked.
+            5. Click **Open Anyway**, enter your Mac's login password, and click **OK**.
+
             **Linux:** use the .AppImage (portable), or the .deb / .rpm for your distro.
 
-            The Companion and text-import features need a local model via
-            [Ollama](https://ollama.com) (or install one with Cairn).
+            The Companion and text-import features run a model locally — the app guides
+            you through installing Ollama and downloading one on first use.
           releaseDraft: true
           # Published as a normal (non-prerelease) "latest" release so the
           # updater endpoint (/releases/latest/download/latest.json) resolves.
