@@ -454,6 +454,93 @@ pub fn usage_by_substance(conn: &Connection) -> rusqlite::Result<Vec<SubstanceUs
     Ok(out)
 }
 
+// ---------- edit & delete ----------
+
+#[derive(Debug, Deserialize)]
+pub struct ExperienceUpdate {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub intention: String,
+    #[serde(default)]
+    pub setting: String,
+    #[serde(default)]
+    pub notes: String,
+    pub rating: Option<i64>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DoseUpdate {
+    pub substance_name: String,
+    pub amount: Option<f64>,
+    #[serde(default = "default_unit")]
+    pub unit: String,
+    #[serde(default)]
+    pub route: String,
+    pub taken_at: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+pub fn update_experience(conn: &Connection, id: i64, u: &ExperienceUpdate) -> rusqlite::Result<Experience> {
+    conn.execute(
+        "UPDATE experiences SET title=?2, intention=?3, setting=?4, notes=?5, rating=?6,
+             started_at=?7, ended_at=?8 WHERE id=?1",
+        params![id, u.title, u.intention, u.setting, u.notes, u.rating, u.started_at, u.ended_at],
+    )?;
+    get_experience_row(conn, id)
+}
+
+pub fn update_dose(conn: &Connection, id: i64, u: &DoseUpdate) -> rusqlite::Result<Dose> {
+    let substance_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM substances WHERE name = ?1 COLLATE NOCASE",
+            [&u.substance_name],
+            |r| r.get(0),
+        )
+        .ok();
+    conn.execute(
+        "UPDATE doses SET substance_id=?2, substance_name=?3, amount=?4, unit=?5, route=?6,
+             taken_at=?7, note=?8 WHERE id=?1",
+        params![id, substance_id, u.substance_name, u.amount, u.unit, u.route, u.taken_at, u.note],
+    )?;
+    conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], |r| {
+        Ok(Dose {
+            id: r.get("id")?,
+            experience_id: r.get("experience_id")?,
+            substance_id: r.get("substance_id")?,
+            substance_name: r.get("substance_name")?,
+            amount: r.get("amount")?,
+            unit: r.get("unit")?,
+            route: r.get("route")?,
+            taken_at: r.get("taken_at")?,
+            note: r.get("note")?,
+        })
+    })
+}
+
+pub fn delete_experience(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM experiences WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub fn delete_dose(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM doses WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub fn delete_timeline_event(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM timeline_events WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub fn delete_substance(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM substances WHERE id = ?1", [id])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

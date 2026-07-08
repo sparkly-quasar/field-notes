@@ -110,6 +110,33 @@ export interface TimelineInput {
   intensity: number | null;
 }
 
+export interface ExperienceUpdate {
+  title?: string;
+  intention?: string;
+  setting?: string;
+  notes?: string;
+  rating: number | null;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface DoseUpdate {
+  substance_name: string;
+  amount: number | null;
+  unit?: string;
+  route?: string;
+  taken_at: string;
+  note?: string;
+}
+
+export const updateExperience = (id: number, update: ExperienceUpdate) =>
+  invoke<Experience>("update_experience", { id, update });
+export const updateDose = (id: number, update: DoseUpdate) => invoke<Dose>("update_dose", { id, update });
+export const deleteExperience = (id: number) => invoke<void>("delete_experience", { id });
+export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
+export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
+export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
+
 export const interactionClasses = () => invoke<string[]>("interaction_classes");
 export const listSubstances = () => invoke<Substance[]>("list_substances");
 export const addSubstance = (input: SubstanceInput) => invoke<Substance>("add_substance", { input });
@@ -129,6 +156,34 @@ export interface ChatMsg {
   role: "user" | "assistant" | "system";
   content: string;
 }
+
+export interface ParsedDose {
+  substance: string;
+  amount: number | null;
+  unit: string;
+  route: string;
+  taken_at: string | null;
+  note: string;
+}
+export interface ParsedTimeline {
+  at: string | null;
+  note: string;
+  mood: string;
+  intensity: number | null;
+}
+export interface ParsedExperience {
+  title: string;
+  started_at: string | null;
+  intention: string;
+  setting: string;
+  notes: string;
+  doses: ParsedDose[];
+  timeline: ParsedTimeline[];
+}
+export const parseExperience = (model: string, text: string) =>
+  invoke<ParsedExperience>("parse_experience", { model, text });
+export const importExperience = (parsed: ParsedExperience) =>
+  invoke<Experience>("import_experience", { parsed });
 
 export const ollamaUp = () => invoke<boolean>("ollama_up");
 export const ollamaModels = () => invoke<string[]>("ollama_models");

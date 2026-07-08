@@ -12,9 +12,19 @@
     logDose,
     addTimelineEvent,
     addSubstance,
+    updateExperience,
+    updateDose,
+    deleteExperience,
+    deleteDose,
+    deleteTimelineEvent,
+    deleteSubstance,
+    type Dose,
     ollamaUp,
     ollamaModels,
     companionChat,
+    parseExperience,
+    importExperience,
+    type ParsedExperience,
     type ExperienceSummary,
     type ExperienceDetail,
     type Substance,
@@ -39,6 +49,7 @@
   let neTitle = $state("");
   let neIntention = $state("");
   let neSetting = $state("");
+  let neStart = $state("");
   let showNewExp = $state(false);
 
   // dose form
@@ -46,6 +57,31 @@
   let dAmount = $state("");
   let dUnit = $state("mg");
   let dRoute = $state("oral");
+  let dTime = $state("");
+
+  // import-from-text state
+  let showImport = $state(false);
+  let importText = $state("");
+  let importBusy = $state(false);
+  let importErr = $state<string | null>(null);
+  let importParsed = $state<ParsedExperience | null>(null);
+  let importTitle = $state("");
+  let importStart = $state("");
+
+  // edit state
+  let editExp = $state(false);
+  let eTitle = $state("");
+  let eIntention = $state("");
+  let eSetting = $state("");
+  let eNotes = $state("");
+  let eRating = $state("");
+  let eStart = $state("");
+  let editingDoseId = $state<number | null>(null);
+  let edSub = $state("");
+  let edAmt = $state("");
+  let edUnit = $state("mg");
+  let edRoute = $state("");
+  let edTime = $state("");
 
   // timeline form
   let tNote = $state("");
@@ -72,6 +108,12 @@
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
+  // <input type="datetime-local"> <-> ISO helpers (local time)
+  const localOffset = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  const nowLocalInput = () => localOffset(new Date()).toISOString().slice(0, 16);
+  const isoToLocalInput = (iso: string) => localOffset(new Date(iso)).toISOString().slice(0, 16);
+  const localInputToIso = (local: string) => (local ? new Date(local).toISOString() : nowIso());
+
   onMount(async () => {
     classesVocab = await interactionClasses();
   });
@@ -93,7 +135,56 @@
 
   async function openExperience(id: number) {
     lastWarnings = [];
+    editExp = false;
+    editingDoseId = null;
     selected = await getExperience(id);
+    dTime = nowLocalInput();
+  }
+
+  function openNewExp() {
+    showNewExp = !showNewExp;
+    if (showNewExp && !neStart) neStart = nowLocalInput();
+  }
+
+  // ---- import a past experience from pasted text ----
+  async function openImport() {
+    showImport = !showImport;
+    if (showImport) {
+      importParsed = null;
+      importErr = null;
+      await loadCompanion(); // populates cReady / cModels / cModel
+    }
+  }
+
+  async function runParse() {
+    if (!importText.trim() || !cModel || importBusy) return;
+    importBusy = true;
+    importErr = null;
+    importParsed = null;
+    try {
+      const p = await parseExperience(cModel, importText);
+      importParsed = p;
+      importTitle = p.title || "Imported experience";
+      importStart = p.started_at ? isoToLocalInput(p.started_at) : nowLocalInput();
+    } catch (e) {
+      importErr = typeof e === "string" ? e : String(e);
+    } finally {
+      importBusy = false;
+    }
+  }
+
+  async function confirmImport() {
+    if (!importParsed) return;
+    const exp = await importExperience({
+      ...importParsed,
+      title: importTitle,
+      started_at: localInputToIso(importStart),
+    });
+    importParsed = null;
+    importText = "";
+    showImport = false;
+    await loadJournal();
+    await openExperience(exp.id);
   }
 
   async function submitNewExperience() {
@@ -101,9 +192,9 @@
       title: neTitle || "Untitled experience",
       intention: neIntention,
       setting: neSetting,
-      started_at: nowIso(),
+      started_at: localInputToIso(neStart),
     });
-    neTitle = neIntention = neSetting = "";
+    neTitle = neIntention = neSetting = neStart = "";
     showNewExp = false;
     await loadJournal();
     await openExperience(e.id);
@@ -117,12 +208,90 @@
       amount: dAmount ? parseFloat(dAmount) : null,
       unit: dUnit,
       route: dRoute,
-      taken_at: nowIso(),
+      taken_at: localInputToIso(dTime),
     });
     lastWarnings = res.warnings;
     dSubstance = dAmount = "";
+    dTime = nowLocalInput();
     await openExperienceKeepWarnings(selected.id);
     await loadJournal();
+  }
+
+  // ---- edit / delete ----
+  function startEditExp() {
+    if (!selected) return;
+    eTitle = selected.title;
+    eIntention = selected.intention;
+    eSetting = selected.setting;
+    eNotes = selected.notes;
+    eRating = selected.rating != null ? String(selected.rating) : "";
+    eStart = isoToLocalInput(selected.started_at);
+    editExp = true;
+  }
+
+  async function saveExp() {
+    if (!selected) return;
+    await updateExperience(selected.id, {
+      title: eTitle,
+      intention: eIntention,
+      setting: eSetting,
+      notes: eNotes,
+      rating: eRating ? parseInt(eRating) : null,
+      started_at: localInputToIso(eStart),
+      ended_at: selected.ended_at,
+    });
+    editExp = false;
+    await openExperienceKeepWarnings(selected.id);
+    await loadJournal();
+  }
+
+  async function delExp() {
+    if (!selected || !confirm("Delete this experience and all its doses? This cannot be undone.")) return;
+    await deleteExperience(selected.id);
+    selected = null;
+    await loadJournal();
+  }
+
+  async function delDose(id: number) {
+    if (!selected) return;
+    await deleteDose(id);
+    await openExperienceKeepWarnings(selected.id);
+    await loadJournal();
+  }
+
+  async function delTimeline(id: number) {
+    if (!selected) return;
+    await deleteTimelineEvent(id);
+    await openExperienceKeepWarnings(selected.id);
+  }
+
+  function startEditDose(d: Dose) {
+    editingDoseId = d.id;
+    edSub = d.substance_name;
+    edAmt = d.amount != null ? String(d.amount) : "";
+    edUnit = d.unit;
+    edRoute = d.route;
+    edTime = isoToLocalInput(d.taken_at);
+  }
+
+  async function saveDose() {
+    if (!selected || editingDoseId == null) return;
+    await updateDose(editingDoseId, {
+      substance_name: edSub.trim(),
+      amount: edAmt ? parseFloat(edAmt) : null,
+      unit: edUnit,
+      route: edRoute,
+      taken_at: localInputToIso(edTime),
+    });
+    editingDoseId = null;
+    await openExperienceKeepWarnings(selected.id);
+    await loadJournal();
+  }
+
+  async function delSubstance(id: number) {
+    if (!confirm("Delete this substance? Logged doses keep their name but lose the link.")) return;
+    await deleteSubstance(id);
+    await loadSubstances();
   }
 
   // reload the detail but preserve the warning banner we just set
@@ -245,10 +414,32 @@
           <button class="link" onclick={() => (selected = null)}>← All experiences</button>
           <div class="exp-head">
             <h2>{selected.title || "Untitled experience"}</h2>
-            <span class="muted small">{fmtDate(selected.started_at)} · {fmtTime(selected.started_at)}{selected.ended_at ? " → " + fmtTime(selected.ended_at) : " · ongoing"}</span>
+            <span class="row-actions">
+              {#if !editExp}<button class="link" onclick={startEditExp}>Edit</button>{/if}
+              <button class="link danger-link" onclick={delExp}>Delete</button>
+            </span>
           </div>
-          {#if selected.intention}<p><strong>Intention:</strong> {selected.intention}</p>{/if}
-          {#if selected.setting}<p><strong>Setting:</strong> {selected.setting}</p>{/if}
+          <span class="muted small">{fmtDate(selected.started_at)} · {fmtTime(selected.started_at)}{selected.ended_at ? " → " + fmtTime(selected.ended_at) : " · ongoing"}</span>
+
+          {#if editExp}
+            <div class="edit-form">
+              <label>Title<input bind:value={eTitle} /></label>
+              <label>Started<input type="datetime-local" bind:value={eStart} /></label>
+              <label>Intention<input bind:value={eIntention} /></label>
+              <label>Setting<input bind:value={eSetting} /></label>
+              <label>Notes<textarea bind:value={eNotes} rows="3"></textarea></label>
+              <label>Rating (0–10)<input type="number" min="0" max="10" bind:value={eRating} /></label>
+              <div class="row-actions">
+                <button class="primary small-btn" onclick={saveExp}>Save</button>
+                <button class="ghost small-btn" onclick={() => (editExp = false)}>Cancel</button>
+              </div>
+            </div>
+          {:else}
+            {#if selected.intention}<p><strong>Intention:</strong> {selected.intention}</p>{/if}
+            {#if selected.setting}<p><strong>Setting:</strong> {selected.setting}</p>{/if}
+            {#if selected.notes}<p><strong>Notes:</strong> {selected.notes}</p>{/if}
+            {#if selected.rating != null}<p class="muted small">Rating: {selected.rating}/10</p>{/if}
+          {/if}
 
           {#if lastWarnings.length}
             <div class="warnings">
@@ -266,9 +457,25 @@
             <ul class="doses">
               {#each selected.doses as d}
                 <li>
-                  <span class="dtime">{fmtTime(d.taken_at)}</span>
-                  <span class="dname">{d.substance_name}</span>
-                  <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
+                  {#if editingDoseId === d.id}
+                    <div class="dose-form inline">
+                      <input list="subnames" bind:value={edSub} />
+                      <input type="number" step="any" bind:value={edAmt} class="narrow" />
+                      <input bind:value={edUnit} class="narrow" />
+                      <input bind:value={edRoute} class="narrow" />
+                      <input type="datetime-local" bind:value={edTime} />
+                      <button class="primary small-btn" onclick={saveDose}>Save</button>
+                      <button class="ghost small-btn" onclick={() => (editingDoseId = null)}>Cancel</button>
+                    </div>
+                  {:else}
+                    <span class="dtime">{fmtTime(d.taken_at)}</span>
+                    <span class="dname">{d.substance_name}</span>
+                    <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
+                    <span class="row-actions">
+                      <button class="icon-btn" title="Edit dose" onclick={() => startEditDose(d)}>✎</button>
+                      <button class="icon-btn" title="Delete dose" onclick={() => delDose(d.id)}>✕</button>
+                    </span>
+                  {/if}
                 </li>
               {/each}
             </ul>
@@ -281,6 +488,7 @@
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
+            <input type="datetime-local" bind:value={dTime} title="Time taken" />
             <button class="primary small-btn" onclick={submitDose}>Log dose</button>
           </div>
           <datalist id="subnames">
@@ -291,7 +499,11 @@
           {#if selected.timeline.length}
             <ul class="timeline">
               {#each selected.timeline as t}
-                <li><span class="dtime">{fmtTime(t.at)}</span> {t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}{t.mood ? ` · ${t.mood}` : ""}</li>
+                <li>
+                  <span class="dtime">{fmtTime(t.at)}</span>
+                  <span class="tl-note">{t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}{t.mood ? ` · ${t.mood}` : ""}</span>
+                  <button class="icon-btn" title="Delete" onclick={() => delTimeline(t.id)}>✕</button>
+                </li>
               {/each}
             </ul>
           {:else}
@@ -312,15 +524,71 @@
         <section class="card">
           <div class="exp-head">
             <h2>Experiences</h2>
-            <button class="primary small-btn" onclick={() => (showNewExp = !showNewExp)}>+ New</button>
+            <span class="row-actions">
+              <button class="ghost small-btn" onclick={openImport}>Import from text</button>
+              <button class="primary small-btn" onclick={openNewExp}>+ New</button>
+            </span>
           </div>
 
           {#if showNewExp}
             <div class="new-exp">
               <input placeholder="Title" bind:value={neTitle} />
+              <input type="datetime-local" bind:value={neStart} title="Start time" />
               <input placeholder="Intention (optional)" bind:value={neIntention} />
               <input placeholder="Set & setting (optional)" bind:value={neSetting} />
               <button class="primary small-btn" onclick={submitNewExperience}>Start</button>
+            </div>
+          {/if}
+
+          {#if showImport}
+            <div class="import-panel">
+              {#if cReady === null}
+                <p class="muted">Checking for a local model…</p>
+              {:else if !cReady}
+                <p class="notice">Import uses a local model (via Ollama) to read your text — nothing leaves this computer. Start Ollama (or install it with Cairn), then try again.</p>
+              {:else if !importParsed}
+                <p class="muted small">Paste a past experience in your own words. The local model extracts the substances, doses, and timeline for you to review before saving.</p>
+                {#if cModels.length}
+                  <select bind:value={cModel} class="model-sel">
+                    {#each cModels as m}<option value={m}>{m}</option>{/each}
+                  </select>
+                {/if}
+                <textarea class="import-text" rows="6" placeholder="e.g. Last Saturday around 9pm I took 100mg of MDMA at a friend's place. About an hour later I redosed 50mg…" bind:value={importText}></textarea>
+                {#if importErr}<p class="notice bad-notice">{importErr}</p>{/if}
+                <div class="row-actions">
+                  <button class="primary small-btn" disabled={importBusy || !importText.trim() || !cModels.length} onclick={runParse}>
+                    {importBusy ? "Reading…" : "Read & preview"}
+                  </button>
+                  <button class="ghost small-btn" onclick={() => (showImport = false)}>Cancel</button>
+                </div>
+                {#if importBusy}<p class="muted small">Reading your account — this can take up to a minute on larger models.</p>{/if}
+              {:else}
+                <p class="muted small">Review what was found, then import. You can edit or delete anything afterward.</p>
+                <div class="new-exp">
+                  <input placeholder="Title" bind:value={importTitle} />
+                  <input type="datetime-local" bind:value={importStart} title="Start time" />
+                </div>
+                {#if importParsed.doses.length}
+                  <h3>Doses found</h3>
+                  <ul class="doses">
+                    {#each importParsed.doses as d}
+                      <li><span class="dname">{d.substance}</span><span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span></li>
+                    {/each}
+                  </ul>
+                {:else}
+                  <p class="notice">No doses were detected — you can still import and add them by hand.</p>
+                {/if}
+                {#if importParsed.timeline.length}
+                  <h3>Timeline</h3>
+                  <ul class="timeline">
+                    {#each importParsed.timeline as t}<li><span class="tl-note">{t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}</span></li>{/each}
+                  </ul>
+                {/if}
+                <div class="row-actions">
+                  <button class="primary small-btn" onclick={confirmImport}>Import</button>
+                  <button class="ghost small-btn" onclick={() => (importParsed = null)}>Back</button>
+                </div>
+              {/if}
             </div>
           {/if}
 
@@ -426,8 +694,10 @@
           <ul class="sub-list">
             {#each substances as s}
               <li>
-                <strong>{s.name}</strong>
-                {#if s.category}<span class="muted small"> · {s.category}</span>{/if}
+                <div class="sub-head">
+                  <span><strong>{s.name}</strong>{#if s.category}<span class="muted small"> · {s.category}</span>{/if}</span>
+                  <button class="icon-btn" title="Delete substance" onclick={() => delSubstance(s.id)}>✕</button>
+                </div>
                 <div class="classes ro">
                   {#each s.classes as c}<span class="chip on">{c}</span>{/each}
                 </div>
@@ -563,7 +833,22 @@
   .usage { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; }
   .usage-head { display: flex; justify-content: space-between; align-items: baseline; }
 
+  .row-actions { display: inline-flex; gap: 0.5rem; align-items: center; margin-left: auto; }
+  .icon-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.15rem 0.35rem; border-radius: 6px; font-size: 0.85rem; line-height: 1; }
+  .icon-btn:hover { color: var(--ink); border-color: var(--line); }
+  .link.danger-link { color: var(--danger); }
+  .edit-form { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
+  .edit-form label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
+  .edit-form input, .edit-form textarea { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.6rem; }
+  .dose-form.inline { margin: 0; width: 100%; }
+  .tl-note { flex: 1; }
+  .sub-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+
+  .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }
+
   .notice { border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 12%, transparent); border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.5; }
+  .notice.bad-notice { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
   .model-sel { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.6rem; max-width: 55%; }
   .disclaimer { margin-top: 0; }
   .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }

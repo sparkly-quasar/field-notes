@@ -21,7 +21,14 @@ anywhere.
 ## What works today
 
 - **Journal** — create experiences (intention, set & setting), log doses with
-  amount/unit/route and a live timeline of how you're feeling.
+  amount/unit/route and a live timeline of how you're feeling. Full edit & delete,
+  and backdate anything so you can record past experiences accurately.
+- **Import from text** — paste a past experience in your own words and a **local**
+  model extracts the substances, doses, and timeline into a structured record for
+  you to review before saving. Runs entirely on-device via Ollama.
+- **Companion** — a calm, non-judgmental harm-reduction chat, also fully local
+  (Ollama). It can be made aware of your current session (logged doses + interaction
+  flags) and never encourages use.
 - **Safety checker** — every dose is checked against the others in that experience
   for widely-documented dangerous combinations (opioid + benzodiazepine, MAOI +
   serotonin releaser, lithium + psychedelics, SSRI + MDMA, …), rated

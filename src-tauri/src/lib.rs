@@ -35,9 +35,17 @@ pub fn run() {
             commands::log_dose,
             commands::add_timeline_event,
             commands::usage_by_substance,
+            commands::update_experience,
+            commands::update_dose,
+            commands::delete_experience,
+            commands::delete_dose,
+            commands::delete_timeline_event,
+            commands::delete_substance,
             commands::ollama_up,
             commands::ollama_models,
             commands::companion_chat,
+            commands::parse_experience,
+            commands::import_experience,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");

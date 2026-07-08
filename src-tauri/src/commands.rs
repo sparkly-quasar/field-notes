@@ -84,6 +84,38 @@ pub fn usage_by_substance(db: State<'_, Db>) -> Result<Vec<SubstanceUsage>, Stri
     db::usage_by_substance(&db.0.lock().unwrap()).map_err(err)
 }
 
+// ---------- edit & delete ----------
+
+#[tauri::command]
+pub fn update_experience(db: State<'_, Db>, id: i64, update: ExperienceUpdate) -> Result<Experience, String> {
+    db::update_experience(&db.0.lock().unwrap(), id, &update).map_err(err)
+}
+
+#[tauri::command]
+pub fn update_dose(db: State<'_, Db>, id: i64, update: DoseUpdate) -> Result<Dose, String> {
+    db::update_dose(&db.0.lock().unwrap(), id, &update).map_err(err)
+}
+
+#[tauri::command]
+pub fn delete_experience(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    db::delete_experience(&db.0.lock().unwrap(), id).map_err(err)
+}
+
+#[tauri::command]
+pub fn delete_dose(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    db::delete_dose(&db.0.lock().unwrap(), id).map_err(err)
+}
+
+#[tauri::command]
+pub fn delete_timeline_event(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    db::delete_timeline_event(&db.0.lock().unwrap(), id).map_err(err)
+}
+
+#[tauri::command]
+pub fn delete_substance(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    db::delete_substance(&db.0.lock().unwrap(), id).map_err(err)
+}
+
 // ---------- companion (local LLM) ----------
 
 #[tauri::command]
@@ -126,6 +158,78 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
         }
     }
     Some(s)
+}
+
+/// Parse a pasted free-text experience into a structured preview (nothing saved).
+#[tauri::command]
+pub fn parse_experience(model: String, text: String) -> Result<ollama::ParsedExperience, String> {
+    ollama::parse_experience(&model, &text)
+}
+
+/// Commit a (reviewed) parsed experience to the journal: experience + doses +
+/// timeline. Missing timestamps fall back to the experience start.
+#[tauri::command]
+pub fn import_experience(db: State<'_, Db>, parsed: ollama::ParsedExperience) -> Result<Experience, String> {
+    let conn = db.0.lock().unwrap();
+    let started = match parsed.started_at.as_deref() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get::<_, String>(0)).map_err(err)?,
+    };
+
+    let exp = db::create_experience(
+        &conn,
+        &ExperienceInput {
+            title: if parsed.title.is_empty() { "Imported experience".into() } else { parsed.title.clone() },
+            intention: parsed.intention.clone(),
+            setting: parsed.setting.clone(),
+            started_at: started.clone(),
+        },
+    ).map_err(err)?;
+
+    if !parsed.notes.is_empty() {
+        db::update_experience(&conn, exp.id, &ExperienceUpdate {
+            title: exp.title.clone(),
+            intention: exp.intention.clone(),
+            setting: exp.setting.clone(),
+            notes: parsed.notes.clone(),
+            rating: None,
+            started_at: started.clone(),
+            ended_at: None,
+        }).map_err(err)?;
+    }
+
+    for d in &parsed.doses {
+        if d.substance.trim().is_empty() {
+            continue;
+        }
+        let taken = d.taken_at.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| started.clone());
+        let unit = if d.unit.is_empty() { "mg".to_string() } else { d.unit.clone() };
+        db::log_dose(&conn, &DoseInput {
+            experience_id: exp.id,
+            substance_name: d.substance.clone(),
+            amount: d.amount,
+            unit,
+            route: d.route.clone(),
+            taken_at: taken,
+            note: d.note.clone(),
+        }).map_err(err)?;
+    }
+
+    for t in &parsed.timeline {
+        if t.note.trim().is_empty() {
+            continue;
+        }
+        let at = t.at.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| started.clone());
+        db::add_timeline_event(&conn, &TimelineInput {
+            experience_id: exp.id,
+            at,
+            note: t.note.clone(),
+            mood: t.mood.clone(),
+            intensity: t.intensity,
+        }).map_err(err)?;
+    }
+
+    Ok(exp)
 }
 
 #[tauri::command]
