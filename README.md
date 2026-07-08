@@ -62,9 +62,11 @@ anywhere.
   substances, graded interactions, full duration stages). One CC0 file, bundleable
   offline. Snapshot + integration plan staged in [`data/dosewiki/`](./data/dosewiki/).
 - **Substance knowledge pack** — an offline RAG corpus from openly-licensed sources
-  (DoseWiki CC0, PsychonautWiki CC-BY-SA, TripSit). *Licensing must be settled first
-  for any share-alike sources; PiHKAL / TiHKAL are copyrighted and cannot be bundled
-  — pointer / user-import only.*
+  (DoseWiki CC0, PsychonautWiki CC-BY-SA, TripSit, Shulgin's PiHKAL/TiHKAL Part 2).
+  *Licensing must be settled first for share-alike sources. PiHKAL/TiHKAL aren't
+  public domain: Part 1 (narrative) is all-rights-reserved (pointer only); Part 2
+  (compound data, e.g. Isomer Design, CC BY-NC-SA) is bundleable non-commercially as
+  a separate pack with notices attached.*
 - **Local LLM companion** — a calm trip-sitting assistant with tool access to the
   journal, running against a local model (via Cairn / Ollama). Fully offline.
 - **Obsidian vault integration** — process journal entries, write structured

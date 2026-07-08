@@ -60,12 +60,23 @@ installer).
 2. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
    data, add a **retrieval corpus** over openly-licensed full-text sources for
    richer Q&A (semantic search, not just dose lookups). Sources: **DoseWiki (CC0)**,
-   **PsychonautWiki (CC-BY-SA)**, **TripSit**. ⚠️ **Licensing must be settled first**
-   for the share-alike sources — DoseWiki's CC0 text is unencumbered, but mixing in
-   CC-BY-SA material re-imposes attribution + share-alike. **PiHKAL / TiHKAL are
-   copyrighted and cannot be bundled — pointer / user-import only.** Keep any
-   CC-BY-SA corpus as a **separately-licensed data pack**, never mixed into the
-   PolyForm code.
+   **PsychonautWiki (CC-BY-SA)**, **TripSit**, and **Shulgin's PiHKAL/TiHKAL Part 2
+   compound data** (Shulgin's qualitative bioassay reports are unique full-text that
+   DoseWiki's structured data doesn't have — additive here, not for the dose
+   reference). ⚠️ **Licensing must be settled first** for every share-alike source —
+   DoseWiki's CC0 text is unencumbered, but each of the others carries strings:
+   - **PsychonautWiki / TripSit** — CC-BY-SA: mixing them in re-imposes attribution +
+     share-alike.
+   - **PiHKAL / TiHKAL** — *not* public domain. **Part 1 (the autobiographical
+     narrative) is all-rights-reserved — pointer / user-import only.** **Part 2 (the
+     compound entries)** may be reproduced **non-commercially** with the copyright /
+     cautionary / ordering notices attached; the Isomer Design database
+     (isomerdesign.com) presents this as **CC BY-NC-SA 4.0**. So Part 2 *can* be
+     bundled as a **separate non-commercial, share-alike pack with the required
+     notices** — but NC forecloses any future commercial-license path for that pack.
+
+   Keep every share-alike / NC corpus as a **separately-licensed data pack**, never
+   mixed into the PolyForm code.
 
 3. **Local LLM companion with tool access + live-session mode.** Today the
    Companion only *reads* injected context. Give the model **tools** to actually
@@ -159,7 +170,10 @@ emotional presence.
   share-alike, no attribution obligation. Any *additional* CC-BY-SA sources (e.g. a
   RAG corpus from PsychonautWiki/TripSit) must still ship as a separate,
   attributed, share-alike pack kept out of the PolyForm-licensed source.
-  PiHKAL/TiHKAL: pointer/user-import only.
+  **PiHKAL/TiHKAL** are *not* public domain: Part 1 (narrative) is all-rights-reserved
+  (pointer/user-import only); Part 2 (compound data, e.g. via Isomer Design's
+  CC BY-NC-SA) is bundleable non-commercially **as a separate pack with the required
+  notices attached**.
 - **Safety** — the model must **retrieve** dosage/interaction facts, never invent
   them; keep the interaction checker **deterministic**; harm-reduction framing
   (never encouragement, never synthesis/sourcing help); always surface emergency
