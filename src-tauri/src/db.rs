@@ -395,7 +395,9 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
         stmt.query_map([input.experience_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
     let with_classes: Vec<(String, Vec<String>)> =
         names.iter().map(|n| (n.clone(), classes_for(conn, n))).collect();
-    let warnings = crate::interactions::check(&with_classes);
+    let mut warnings = crate::interactions::check(&with_classes);
+    warnings.extend(pw_interaction_warnings(conn, &names));
+    let warnings = crate::interactions::dedup_pairs(warnings);
 
     Ok((dose, warnings))
 }
@@ -593,6 +595,45 @@ pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
     Ok((count, last))
 }
 
+/// Does a PsychonautWiki interaction entry (a substance name or a class like
+/// "Stimulants"/"MAOIs") refer to `other`? Matches `other`'s name, aliases, and
+/// psychoactive/chemical classes, with light singular/substring tolerance.
+fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
+    let i = interaction.to_lowercase();
+    let i_sing = i.trim_end_matches('s');
+    let mut ids: Vec<String> = vec![other.name.to_lowercase()];
+    ids.extend(other.common_names.iter().map(|s| s.to_lowercase()));
+    ids.extend(other.psychoactive.iter().map(|s| s.to_lowercase()));
+    ids.extend(other.chemical.iter().map(|s| s.to_lowercase()));
+    ids.iter().any(|id| {
+        let id_sing = id.trim_end_matches('s');
+        id == &i || id_sing == i_sing || (i.len() >= 4 && (id.contains(&i) || i.contains(id.as_str())))
+    })
+}
+
+/// Warnings from PsychonautWiki's `dangerousInteractions` for every pair of the
+/// given substances that has cached reference data.
+pub fn pw_interaction_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interactions::Warning> {
+    use crate::interactions::{Warning, PW_MESSAGE};
+    let infos: Vec<(String, PwInfo)> = names
+        .iter()
+        .filter_map(|n| pw_lookup(conn, n).ok().flatten().map(|info| (n.clone(), info)))
+        .collect();
+    let mut out = Vec::new();
+    for a in 0..infos.len() {
+        for b in (a + 1)..infos.len() {
+            let (na, ia) = &infos[a];
+            let (nb, ib) = &infos[b];
+            let hit = ia.interactions.iter().any(|x| matches_interaction(x, ib))
+                || ib.interactions.iter().any(|x| matches_interaction(x, ia));
+            if hit {
+                out.push(Warning { severity: "danger", a: na.clone(), b: nb.clone(), message: PW_MESSAGE });
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,5 +690,31 @@ mod tests {
 
         let detail = get_experience(&c, exp.id).unwrap();
         assert_eq!(detail.doses.len(), 2);
+    }
+
+    // Needs network (fetches live PsychonautWiki data). Run explicitly:
+    //   cargo test --lib -- --ignored --nocapture pw_interactions
+    #[test]
+    #[ignore]
+    fn pw_interactions_flag_mdma_tramadol() {
+        let mut c = mem();
+        let all = crate::pw::fetch_all().expect("fetch PW");
+        pw_replace_all(&mut c, &all).unwrap();
+
+        let exp = create_experience(&c, &ExperienceInput {
+            title: "t".into(), intention: String::new(), setting: String::new(),
+            started_at: "2026-01-01T00:00:00Z".into(),
+        }).unwrap();
+        for (name, at) in [("MDMA", "2026-01-01T00:00:00Z"), ("Tramadol", "2026-01-01T01:00:00Z")] {
+            let (_d, w) = log_dose(&c, &DoseInput {
+                experience_id: exp.id, substance_name: name.into(), amount: Some(50.0),
+                unit: "mg".into(), route: "oral".into(), taken_at: at.into(), note: String::new(),
+            }).unwrap();
+            eprintln!("after {name}: {:?}", w.iter().map(|x| (x.severity, x.a.as_str(), x.b.as_str())).collect::<Vec<_>>());
+            if name == "Tramadol" {
+                assert!(w.iter().any(|x| x.message.contains("PsychonautWiki")),
+                    "expected a PsychonautWiki interaction warning for MDMA + Tramadol");
+            }
+        }
     }
 }

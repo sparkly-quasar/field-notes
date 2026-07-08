@@ -112,6 +112,22 @@ fn rank(sev: &str) -> u8 {
     }
 }
 
+/// Message for a pair flagged by PsychonautWiki's dangerous-interaction list.
+pub const PW_MESSAGE: &str =
+    "Listed as a dangerous interaction on PsychonautWiki — treat as high risk and check trusted sources.";
+
+/// Merge warnings from multiple sources, keeping the most severe per unordered
+/// substance pair (so a combination isn't reported twice).
+pub fn dedup_pairs(mut warnings: Vec<Warning>) -> Vec<Warning> {
+    warnings.sort_by_key(|w| std::cmp::Reverse(rank(w.severity)));
+    let mut seen = std::collections::HashSet::new();
+    warnings.retain(|w| {
+        let key = if w.a <= w.b { (w.a.clone(), w.b.clone()) } else { (w.b.clone(), w.a.clone()) };
+        seen.insert(key)
+    });
+    warnings
+}
+
 /// Built-in pharmacological classes for well-known substances, so the safety
 /// checker works out of the box before the user classifies anything. Matched on
 /// lowercased name/substring. Common knowledge — not a dosage or content source.

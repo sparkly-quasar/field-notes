@@ -417,6 +417,29 @@
     return `${parts.join(" · ")} ${u}`.trim();
   }
 
+  function classifyDose(amount: number, r: PwRoa): { label: string; level: string } {
+    if (r.heavy != null && amount >= r.heavy) return { label: "heavy", level: "danger" };
+    if (r.strong.min != null && amount >= r.strong.min) return { label: "strong", level: "caution" };
+    if (r.common.min != null && amount >= r.common.min) return { label: "common", level: "ok" };
+    if (r.light.min != null && amount >= r.light.min) return { label: "light", level: "ok" };
+    if (r.threshold != null && amount >= r.threshold) return { label: "threshold", level: "muted" };
+    return { label: "below threshold", level: "muted" };
+  }
+
+  // Live classification of the dose being entered against PW ranges.
+  const doseClass = $derived.by(() => {
+    if (!dRef || !dAmount) return null;
+    const amt = parseFloat(dAmount);
+    if (isNaN(amt) || amt <= 0) return null;
+    const roa = dRef.roas.find((r) => r.name.toLowerCase() === dRoute.trim().toLowerCase()) ?? dRef.roas[0];
+    if (!roa) return null;
+    if (roa.threshold == null && roa.light.min == null && roa.common.min == null) return null;
+    // Don't classify across mismatched units (e.g. entering g against mg ranges).
+    const u = (roa.units ?? "").toLowerCase();
+    if (u && dUnit && u !== dUnit.trim().toLowerCase()) return null;
+    return classifyDose(amt, roa);
+  });
+
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
 </script>
 
@@ -536,6 +559,9 @@
           </div>
           {#if dRef}
             <div class="ref-inline">
+              {#if doseClass}
+                <div class="dose-class {doseClass.level}">{dAmount}{dUnit} · <strong>{doseClass.label}</strong> dose{doseClass.level === "danger" ? " ⚠" : ""}</div>
+              {/if}
               <strong>{dRef.name}</strong> — reference doses
               {#each dRef.roas as r}
                 {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{r.total ? ` · ${r.total}` : ""}</div>{/if}
@@ -917,6 +943,11 @@
   .ref-inline > strong { font-size: 0.95rem; }
   .attribution { font-size: 0.75rem; margin: 0.4rem 0 0; }
   .warn-text { color: var(--caution); margin-top: 0.3rem; }
+  .dose-class { display: inline-block; font-size: 0.85rem; padding: 0.15rem 0.55rem; border-radius: 999px; border: 1px solid currentColor; margin-bottom: 0.4rem; }
+  .dose-class.ok { color: var(--note); }
+  .dose-class.caution { color: var(--caution); }
+  .dose-class.danger { color: var(--danger); font-weight: 600; }
+  .dose-class.muted { color: var(--muted); }
   .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }
 

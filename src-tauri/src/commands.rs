@@ -176,10 +176,18 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
         s.push_str(&format!("- {} {}{}{}\n", d.substance_name, amt, d.unit, route));
     }
 
-    let names: BTreeSet<String> = detail.doses.iter().map(|d| d.substance_name.clone()).collect();
+    let names: Vec<String> = detail
+        .doses
+        .iter()
+        .map(|d| d.substance_name.clone())
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
     let subs: Vec<(String, Vec<String>)> =
-        names.into_iter().map(|n| { let c = interactions::builtin_classes(&n); (n, c) }).collect();
-    let warns = interactions::check(&subs);
+        names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
+    let mut warns = interactions::check(&subs);
+    warns.extend(db::pw_interaction_warnings(conn, &names));
+    let warns = interactions::dedup_pairs(warns);
     if !warns.is_empty() {
         s.push_str("Known interaction flags for this combination:\n");
         for w in &warns {
