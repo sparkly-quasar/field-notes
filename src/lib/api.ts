@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 // Typed wrappers around the Tauri command surface (see src-tauri/src/commands.rs).
 
 import { invoke } from "@tauri-apps/api/core";

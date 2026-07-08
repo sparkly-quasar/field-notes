@@ -60,3 +60,12 @@ npm install
 npm run tauri dev
 npm run tauri build
 ```
+
+## License
+
+Licensed under the **[PolyForm Noncommercial License 1.0.0](./LICENSE)**.
+
+Free to use, modify, and share for **non-commercial** purposes (personal use,
+research, education, nonprofits, government). **Commercial use requires a separate
+commercial license — a contract with the author.** For commercial licensing,
+contact the author via [github.com/sparkly-quasar](https://github.com/sparkly-quasar).

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 //! A small, deterministic interaction checker for the most dangerous, widely
 //! documented combinations. This is a safety backstop — NOT a complete
 //! interaction reference and NOT medical advice. It reasons over coarse

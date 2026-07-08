@@ -4,6 +4,7 @@
   "description": "Offline harm-reduction journal & trip-sitting workstation.",
   "type": "module",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

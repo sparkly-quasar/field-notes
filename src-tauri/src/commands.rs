@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 //! Tauri command surface exposed to the Svelte frontend. All journal data lives
 //! in a single on-device SQLite connection guarded by a mutex.
 

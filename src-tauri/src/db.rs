@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 //! Local SQLite store for the harm-reduction journal: substances the user
 //! catalogues, experiences, the doses taken during them, and a live timeline.
 //! Everything stays on-device. Timestamps are ISO-8601 strings supplied by the
