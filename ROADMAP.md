@@ -59,24 +59,20 @@ installer).
 
 2. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
    data, add a **retrieval corpus** over openly-licensed full-text sources for
-   richer Q&A (semantic search, not just dose lookups). Sources: **DoseWiki (CC0)**,
-   **PsychonautWiki (CC-BY-SA)**, **TripSit**, and **Shulgin's PiHKAL/TiHKAL Part 2
-   compound data** (Shulgin's qualitative bioassay reports are unique full-text that
-   DoseWiki's structured data doesn't have — additive here, not for the dose
-   reference). ⚠️ **Licensing must be settled first** for every share-alike source —
-   DoseWiki's CC0 text is unencumbered, but each of the others carries strings:
-   - **PsychonautWiki / TripSit** — CC-BY-SA: mixing them in re-imposes attribution +
-     share-alike.
-   - **PiHKAL / TiHKAL** — *not* public domain. **Part 1 (the autobiographical
-     narrative) is all-rights-reserved — pointer / user-import only.** **Part 2 (the
-     compound entries)** may be reproduced **non-commercially** with the copyright /
-     cautionary / ordering notices attached; the Isomer Design database
-     (isomerdesign.com) presents this as **CC BY-NC-SA 4.0**. So Part 2 *can* be
-     bundled as a **separate non-commercial, share-alike pack with the required
-     notices** — but NC forecloses any future commercial-license path for that pack.
-
-   Keep every share-alike / NC corpus as a **separately-licensed data pack**, never
-   mixed into the PolyForm code.
+   richer Q&A (semantic search, not just dose lookups). Sources: **DoseWiki (CC0)**
+   and **Shulgin's PiHKAL/TiHKAL Part 2 compound data** (Shulgin's qualitative
+   bioassay reports are unique full-text that DoseWiki's structured data doesn't have
+   — additive here, not for the dose reference). ⚠️ **Licensing must be settled
+   first:** DoseWiki's CC0 text is unencumbered, but **PiHKAL / TiHKAL are *not*
+   public domain.** **Part 1 (the autobiographical narrative) is all-rights-reserved
+   — pointer / user-import only.** **Part 2 (the compound entries)** may be reproduced
+   **non-commercially** with the copyright / cautionary / ordering notices attached;
+   the Isomer Design database (isomerdesign.com) presents this as **CC BY-NC-SA 4.0**.
+   So Part 2 *can* be bundled as a **separate non-commercial, share-alike pack with
+   the required notices** — but NC forecloses any future commercial-license path for
+   that pack, so keep it **separately licensed**, never mixed into the PolyForm code.
+   (Other openly-licensed sources like PsychonautWiki / TripSit remain fallback
+   options, but each re-imposes CC-BY-SA attribution + share-alike.)
 
 3. **Local LLM companion with tool access + live-session mode.** Today the
    Companion only *reads* injected context. Give the model **tools** to actually
