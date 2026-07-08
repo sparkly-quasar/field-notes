@@ -6,11 +6,62 @@
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const BASE: &str = "http://127.0.0.1:11434";
+
+/// Directories to search for CLI tools: the inherited PATH plus the common
+/// install locations. A macOS app launched from Finder/Dock inherits only a
+/// minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) — *not* `/opt/homebrew/bin` —
+/// so without this, `brew` and `ollama` look "missing" even when installed.
+fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    let push = |dirs: &mut Vec<PathBuf>, d: PathBuf| {
+        if !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    };
+    for d in [
+        "/opt/homebrew/bin", // Apple Silicon Homebrew
+        "/opt/homebrew/sbin",
+        "/usr/local/bin", // Intel Homebrew + Ollama.app CLI symlink
+        "/usr/local/sbin",
+    ] {
+        push(&mut dirs, PathBuf::from(d));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        for sub in [".local/bin", ".ollama/bin"] {
+            push(&mut dirs, PathBuf::from(&home).join(sub));
+        }
+    }
+    dirs
+}
+
+/// Absolute path of an executable found across [`search_dirs`], if any.
+fn find_bin(name: &str) -> Option<PathBuf> {
+    search_dirs()
+        .into_iter()
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
+}
+
+/// A `Command` for a CLI tool, resolved to its absolute path and with an
+/// augmented PATH exported so any subprocess it spawns resolves too. Falls back
+/// to the bare name (letting the OS search) when the binary isn't found.
+fn command(name: &str) -> Command {
+    let path = std::env::join_paths(search_dirs()).unwrap_or_default();
+    let mut cmd = match find_bin(name) {
+        Some(abs) => Command::new(abs),
+        None => Command::new(name),
+    };
+    cmd.env("PATH", path);
+    cmd
+}
 
 /// Models offered in the guided setup picker (tag, human label).
 pub const RECOMMENDED_MODELS: &[(&str, &str)] = &[
@@ -28,7 +79,7 @@ pub struct AiStatus {
 
 /// Is the `ollama` binary installed (on PATH)?
 pub fn is_installed() -> bool {
-    Command::new("ollama")
+    command("ollama")
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -84,11 +135,11 @@ pub fn install(app: &AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let has_brew = Command::new("brew").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+        let has_brew = command("brew").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
         if !has_brew {
             return Err("Homebrew isn't installed. Install Ollama from https://ollama.com/download, then reopen this.".into());
         }
-        let mut cmd = Command::new("brew");
+        let mut cmd = command("brew");
         cmd.args(["install", "ollama"]);
         run_streamed(app, "ai-progress", cmd)?;
     }
@@ -111,7 +162,7 @@ pub fn ensure_serving() -> Result<(), String> {
     if api_up() {
         return Ok(());
     }
-    Command::new("ollama")
+    command("ollama")
         .arg("serve")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -130,7 +181,7 @@ pub fn ensure_serving() -> Result<(), String> {
 pub fn pull(app: &AppHandle, tag: &str) -> Result<(), String> {
     ensure_serving()?;
     let _ = app.emit("ai-progress", format!("Downloading {tag}…"));
-    let mut cmd = Command::new("ollama");
+    let mut cmd = command("ollama");
     cmd.args(["pull", tag]);
     run_streamed(app, "ai-progress", cmd)
 }
