@@ -14,7 +14,13 @@ installer).
 
 ---
 
-## Shipped so far (v0.3.0 — DoseWiki, encryption, Obsidian & tool-enabled Companion)
+## Shipped so far (v0.3.1 — DoseWiki, encryption, Obsidian & tool-enabled Companion)
+
+> v0.3.1 follow-ups on top of the v0.3.0 batch: in-app **model management**
+> (switch/download models any time), **encrypted backups** even for a plaintext
+> journal, an **Obsidian "sync at your own risk"** notice (exported notes are
+> plaintext outside the app's encryption), **erase-all-data & uninstall** helpers,
+> "password" wording, and a **Settings** tab (formerly "Data & security").
 
 - **Journal** — experiences, doses, and a live timeline in a local **SQLite** DB
   (`db.rs`), with **edit/delete** everywhere and **backdating** (log past
