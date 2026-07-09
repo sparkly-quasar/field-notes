@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 //! Field Notes — an offline harm-reduction journal & trip-sitting workstation.
-//! All data stays on-device in a local SQLite database.
+//! All data stays on-device in a local SQLite database, optionally encrypted at
+//! rest with a passphrase (SQLCipher).
 
 mod commands;
 mod db;
@@ -8,34 +9,68 @@ mod interactions;
 mod ollama;
 mod pw;
 
+use rusqlite::Connection;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 
-/// The single on-device journal connection, shared across commands.
-pub struct Db(pub Mutex<rusqlite::Connection>);
+/// The single on-device journal connection, shared across commands. The connection
+/// is `None` while the database is encrypted and still locked (before the user has
+/// entered their passphrase this session).
+pub struct Db {
+    pub conn: Mutex<Option<Connection>>,
+    pub path: PathBuf,
+}
+
+impl Db {
+    fn locked_err() -> String {
+        "The journal is locked — unlock it with your passphrase.".to_string()
+    }
+
+    /// Run `f` against the open connection, or return a "locked" error if there
+    /// isn't one yet.
+    pub fn with<T>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<T, String> {
+        let guard = self.conn.lock().unwrap();
+        let conn = guard.as_ref().ok_or_else(Self::locked_err)?;
+        f(conn).map_err(|e| e.to_string())
+    }
+
+    /// Like [`Db::with`], but for operations needing `&mut Connection` (transactions).
+    pub fn with_mut<T>(&self, f: impl FnOnce(&mut Connection) -> rusqlite::Result<T>) -> Result<T, String> {
+        let mut guard = self.conn.lock().unwrap();
+        let conn = guard.as_mut().ok_or_else(Self::locked_err)?;
+        f(conn).map_err(|e| e.to_string())
+    }
+
+    pub fn is_unlocked(&self) -> bool {
+        self.conn.lock().unwrap().is_some()
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
-            let conn = db::init(&dir.join("journal.db")).expect("failed to open journal database");
-            app.manage(Db(Mutex::new(conn)));
-            // Load the bundled, offline DoseWiki dose reference into the cache on
-            // every launch, so it stays in sync with the app's snapshot. Reads a
-            // local resource only — no network. A failure here must not block startup.
-            match pw::load_bundled(app.handle()) {
-                Ok(subs) => {
-                    let db = app.state::<Db>();
-                    let mut conn = db.0.lock().unwrap();
-                    if let Err(e) = db::pw_replace_all(&mut conn, &subs) {
-                        eprintln!("failed to populate dose reference cache: {e}");
-                    }
-                }
-                Err(e) => eprintln!("failed to load bundled dose reference: {e}"),
+            let path = dir.join("journal.db");
+            // If the journal is encrypted, leave it locked until the user unlocks
+            // it with their passphrase; otherwise open it (creating on first run).
+            let conn = if db::is_encrypted(&path) {
+                None
+            } else {
+                Some(db::open(&path, None).expect("failed to open journal database"))
+            };
+            app.manage(Db { conn: Mutex::new(conn), path });
+
+            // The bundled dose reference lives inside the journal DB, so it can
+            // only be loaded once the DB is open (i.e. not locked).
+            let db = app.state::<Db>();
+            if db.is_unlocked() {
+                commands::refresh_dose_reference(app.handle(), db.inner());
             }
             Ok(())
         })
@@ -70,6 +105,13 @@ pub fn run() {
             commands::pw_update,
             commands::pw_status,
             commands::pw_lookup,
+            commands::db_status,
+            commands::unlock_db,
+            commands::enable_encryption,
+            commands::disable_encryption,
+            commands::change_passphrase,
+            commands::export_backup,
+            commands::import_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");

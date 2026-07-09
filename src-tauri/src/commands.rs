@@ -9,6 +9,7 @@ use crate::pw::{self, PwInfo};
 use crate::Db;
 use serde::Serialize;
 use std::collections::BTreeSet;
+use std::path::Path;
 use tauri::{AppHandle, State};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -22,12 +23,12 @@ pub fn interaction_classes() -> Vec<&'static str> {
 
 #[tauri::command]
 pub fn list_substances(db: State<'_, Db>) -> Result<Vec<Substance>, String> {
-    db::list_substances(&db.0.lock().unwrap()).map_err(err)
+    db.with(|c| db::list_substances(c))
 }
 
 #[tauri::command]
 pub fn add_substance(db: State<'_, Db>, input: SubstanceInput) -> Result<Substance, String> {
-    db::add_substance(&db.0.lock().unwrap(), &input).map_err(err)
+    db.with(|c| db::add_substance(c, &input))
 }
 
 #[tauri::command]
@@ -39,17 +40,17 @@ pub fn check_combo(names: Vec<String>) -> Vec<Warning> {
 
 #[tauri::command]
 pub fn create_experience(db: State<'_, Db>, input: ExperienceInput) -> Result<Experience, String> {
-    db::create_experience(&db.0.lock().unwrap(), &input).map_err(err)
+    db.with(|c| db::create_experience(c, &input))
 }
 
 #[tauri::command]
 pub fn list_experiences(db: State<'_, Db>) -> Result<Vec<ExperienceSummary>, String> {
-    db::list_experiences(&db.0.lock().unwrap()).map_err(err)
+    db.with(|c| db::list_experiences(c))
 }
 
 #[tauri::command]
 pub fn get_experience(db: State<'_, Db>, id: i64) -> Result<ExperienceDetail, String> {
-    db::get_experience(&db.0.lock().unwrap(), id).map_err(err)
+    db.with(|c| db::get_experience(c, id))
 }
 
 #[tauri::command]
@@ -60,7 +61,7 @@ pub fn end_experience(
     rating: Option<i64>,
     notes: String,
 ) -> Result<Experience, String> {
-    db::end_experience(&db.0.lock().unwrap(), id, &ended_at, rating, &notes).map_err(err)
+    db.with(|c| db::end_experience(c, id, &ended_at, rating, &notes))
 }
 
 #[derive(Serialize)]
@@ -71,50 +72,50 @@ pub struct LogDoseResult {
 
 #[tauri::command]
 pub fn log_dose(db: State<'_, Db>, input: DoseInput) -> Result<LogDoseResult, String> {
-    let (dose, warnings) = db::log_dose(&db.0.lock().unwrap(), &input).map_err(err)?;
+    let (dose, warnings) = db.with(|c| db::log_dose(c, &input))?;
     Ok(LogDoseResult { dose, warnings })
 }
 
 #[tauri::command]
 pub fn add_timeline_event(db: State<'_, Db>, input: TimelineInput) -> Result<TimelineEvent, String> {
-    db::add_timeline_event(&db.0.lock().unwrap(), &input).map_err(err)
+    db.with(|c| db::add_timeline_event(c, &input))
 }
 
 #[tauri::command]
 pub fn usage_by_substance(db: State<'_, Db>) -> Result<Vec<SubstanceUsage>, String> {
-    db::usage_by_substance(&db.0.lock().unwrap()).map_err(err)
+    db.with(|c| db::usage_by_substance(c))
 }
 
 // ---------- edit & delete ----------
 
 #[tauri::command]
 pub fn update_experience(db: State<'_, Db>, id: i64, update: ExperienceUpdate) -> Result<Experience, String> {
-    db::update_experience(&db.0.lock().unwrap(), id, &update).map_err(err)
+    db.with(|c| db::update_experience(c, id, &update))
 }
 
 #[tauri::command]
 pub fn update_dose(db: State<'_, Db>, id: i64, update: DoseUpdate) -> Result<Dose, String> {
-    db::update_dose(&db.0.lock().unwrap(), id, &update).map_err(err)
+    db.with(|c| db::update_dose(c, id, &update))
 }
 
 #[tauri::command]
 pub fn delete_experience(db: State<'_, Db>, id: i64) -> Result<(), String> {
-    db::delete_experience(&db.0.lock().unwrap(), id).map_err(err)
+    db.with(|c| db::delete_experience(c, id))
 }
 
 #[tauri::command]
 pub fn delete_dose(db: State<'_, Db>, id: i64) -> Result<(), String> {
-    db::delete_dose(&db.0.lock().unwrap(), id).map_err(err)
+    db.with(|c| db::delete_dose(c, id))
 }
 
 #[tauri::command]
 pub fn delete_timeline_event(db: State<'_, Db>, id: i64) -> Result<(), String> {
-    db::delete_timeline_event(&db.0.lock().unwrap(), id).map_err(err)
+    db.with(|c| db::delete_timeline_event(c, id))
 }
 
 #[tauri::command]
 pub fn delete_substance(db: State<'_, Db>, id: i64) -> Result<(), String> {
-    db::delete_substance(&db.0.lock().unwrap(), id).map_err(err)
+    db.with(|c| db::delete_substance(c, id))
 }
 
 // ---------- DoseWiki reference cache ----------
@@ -131,19 +132,31 @@ pub struct PwStatus {
 #[tauri::command]
 pub fn pw_update(app: AppHandle, db: State<'_, Db>) -> Result<usize, String> {
     let subs = pw::load_bundled(&app)?;
-    let mut conn = db.0.lock().unwrap();
-    db::pw_replace_all(&mut conn, &subs).map_err(err)
+    db.with_mut(|c| db::pw_replace_all(c, &subs))
 }
 
 #[tauri::command]
 pub fn pw_status(db: State<'_, Db>) -> Result<PwStatus, String> {
-    let (count, _last_fetched) = db::pw_status(&db.0.lock().unwrap()).map_err(err)?;
+    let (count, _last_fetched) = db.with(|c| db::pw_status(c))?;
     Ok(PwStatus { count, snapshot: pw::DOSEWIKI_SNAPSHOT })
+}
+
+/// Reload the bundled dose reference into the (open) cache. Shared by startup and
+/// the unlock flow. Silent on failure — the reference is non-critical.
+pub(crate) fn refresh_dose_reference(app: &AppHandle, db: &Db) {
+    match pw::load_bundled(app) {
+        Ok(subs) => {
+            if let Err(e) = db.with_mut(|c| db::pw_replace_all(c, &subs)) {
+                eprintln!("failed to populate dose reference cache: {e}");
+            }
+        }
+        Err(e) => eprintln!("failed to load bundled dose reference: {e}"),
+    }
 }
 
 #[tauri::command]
 pub fn pw_lookup(db: State<'_, Db>, name: String) -> Result<Option<PwInfo>, String> {
-    db::pw_lookup(&db.0.lock().unwrap(), &name).map_err(err)
+    db.with(|c| db::pw_lookup(c, &name))
 }
 
 // ---------- local AI setup (Ollama) ----------
@@ -241,7 +254,8 @@ pub fn parse_experience(model: String, text: String) -> Result<ollama::ParsedExp
 /// timeline. Missing timestamps fall back to the experience start.
 #[tauri::command]
 pub fn import_experience(db: State<'_, Db>, parsed: ollama::ParsedExperience) -> Result<Experience, String> {
-    let conn = db.0.lock().unwrap();
+    let guard = db.conn.lock().unwrap();
+    let conn = guard.as_ref().ok_or_else(Db::locked_err)?;
     let started = match parsed.started_at.as_deref() {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get::<_, String>(0)).map_err(err)?,
@@ -312,10 +326,152 @@ pub fn companion_chat(
 ) -> Result<String, String> {
     let mut messages = vec![ChatMsg { role: "system".into(), content: ollama::SYSTEM_PROMPT.into() }];
     if let Some(id) = experience_id {
-        if let Some(ctx) = session_context(&db.0.lock().unwrap(), id) {
+        let ctx = {
+            let guard = db.conn.lock().unwrap();
+            let conn = guard.as_ref().ok_or_else(Db::locked_err)?;
+            session_context(conn, id)
+        };
+        if let Some(ctx) = ctx {
             messages.push(ChatMsg { role: "system".into(), content: ctx });
         }
     }
     messages.extend(history);
     ollama::chat(&model, &messages)
+}
+
+// ---------- encryption at rest & backups ----------
+
+#[derive(Serialize)]
+pub struct DbStatus {
+    /// Is the journal file on disk encrypted (SQLCipher)?
+    pub encrypted: bool,
+    /// Is there a live, usable connection this session? (An encrypted journal is
+    /// locked — `encrypted && !unlocked` — until the passphrase is entered.)
+    pub unlocked: bool,
+}
+
+#[tauri::command]
+pub fn db_status(db: State<'_, Db>) -> DbStatus {
+    DbStatus { encrypted: db::is_encrypted(&db.path), unlocked: db.is_unlocked() }
+}
+
+/// Open a locked (encrypted) journal with the supplied passphrase.
+#[tauri::command]
+pub fn unlock_db(app: AppHandle, db: State<'_, Db>, passphrase: String) -> Result<(), String> {
+    {
+        let mut guard = db.conn.lock().unwrap();
+        if guard.is_some() {
+            return Ok(()); // already unlocked
+        }
+        let conn = db::open(&db.path, Some(&passphrase))
+            .map_err(|_| "Incorrect passphrase.".to_string())?;
+        *guard = Some(conn);
+    }
+    // Repopulate the (in-DB) dose reference from the bundled snapshot, as at startup.
+    refresh_dose_reference(&app, db.inner());
+    Ok(())
+}
+
+/// Close, re-key, and reopen the journal file in place. `from`/`to` are the
+/// current/new SQLCipher keys (`None`/empty = plaintext). A wrong `from` key is
+/// caught before the live connection is closed, so it can't lock the user out.
+fn rekey(
+    guard: &mut Option<rusqlite::Connection>,
+    path: &Path,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<(), String> {
+    if from.map(|k| !k.is_empty()).unwrap_or(false) {
+        // Verify the current passphrase against the file before touching state.
+        db::open(path, from).map_err(|_| "Incorrect passphrase.".to_string())?;
+    }
+    *guard = None; // release the live connection so the file can be rewritten
+    if let Err(e) = db::convert(path, from, to) {
+        // Conversion failed — reopen with the original key so we aren't left locked.
+        if let Ok(c) = db::open(path, from) {
+            *guard = Some(c);
+        }
+        return Err(e.to_string());
+    }
+    *guard = Some(db::open(path, to).map_err(err)?);
+    Ok(())
+}
+
+/// Turn on encryption at rest for a currently-plaintext, unlocked journal.
+#[tauri::command]
+pub fn enable_encryption(db: State<'_, Db>, passphrase: String) -> Result<(), String> {
+    if passphrase.is_empty() {
+        return Err("Choose a passphrase.".to_string());
+    }
+    let mut guard = db.conn.lock().unwrap();
+    if guard.is_none() {
+        return Err(Db::locked_err());
+    }
+    if db::is_encrypted(&db.path) {
+        return Err("The journal is already encrypted.".to_string());
+    }
+    rekey(&mut guard, &db.path, None, Some(&passphrase))
+}
+
+/// Turn encryption off, returning the journal to plaintext. Requires the passphrase.
+#[tauri::command]
+pub fn disable_encryption(db: State<'_, Db>, passphrase: String) -> Result<(), String> {
+    let mut guard = db.conn.lock().unwrap();
+    if guard.is_none() {
+        return Err(Db::locked_err());
+    }
+    if !db::is_encrypted(&db.path) {
+        return Err("The journal is not encrypted.".to_string());
+    }
+    rekey(&mut guard, &db.path, Some(&passphrase), None)
+}
+
+/// Change the passphrase of an encrypted journal.
+#[tauri::command]
+pub fn change_passphrase(
+    db: State<'_, Db>,
+    current: String,
+    new_passphrase: String,
+) -> Result<(), String> {
+    if new_passphrase.is_empty() {
+        return Err("Choose a new passphrase.".to_string());
+    }
+    let mut guard = db.conn.lock().unwrap();
+    if guard.is_none() {
+        return Err(Db::locked_err());
+    }
+    if !db::is_encrypted(&db.path) {
+        return Err("The journal is not encrypted.".to_string());
+    }
+    rekey(&mut guard, &db.path, Some(&current), Some(&new_passphrase))
+}
+
+/// Write a single-file copy of the journal to `path` (chosen via the frontend's
+/// save dialog). The backup keeps the source's encryption state.
+#[tauri::command]
+pub fn export_backup(db: State<'_, Db>, path: String) -> Result<(), String> {
+    db.with(|c| db::backup_to(c, Path::new(&path)))
+}
+
+/// Replace the live journal with the file at `path` (chosen via the frontend's
+/// open dialog). If the imported file is encrypted it stays locked until unlocked.
+#[tauri::command]
+pub fn import_backup(app: AppHandle, db: State<'_, Db>, path: String) -> Result<(), String> {
+    let src = Path::new(&path);
+    if !src.exists() {
+        return Err("That backup file does not exist.".to_string());
+    }
+    {
+        let mut guard = db.conn.lock().unwrap();
+        *guard = None; // close the live connection before overwriting the file
+        let _ = std::fs::remove_file(db.path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(db.path.with_extension("db-shm"));
+        std::fs::copy(src, &db.path).map_err(err)?;
+        if db::is_encrypted(&db.path) {
+            return Ok(()); // imported an encrypted journal — leave it locked
+        }
+        *guard = Some(db::open(&db.path, None).map_err(err)?);
+    }
+    refresh_dose_reference(&app, db.inner());
+    Ok(())
 }

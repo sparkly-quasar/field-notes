@@ -23,7 +23,11 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+# SQLCipher (vendored, with vendored OpenSSL) so the journal can be encrypted at
+# rest with a passphrase. Without a key set it reads/writes plaintext DBs, so
+# existing unencrypted journals keep working (encryption is opt-in).
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
 # HTTP client for the localhost Ollama API (http only; the dose reference is now
 # a bundled offline file, so no outbound/TLS request remains).
 ureq = { version = "2", features = ["json"] }
+tauri-plugin-dialog = "2"
