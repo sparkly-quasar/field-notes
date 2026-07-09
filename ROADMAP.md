@@ -14,7 +14,7 @@ installer).
 
 ---
 
-## Shipped so far (through v0.2.0)
+## Shipped so far (v0.2.1 released; DoseWiki migration on `main`, unreleased)
 
 - **Journal** — experiences, doses, and a live timeline in a local **SQLite** DB
   (`db.rs`), with **edit/delete** everywhere and **backdating** (log past
@@ -25,14 +25,17 @@ installer).
   current experience's doses and interaction flags (opt-in "share session").
 - **Text import** — paste a past experience in plain words; the local model
   extracts substances, doses, and timeline into a **review-before-save** preview.
-- **Dose reference** (`pw.rs`) — an **offline, on-request cache** of dose ranges,
-  durations, routes, and dangerous interactions. One "update database" fetch, then
-  all lookups are offline/private. Currently sourced from **PsychonautWiki**
-  (~373 substances, CC-BY-SA 4.0, attribution in-app + NOTICE). **Being migrated to
-  DoseWiki** — see roadmap item #1 below.
+- **Dose reference** (`pw.rs`) — a **bundled, fully-offline** reference of dose
+  ranges, durations (onset/come-up/peak/offset/after-effects/total + half-life),
+  routes, and **graded** interactions. Sourced from **DoseWiki** (**577 substances,
+  CC0 public domain**), slimmed to ~0.9 MB (`data/dosewiki/slim.py`) and shipped as a
+  Tauri resource loaded into the cache on launch — **no network call at all**. A
+  courtesy DoseWiki credit is shown in-app. *(Migrated off PsychonautWiki's live
+  CC-BY-SA GraphQL scrape — roadmap item #1; on `main`, ships in the next tagged build.)*
 - **Deterministic safety checker** (`interactions.rs`) — flags dangerous combos,
-  wired to the dose-reference interaction data; inline dose-range + interaction
-  warnings appear while logging a dose.
+  wired to the dose-reference interaction data; DoseWiki's dangerous/unsafe/caution
+  tiers map onto our danger/caution/note severities (with the reason text), and
+  inline dose-range + interaction warnings appear while logging a dose.
 - **Distribution** — cross-platform signed installers (macOS universal `.dmg` +
   Linux `.AppImage`/`.deb`/`.rpm`) via `tauri-action` CI on `v*` tags, plus
   **in-app auto-update** (Tauri updater; "Install & restart" banner). macOS is
@@ -43,21 +46,11 @@ installer).
 
 ## Roadmap (not yet built)
 
-1. **Switch the dose reference from PsychonautWiki to DoseWiki (CC0).** DoseWiki
-   (<https://dose.wiki>) publishes its whole encyclopedia as a single **public-domain
-   (CC0)** static file, `SubstanceIndex.json` — **577 substances**, richer than what
-   we scrape from PsychonautWiki's live GraphQL API: graded interactions
-   (dangerous / unsafe / caution), full duration stages (onset, come-up, peak,
-   offset, after-effects, half-life), and per-route dose ranges. The snapshot is
-   **already staged in `data/dosewiki/`** with a full schema→`PwInfo` mapping and
-   integration plan in [`data/dosewiki/README.md`](data/dosewiki/README.md).
-   Because it's one CC0 file, we can **bundle it offline** and drop the live-API
-   dependency (and the CC-BY-SA share-alike constraint) entirely. **Do this first —
-   it simplifies the licensing story below.** Work: rewrite `pw.rs`'s fetch/parse to
-   read DoseWiki's JSON, map graded interactions onto our danger/caution/note model,
-   reword the `interactions.rs` message + in-app attribution, update NOTICE to CC0.
+> ✅ **Item #1 (DoseWiki migration) is done on `main`** (unreleased — it ships in
+> the next tagged build) — see "Shipped so far" above. The remaining items are
+> renumbered below.
 
-2. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
+1. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
    data, add a **retrieval corpus** over openly-licensed full-text sources for
    richer Q&A (semantic search, not just dose lookups). Sources: **DoseWiki (CC0)**
    and **Shulgin's PiHKAL/TiHKAL Part 2 compound data** (Shulgin's qualitative
@@ -72,7 +65,7 @@ installer).
    the required notices** — but NC forecloses any future commercial-license path for
    that pack, so keep it **separately licensed**, never mixed into the PolyForm code.
 
-3. **Local LLM companion with tool access + live-session mode.** Today the
+2. **Local LLM companion with tool access + live-session mode.** Today the
    Companion only *reads* injected context. Give the model **tools** to actually
    drive the journal from chat ("log 100 mg MDMA", "how am I doing?"), plus a
    calm, altered-state-friendly **live session UI** (large text, one-tap logging,
@@ -81,17 +74,17 @@ installer).
    guardrails are specified in [Companion design principles](#companion-design-principles-peer-support-model)
    below — that spec is load-bearing, not optional polish.**
 
-4. **Obsidian vault integration.** Read/parse journal entries from an Obsidian
+3. **Obsidian vault integration.** Read/parse journal entries from an Obsidian
    vault and write **structured experience summaries** back. Bidirectional, fully
    offline. (Reuse the filesystem/obsidian-MCP patterns from prior work.)
 
-5. **User-added substances → opt-in upstream contribution.** Local CRUD for
+4. **User-added substances → opt-in upstream contribution.** Local CRUD for
    uncatalogued substances already exists; add a **consent-gated** export that
    generates a draft the user reviews and submits manually to the upstream source
-   (**DoseWiki** once the migration lands; it's CC0 and open-source). **Never
-   auto-upload** — this is sensitive, legally fraught data.
+   (**DoseWiki** — it's CC0 and open-source). **Never auto-upload** — this is
+   sensitive, legally fraught data.
 
-6. **Encrypted-at-rest database (passphrase).** Protect this sensitive, local-only
+5. **Encrypted-at-rest database (passphrase).** Protect this sensitive, local-only
    data with an encrypted DB (e.g. SQLCipher + passphrase). Pair with
    **export / backup & restore** so data survives a lost DB or a machine switch.
 
@@ -159,9 +152,9 @@ emotional presence.
 
 ## Cross-cutting constraints (read before building)
 
-- **Data licensing** — the dose reference is moving to **DoseWiki (CC0, public
-  domain)**, which can be bundled freely with only a courtesy credit — no
-  share-alike, no attribution obligation. Any *additional* CC-BY-SA sources (e.g. a
+- **Data licensing** — the dose reference now ships from **DoseWiki (CC0, public
+  domain)**, bundled freely with only a courtesy credit — no share-alike, no
+  attribution obligation. Any *additional* CC-BY-SA sources (e.g. a
   RAG corpus from PsychonautWiki/TripSit) must still ship as a separate,
   attributed, share-alike pack kept out of the PolyForm-licensed source.
   **PiHKAL/TiHKAL** are *not* public domain: Part 1 (narrative) is all-rights-reserved
@@ -178,11 +171,11 @@ emotional presence.
 
 ## Suggested next increment
 
-Do **#1 (DoseWiki migration)** next — it's staged in `data/dosewiki/`, low-risk, and
-clears the licensing story for everything after it. Then highest value / lowest cost:
-**#6 encryption + export** (protect the data), then **#4 Obsidian** or **#3
-tool-enabled Companion** as the next headline feature. **#2 (RAG corpus)** stays
-gated on the licensing decision for any share-alike sources.
+DoseWiki migration is **done** (on `main`, unreleased), which clears the licensing story
+for everything after it. Next, highest value / lowest cost: **#5 encryption + export**
+(protect the data), then **#3 Obsidian** or **#2 tool-enabled Companion** as the next
+headline feature. **#1 (RAG corpus)** stays gated on the licensing decision for any
+share-alike sources.
 
 ---
 

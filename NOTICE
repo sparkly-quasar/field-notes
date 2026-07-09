@@ -7,13 +7,14 @@ separate commercial license (a contract) from the author.
 
 Third-party data:
 
-  - Substance reference data (dose ranges, durations, dangerous interactions) is
-    fetched at the user's explicit request from PsychonautWiki
-    (https://psychonautwiki.org), which is licensed under Creative Commons
-    Attribution-ShareAlike 4.0 (CC-BY-SA 4.0). This data is NOT bundled with the
-    source; it is downloaded and cached locally on the user's device only when the
-    user chooses to update it. Attribution is shown in-app wherever this data is
-    displayed.
+  - Substance reference data (dose ranges, durations, graded interactions) is a
+    snapshot of DoseWiki (https://dose.wiki), which dedicates its encyclopedia to
+    the public domain under the Creative Commons CC0 1.0 Universal dedication (the
+    DoseWiki site code is MIT-licensed). No attribution is legally required; a
+    courtesy credit to DoseWiki is shown in-app wherever this data is displayed.
+    The snapshot is bundled with the app and used fully offline — no network
+    request is made when the user looks anything up. See data/dosewiki/README.md
+    for the snapshot source and processing pipeline.
 
 The Companion and text-import features talk to a local Ollama instance on the
 user's own machine. Model weights are governed by their own licenses.

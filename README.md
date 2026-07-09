@@ -29,13 +29,12 @@ anywhere.
 - **Companion** — a calm, non-judgmental harm-reduction chat, also fully local
   (Ollama). It can be made aware of your current session (logged doses + interaction
   flags) and never encourages use.
-- **Dose reference** — download dose ranges, durations, and dangerous-interaction
-  data for hundreds of substances **once** into a local cache, then see them inline
-  while logging — fully offline afterward. Currently sourced from
-  [PsychonautWiki](https://psychonautwiki.org) (CC-BY-SA 4.0; attribution in-app);
-  **being migrated to [DoseWiki](https://dose.wiki)** — a public-domain (CC0)
-  open-source dataset that ships as one file we can bundle fully offline (see the
-  [roadmap](./ROADMAP.md) and [`data/dosewiki/`](./data/dosewiki/)).
+- **Dose reference** — dose ranges, durations, and **graded** interaction data
+  (dangerous / unsafe / caution, with reasons) for hundreds of substances, **bundled
+  with the app** and shown inline while logging — fully offline, no network request
+  ever. Sourced from [DoseWiki](https://dose.wiki) (public-domain **CC0**; courtesy
+  credit in-app). The snapshot + slimming pipeline live in
+  [`data/dosewiki/`](./data/dosewiki/).
 - **Safety checker** — every dose is checked against the others in that experience
   for widely-documented dangerous combinations (opioid + benzodiazepine, MAOI +
   serotonin releaser, lithium + psychedelics, SSRI + MDMA, …), rated
@@ -57,10 +56,6 @@ anywhere.
 
 ## Roadmap (not yet built)
 
-- **DoseWiki dose reference (CC0)** — replace the live PsychonautWiki scrape with
-  [DoseWiki](https://dose.wiki)'s public-domain `SubstanceIndex.json` (577
-  substances, graded interactions, full duration stages). One CC0 file, bundleable
-  offline. Snapshot + integration plan staged in [`data/dosewiki/`](./data/dosewiki/).
 - **Substance knowledge pack** — an offline RAG corpus from openly-licensed sources
   (DoseWiki CC0, Shulgin's PiHKAL/TiHKAL Part 2). *PiHKAL/TiHKAL aren't public domain:
   Part 1 (narrative) is all-rights-reserved (pointer only); Part 2 (compound data,

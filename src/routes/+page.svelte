@@ -72,7 +72,7 @@
   let dRoute = $state("oral");
   let dTime = $state("");
 
-  // PsychonautWiki reference data
+  // DoseWiki reference data
   let pwStat = $state<PwStatus | null>(null);
   let pwBusy = $state(false);
   let pwErr = $state<string | null>(null);
@@ -485,7 +485,7 @@
     if (t === "companion") await loadAi();
   }
 
-  // ---- PsychonautWiki reference ----
+  // ---- DoseWiki reference ----
   async function loadPwStatus() {
     pwStat = await pwStatus();
   }
@@ -514,6 +514,16 @@
     if (r.heavy != null) parts.push(`heavy ${r.heavy}+`);
     return `${parts.join(" · ")} ${u}`.trim();
   }
+  // Compact duration line from DoseWiki stages (onset → total, plus half-life).
+  function durationSummary(r: PwRoa): string {
+    const parts: string[] = [];
+    if (r.onset) parts.push(`onset ${r.onset}`);
+    if (r.total) parts.push(`total ${r.total}`);
+    if (r.half_life) parts.push(`t½ ${r.half_life}`);
+    return parts.join(" · ");
+  }
+  const refInteractions = (info: PwInfo, severity: "danger" | "caution" | "note") =>
+    info.interactions.filter((i) => i.severity === severity);
 
   function classifyDose(amount: number, r: PwRoa): { label: string; level: string } {
     if (r.heavy != null && amount >= r.heavy) return { label: "heavy", level: "danger" };
@@ -695,10 +705,15 @@
               {/if}
               <strong>{dRef.name}</strong> — reference doses
               {#each dRef.roas as r}
-                {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{r.total ? ` · ${r.total}` : ""}</div>{/if}
+                {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{durationSummary(r) ? ` · ${durationSummary(r)}` : ""}</div>{/if}
               {/each}
-              {#if dRef.interactions.length}<div class="small warn-text">⚠ dangerous with: {dRef.interactions.join(", ")}</div>{/if}
-              <div class="muted attribution">via PsychonautWiki · CC-BY-SA · reference only, verify before dosing</div>
+              {#if refInteractions(dRef, "danger").length}
+                <div class="small warn-text">⚠ dangerous with: {refInteractions(dRef, "danger").map((i) => i.name).join(", ")}</div>
+              {/if}
+              {#if refInteractions(dRef, "caution").length}
+                <div class="small warn-text muted">unsafe with: {refInteractions(dRef, "caution").map((i) => i.name).join(", ")}</div>
+              {/if}
+              <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
             </div>
           {/if}
           <datalist id="subnames">
@@ -881,16 +896,16 @@
       <section class="card ref-card">
         <div class="exp-head">
           <h2>Dose reference</h2>
-          <button class="primary small-btn" disabled={pwBusy} onclick={updatePw}>{pwBusy ? "Updating…" : "Update from PsychonautWiki"}</button>
+          <button class="primary small-btn" disabled={pwBusy} onclick={updatePw}>{pwBusy ? "Reloading…" : "Reload reference"}</button>
         </div>
         {#if pwStat && pwStat.count > 0}
-          <p class="muted small">{pwStat.count} substances cached{pwStat.last_fetched ? ` · updated ${pwStat.last_fetched.slice(0, 10)}` : ""}. Dose ranges &amp; interactions show while you log.</p>
+          <p class="muted small">{pwStat.count} substances bundled offline{pwStat.snapshot ? ` · snapshot ${pwStat.snapshot}` : ""}. Dose ranges, durations &amp; graded interactions show while you log.</p>
         {:else}
-          <p class="muted small">Download dose ranges, durations, and interaction data for hundreds of substances to use offline. One request to PsychonautWiki; stored locally afterward — nothing is sent when you look things up.</p>
+          <p class="muted small">Dose ranges, durations, and graded interaction data for hundreds of substances, bundled with the app — fully offline. Nothing is ever sent when you look things up.</p>
         {/if}
-        {#if pwBusy}<p class="muted small">Fetching from PsychonautWiki…</p>{/if}
+        {#if pwBusy}<p class="muted small">Reloading the bundled reference…</p>{/if}
         {#if pwErr}<p class="notice bad-notice">{pwErr}</p>{/if}
-        <p class="muted attribution">Reference data from <strong>PsychonautWiki</strong>, licensed CC-BY-SA 4.0. Reference only — not a prescription.</p>
+        <p class="muted attribution">Dose data from <strong>DoseWiki</strong> (dose.wiki), dedicated to the public domain under CC0. Reference only — not a prescription.</p>
       </section>
 
       <section class="card">

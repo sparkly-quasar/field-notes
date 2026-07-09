@@ -137,7 +137,7 @@ export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
-// ---- PsychonautWiki reference cache ----
+// ---- DoseWiki reference cache ----
 export interface PwRange {
   min: number | null;
   max: number | null;
@@ -151,7 +151,17 @@ export interface PwRoa {
   strong: PwRange;
   heavy: number | null;
   onset: string | null;
+  come_up: string | null;
+  peak: string | null;
+  offset: string | null;
+  after_effects: string | null;
   total: string | null;
+  half_life: string | null;
+}
+export interface PwInteraction {
+  name: string;
+  reason: string | null;
+  severity: "danger" | "caution" | "note";
 }
 export interface PwInfo {
   name: string;
@@ -159,11 +169,11 @@ export interface PwInfo {
   psychoactive: string[];
   chemical: string[];
   roas: PwRoa[];
-  interactions: string[];
+  interactions: PwInteraction[];
 }
 export interface PwStatus {
   count: number;
-  last_fetched: string | null;
+  snapshot: string;
 }
 export const pwUpdate = () => invoke<number>("pw_update");
 export const pwStatus = () => invoke<PwStatus>("pw_status");
