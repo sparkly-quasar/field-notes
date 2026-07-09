@@ -7,17 +7,88 @@
 use crate::pw::PwInfo;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Open (creating if needed) the journal database at `path` and run migrations.
-pub fn init(path: &std::path::Path) -> rusqlite::Result<Connection> {
+/// `key` is the SQLCipher passphrase; pass `None` (or an empty string) for an
+/// unencrypted database. Existing plaintext journals keep working with `None`.
+pub fn open(path: &Path, key: Option<&str>) -> rusqlite::Result<Connection> {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let conn = Connection::open(path)?;
+    if let Some(k) = key {
+        if !k.is_empty() {
+            // SQLCipher: the key must be applied before any other DB access.
+            conn.pragma_update(None, "key", k)?;
+        }
+    }
+    // Validate the key (and that this is a database) before migrating: a wrong
+    // key surfaces here as "file is not a database".
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
     Ok(conn)
+}
+
+/// Is the database file at `path` encrypted? A plaintext (or absent) DB opens and
+/// reads its schema without a key; an encrypted one fails to until keyed.
+pub fn is_encrypted(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    match Connection::open(path) {
+        Ok(conn) => conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
+            .is_err(),
+        Err(_) => true,
+    }
+}
+
+fn sql_quote(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+/// Convert the journal file between plaintext and encrypted (or change its key)
+/// using SQLCipher's `sqlcipher_export`. `from_key`/`to_key` are `None`/empty for
+/// plaintext. The connection to `path` must be closed before calling this.
+pub fn convert(path: &Path, from_key: Option<&str>, to_key: Option<&str>) -> Result<(), String> {
+    let stringify = |e: rusqlite::Error| e.to_string();
+    let src = Connection::open(path).map_err(stringify)?;
+    if let Some(k) = from_key {
+        if !k.is_empty() {
+            src.pragma_update(None, "key", k).map_err(stringify)?;
+        }
+    }
+    // Validate we can read the source (correct current key).
+    src.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
+        .map_err(stringify)?;
+
+    let tmp = path.with_extension("convert-tmp");
+    let _ = std::fs::remove_file(&tmp);
+    let tmp_q = sql_quote(&tmp.to_string_lossy());
+    let key_q = sql_quote(to_key.unwrap_or(""));
+    src.execute_batch(&format!("ATTACH DATABASE '{tmp_q}' AS target KEY '{key_q}';"))
+        .map_err(stringify)?;
+    src.query_row("SELECT sqlcipher_export('target')", [], |_| Ok(())).map_err(stringify)?;
+    src.execute_batch("DETACH DATABASE target;").map_err(stringify)?;
+    drop(src);
+
+    // Replace the original with the freshly-exported file, clearing stale WAL/SHM.
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Write a clean single-file copy of the live database to `dest` (same encryption
+/// state and key as the source). Uses VACUUM INTO so committed WAL data is included.
+pub fn backup_to(conn: &Connection, dest: &Path) -> rusqlite::Result<()> {
+    let _ = std::fs::remove_file(dest);
+    conn.execute("VACUUM INTO ?1", params![dest.to_string_lossy()])?;
+    Ok(())
 }
 
 const SCHEMA: &str = r#"

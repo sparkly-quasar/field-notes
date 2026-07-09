@@ -30,6 +30,14 @@
     pwUpdate,
     pwStatus,
     pwLookup,
+    dbStatus,
+    unlockDb,
+    enableEncryption,
+    disableEncryption,
+    changePassphrase,
+    exportBackup,
+    importBackup,
+    type DbStatus,
     type ParsedExperience,
     type PwInfo,
     type PwStatus,
@@ -45,11 +53,33 @@
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
+  import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
 
-  type Tab = "journal" | "companion" | "substances" | "bysub";
+  type Tab = "journal" | "companion" | "substances" | "bysub" | "data";
+
+  const HIDE_DISCLAIMER_KEY = "fieldnotes.hideDisclaimer";
 
   let acknowledged = $state(false);
   let tab = $state<Tab>("journal");
+
+  // at-rest encryption / unlock gate
+  let db = $state<DbStatus>({ encrypted: false, unlocked: true });
+  let statusLoaded = $state(false);
+  let unlockPass = $state("");
+  let unlockErr = $state<string | null>(null);
+  let unlockBusy = $state(false);
+  let dontShowDisclaimer = $state(false);
+
+  // security & backup controls (Data tab)
+  let secBusy = $state(false);
+  let secErr = $state<string | null>(null);
+  let secMsg = $state<string | null>(null);
+  let encNewPass = $state("");
+  let encNewPass2 = $state("");
+  let encDisablePass = $state("");
+  let chgCurrent = $state("");
+  let chgNew = $state("");
+  let chgNew2 = $state("");
 
   let experiences = $state<ExperienceSummary[]>([]);
   let substances = $state<Substance[]>([]);
@@ -149,11 +179,27 @@
   onMount(() => {
     interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
+    dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
+    loadDbStatus();
     const un = listen<string>("ai-progress", (e) => {
       aiLog = [...aiLog.slice(-200), e.payload];
     });
     return () => un.then((f) => f());
   });
+
+  // Decide the startup screen: a locked encrypted journal shows the unlock
+  // prompt; otherwise the disclaimer splash, unless the user opted out of it.
+  async function loadDbStatus() {
+    try {
+      db = await dbStatus();
+    } catch (_) {
+      db = { encrypted: false, unlocked: true };
+    }
+    statusLoaded = true;
+    if (db.unlocked && dontShowDisclaimer) {
+      await enter();
+    }
+  }
 
   async function checkForUpdate() {
     try {
@@ -181,8 +227,135 @@
   }
 
   async function enter() {
+    if (dontShowDisclaimer) {
+      localStorage.setItem(HIDE_DISCLAIMER_KEY, "1");
+    } else {
+      localStorage.removeItem(HIDE_DISCLAIMER_KEY);
+    }
     acknowledged = true;
     await Promise.all([loadJournal(), loadSubstances()]);
+  }
+
+  async function doUnlock() {
+    unlockErr = null;
+    unlockBusy = true;
+    try {
+      await unlockDb(unlockPass);
+      unlockPass = "";
+      db = await dbStatus();
+      // Unlocking implies the user knows the app; skip straight past the splash.
+      await enter();
+    } catch (e) {
+      unlockErr = typeof e === "string" ? e : String(e);
+    } finally {
+      unlockBusy = false;
+    }
+  }
+
+  function secReset() {
+    secErr = null;
+    secMsg = null;
+  }
+
+  async function doEnableEncryption() {
+    secReset();
+    if (encNewPass.length < 1) return (secErr = "Choose a passphrase.");
+    if (encNewPass !== encNewPass2) return (secErr = "The passphrases don't match.");
+    secBusy = true;
+    try {
+      await enableEncryption(encNewPass);
+      encNewPass = encNewPass2 = "";
+      db = await dbStatus();
+      secMsg = "Encryption is on. You'll need this passphrase each time you open the app.";
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    } finally {
+      secBusy = false;
+    }
+  }
+
+  async function doDisableEncryption() {
+    secReset();
+    if (!encDisablePass) return (secErr = "Enter your current passphrase.");
+    secBusy = true;
+    try {
+      await disableEncryption(encDisablePass);
+      encDisablePass = "";
+      db = await dbStatus();
+      secMsg = "Encryption is off. The journal is now stored unencrypted.";
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    } finally {
+      secBusy = false;
+    }
+  }
+
+  async function doChangePassphrase() {
+    secReset();
+    if (!chgCurrent) return (secErr = "Enter your current passphrase.");
+    if (chgNew.length < 1) return (secErr = "Choose a new passphrase.");
+    if (chgNew !== chgNew2) return (secErr = "The new passphrases don't match.");
+    secBusy = true;
+    try {
+      await changePassphrase(chgCurrent, chgNew);
+      chgCurrent = chgNew = chgNew2 = "";
+      secMsg = "Passphrase changed.";
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    } finally {
+      secBusy = false;
+    }
+  }
+
+  async function doExportBackup() {
+    secReset();
+    try {
+      const path = await save({
+        title: "Save journal backup",
+        defaultPath: `field-notes-backup-${new Date().toISOString().slice(0, 10)}.db`,
+        filters: [{ name: "Field Notes journal", extensions: ["db"] }],
+      });
+      if (!path) return;
+      secBusy = true;
+      await exportBackup(path);
+      secMsg = db.encrypted
+        ? "Backup written. It is encrypted with your current passphrase."
+        : "Backup written (unencrypted — keep it somewhere safe).";
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    } finally {
+      secBusy = false;
+    }
+  }
+
+  async function doImportBackup() {
+    secReset();
+    if (!confirm("Importing a backup replaces your current journal on this device. Continue?")) return;
+    try {
+      const path = await openDialog({
+        title: "Choose a journal backup to restore",
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Field Notes journal", extensions: ["db"] }],
+      });
+      if (!path || typeof path !== "string") return;
+      secBusy = true;
+      await importBackup(path);
+      db = await dbStatus();
+      if (db.unlocked) {
+        secMsg = "Backup restored.";
+        selected = null;
+        await Promise.all([loadJournal(), loadSubstances(), loadUsage()]);
+      } else {
+        // Imported an encrypted journal — send the user back to the unlock gate.
+        secMsg = null;
+        acknowledged = false;
+      }
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    } finally {
+      secBusy = false;
+    }
   }
 
   async function loadJournal() {
@@ -483,6 +656,7 @@
     if (t === "substances") { await loadSubstances(); await loadPwStatus(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadAi();
+    if (t === "data") { secReset(); db = await dbStatus(); }
   }
 
   // ---- DoseWiki reference ----
@@ -551,7 +725,36 @@
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
 </script>
 
-{#if !acknowledged}
+{#if !statusLoaded}
+  <div class="gate">
+    <div class="gate-card">
+      <h1>Field Notes</h1>
+      <p class="muted">Loading…</p>
+    </div>
+  </div>
+{:else if db.encrypted && !db.unlocked}
+  <div class="gate">
+    <div class="gate-card">
+      <h1>Field Notes</h1>
+      <p class="lead">This journal is encrypted. Enter your passphrase to unlock it.</p>
+      <form class="unlock-form" onsubmit={(e) => { e.preventDefault(); doUnlock(); }}>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          type="password"
+          autocomplete="current-password"
+          autofocus
+          placeholder="Passphrase"
+          bind:value={unlockPass}
+        />
+        {#if unlockErr}<p class="notice bad-notice">{unlockErr}</p>{/if}
+        <button class="primary" type="submit" disabled={unlockBusy || !unlockPass}>
+          {unlockBusy ? "Unlocking…" : "Unlock"}
+        </button>
+      </form>
+      <p class="muted small">There is no recovery — if you lose this passphrase, the journal cannot be opened.</p>
+    </div>
+  </div>
+{:else if !acknowledged}
   <div class="gate">
     <div class="gate-card">
       <h1>Field Notes</h1>
@@ -566,6 +769,10 @@
           <li>Your data stays on this computer. Keep it secure.</li>
         </ul>
       </div>
+      <label class="dont-show">
+        <input type="checkbox" bind:checked={dontShowDisclaimer} />
+        Don't show this again on startup
+      </label>
       <button class="primary" onclick={enter}>I understand — continue</button>
     </div>
   </div>
@@ -611,6 +818,7 @@
         <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>By substance</button>
+        <button class:active={tab === "data"} onclick={() => goTab("data")}>Data &amp; security</button>
       </nav>
     </header>
 
@@ -972,6 +1180,80 @@
       </section>
     {/if}
 
+    <!-- ============ DATA & SECURITY ============ -->
+    {#if tab === "data"}
+      {#if secErr}<p class="notice bad-notice">{secErr}</p>{/if}
+      {#if secMsg}<p class="notice good-notice">{secMsg}</p>{/if}
+
+      <section class="card">
+        <h2>Encryption at rest</h2>
+        {#if db.encrypted}
+          <p class="muted small">
+            This journal is <strong>encrypted</strong>. Its contents are unreadable on disk without your
+            passphrase, which you enter each time you open the app.
+          </p>
+
+          <div class="sec-block">
+            <h3>Change passphrase</h3>
+            <input type="password" autocomplete="current-password" placeholder="Current passphrase" bind:value={chgCurrent} />
+            <input type="password" autocomplete="new-password" placeholder="New passphrase" bind:value={chgNew} />
+            <input type="password" autocomplete="new-password" placeholder="Confirm new passphrase" bind:value={chgNew2} />
+            <button class="primary small-btn" disabled={secBusy} onclick={doChangePassphrase}>Change passphrase</button>
+          </div>
+
+          <div class="sec-block">
+            <h3>Turn off encryption</h3>
+            <p class="muted small">Returns the journal to plaintext on this device.</p>
+            <input type="password" autocomplete="current-password" placeholder="Current passphrase" bind:value={encDisablePass} />
+            <button class="ghost small-btn" disabled={secBusy} onclick={doDisableEncryption}>Disable encryption</button>
+          </div>
+        {:else}
+          <p class="muted small">
+            The journal is currently stored <strong>unencrypted</strong>. Turn on encryption to protect it with a
+            passphrase (AES-256 via SQLCipher). You'll enter the passphrase each time you open the app.
+          </p>
+          <p class="notice warn-notice">
+            There is no recovery. If you forget this passphrase, the journal cannot be opened by anyone — including you.
+          </p>
+          <div class="sec-block">
+            <input type="password" autocomplete="new-password" placeholder="Choose a passphrase" bind:value={encNewPass} />
+            <input type="password" autocomplete="new-password" placeholder="Confirm passphrase" bind:value={encNewPass2} />
+            <button class="primary small-btn" disabled={secBusy} onclick={doEnableEncryption}>Enable encryption</button>
+          </div>
+        {/if}
+      </section>
+
+      <section class="card">
+        <h2>Backup &amp; restore</h2>
+        <p class="muted small">
+          A backup is a single-file copy of your whole journal. {db.encrypted
+            ? "It keeps its encryption — you'll need this passphrase to restore or open it elsewhere."
+            : "It is unencrypted, so store it somewhere safe."}
+        </p>
+        <div class="row-actions">
+          <button class="primary small-btn" disabled={secBusy} onclick={doExportBackup}>Export backup…</button>
+          <button class="ghost small-btn" disabled={secBusy} onclick={doImportBackup}>Restore from backup…</button>
+        </div>
+        <p class="muted small">Restoring replaces the journal on this device with the backup's contents.</p>
+      </section>
+
+      <section class="card">
+        <h2>Startup disclaimer</h2>
+        <label class="dont-show">
+          <input
+            type="checkbox"
+            checked={dontShowDisclaimer}
+            onchange={(e) => {
+              dontShowDisclaimer = (e.currentTarget as HTMLInputElement).checked;
+              if (dontShowDisclaimer) localStorage.setItem(HIDE_DISCLAIMER_KEY, "1");
+              else localStorage.removeItem(HIDE_DISCLAIMER_KEY);
+            }}
+          />
+          Skip the disclaimer splash on startup
+        </label>
+      </section>
+    {/if}
+
     <footer>Offline · private · harm-reduction. Not medical advice.</footer>
   </main>
 {/if}
@@ -1095,6 +1377,16 @@
 
   .notice { border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 12%, transparent); border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.5; }
   .notice.bad-notice { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+  .notice.good-notice { border-color: var(--note); background: color-mix(in srgb, var(--note) 12%, transparent); }
+  .notice.warn-notice { border-color: var(--caution); background: color-mix(in srgb, var(--caution) 14%, transparent); }
+
+  .unlock-form { display: flex; flex-direction: column; gap: 0.7rem; margin: 1.2rem 0 0.8rem; }
+  .unlock-form input { padding: 0.6rem 0.7rem; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 1rem; }
+  .dont-show { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.9rem; margin: 1rem 0; cursor: pointer; }
+  .dont-show input { width: auto; }
+  .sec-block { border-top: 1px solid var(--line); margin-top: 1.1rem; padding-top: 1.1rem; display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
+  .sec-block h3 { margin: 0; font-size: 0.98rem; }
+  .sec-block input { padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 16rem; max-width: 24rem; }
   .model-sel { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.6rem; max-width: 55%; }
   .disclaimer { margin-top: 0; }
   .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }

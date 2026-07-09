@@ -242,3 +242,19 @@ export const ollamaUp = () => invoke<boolean>("ollama_up");
 export const ollamaModels = () => invoke<string[]>("ollama_models");
 export const companionChat = (model: string, history: ChatMsg[], experienceId: number | null) =>
   invoke<string>("companion_chat", { model, history, experienceId });
+
+// ---- encryption at rest & backups ----
+export interface DbStatus {
+  /** Is the journal file on disk encrypted (SQLCipher)? */
+  encrypted: boolean;
+  /** Is there a live, usable connection this session? */
+  unlocked: boolean;
+}
+export const dbStatus = () => invoke<DbStatus>("db_status");
+export const unlockDb = (passphrase: string) => invoke<void>("unlock_db", { passphrase });
+export const enableEncryption = (passphrase: string) => invoke<void>("enable_encryption", { passphrase });
+export const disableEncryption = (passphrase: string) => invoke<void>("disable_encryption", { passphrase });
+export const changePassphrase = (current: string, newPassphrase: string) =>
+  invoke<void>("change_passphrase", { current, newPassphrase });
+export const exportBackup = (path: string) => invoke<void>("export_backup", { path });
+export const importBackup = (path: string) => invoke<void>("import_backup", { path });
