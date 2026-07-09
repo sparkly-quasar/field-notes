@@ -4,6 +4,7 @@
 //! rest with a passphrase (SQLCipher).
 
 mod commands;
+mod crisis;
 mod db;
 mod interactions;
 mod obsidian;
@@ -115,6 +116,8 @@ pub fn run() {
             commands::import_backup,
             commands::obsidian_export,
             commands::obsidian_import,
+            commands::crisis_scan,
+            commands::emergency_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");
