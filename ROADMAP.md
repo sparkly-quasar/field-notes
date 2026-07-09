@@ -35,7 +35,7 @@ installer).
 - **Encryption at rest + backup/restore** (`crisis.rs` aside, in `db.rs`/`commands.rs`) —
   opt-in **SQLCipher** passphrase encryption (AES-256); the app opens to an **unlock
   screen** when the journal is encrypted. Enable/disable/change-passphrase and
-  single-file **VACUUM INTO backups** + restore, all in a **Data & security** tab.
+  single-file **VACUUM INTO backups** + restore, all in a **Settings** tab.
   The startup disclaimer can be dismissed ("don't show again"). *(v0.3.0.)*
 - **Obsidian vault sync** (`obsidian.rs`) — **bidirectional, fully offline**. Export
   each experience as a readable Markdown note (frontmatter + doses/timeline) with a
