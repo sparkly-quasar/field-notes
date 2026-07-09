@@ -633,7 +633,7 @@ pub fn unlock_db(app: AppHandle, db: State<'_, Db>, passphrase: String) -> Resul
             return Ok(()); // already unlocked
         }
         let conn = db::open(&db.path, Some(&passphrase))
-            .map_err(|_| "Incorrect passphrase.".to_string())?;
+            .map_err(|_| "Incorrect password.".to_string())?;
         *guard = Some(conn);
     }
     // Repopulate the (in-DB) dose reference from the bundled snapshot, as at startup.
@@ -652,7 +652,7 @@ fn rekey(
 ) -> Result<(), String> {
     if from.map(|k| !k.is_empty()).unwrap_or(false) {
         // Verify the current passphrase against the file before touching state.
-        db::open(path, from).map_err(|_| "Incorrect passphrase.".to_string())?;
+        db::open(path, from).map_err(|_| "Incorrect password.".to_string())?;
     }
     *guard = None; // release the live connection so the file can be rewritten
     if let Err(e) = db::convert(path, from, to) {
@@ -670,7 +670,7 @@ fn rekey(
 #[tauri::command]
 pub fn enable_encryption(db: State<'_, Db>, passphrase: String) -> Result<(), String> {
     if passphrase.is_empty() {
-        return Err("Choose a passphrase.".to_string());
+        return Err("Choose a password.".to_string());
     }
     let mut guard = db.conn.lock().unwrap();
     if guard.is_none() {
@@ -703,7 +703,7 @@ pub fn change_passphrase(
     new_passphrase: String,
 ) -> Result<(), String> {
     if new_passphrase.is_empty() {
-        return Err("Choose a new passphrase.".to_string());
+        return Err("Choose a new password.".to_string());
     }
     let mut guard = db.conn.lock().unwrap();
     if guard.is_none() {
@@ -716,10 +716,22 @@ pub fn change_passphrase(
 }
 
 /// Write a single-file copy of the journal to `path` (chosen via the frontend's
-/// save dialog). The backup keeps the source's encryption state.
+/// save dialog). The backup keeps the source's encryption state; if the journal
+/// is plaintext, an optional `password` encrypts just the backup file.
 #[tauri::command]
-pub fn export_backup(db: State<'_, Db>, path: String) -> Result<(), String> {
-    db.with(|c| db::backup_to(c, Path::new(&path)))
+pub fn export_backup(db: State<'_, Db>, path: String, password: Option<String>) -> Result<(), String> {
+    let dest = Path::new(&path);
+    // VACUUM INTO copies the journal with the same encryption/key as the source.
+    db.with(|c| db::backup_to(c, dest))?;
+    // If the journal is plaintext but the user wants an encrypted backup, encrypt
+    // the copy in place with the chosen password. (An already-encrypted journal's
+    // backup inherits its password, so there's nothing more to do.)
+    if let Some(pw) = password.filter(|p| !p.is_empty()) {
+        if !db::is_encrypted(&db.path) {
+            db::convert(dest, None, Some(&pw))?;
+        }
+    }
+    Ok(())
 }
 
 /// Replace the live journal with the file at `path` (chosen via the frontend's

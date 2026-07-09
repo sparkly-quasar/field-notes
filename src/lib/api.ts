@@ -283,7 +283,8 @@ export const enableEncryption = (passphrase: string) => invoke<void>("enable_enc
 export const disableEncryption = (passphrase: string) => invoke<void>("disable_encryption", { passphrase });
 export const changePassphrase = (current: string, newPassphrase: string) =>
   invoke<void>("change_passphrase", { current, newPassphrase });
-export const exportBackup = (path: string) => invoke<void>("export_backup", { path });
+export const exportBackup = (path: string, password: string | null = null) =>
+  invoke<void>("export_backup", { path, password });
 export const importBackup = (path: string) => invoke<void>("import_backup", { path });
 
 // ---- Obsidian vault sync ----
