@@ -165,6 +165,7 @@
   let aiLog = $state<string[]>([]);
   let aiBusy = $state(false);
   let aiErr = $state<string | null>(null);
+  let showModels = $state(false); // "manage models" panel toggle
   const aiReady = $derived(!!ai && ai.running && ai.models.length > 0);
 
   // app self-update
@@ -991,12 +992,12 @@
     <header>
       <h1>Field Notes</h1>
       <nav>
-        <button class="help-btn" title="Emergency & support resources" onclick={openHelp}>Get help now</button>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
         <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>By substance</button>
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Data &amp; security</button>
+        <button title="Emergency &amp; support resources" onclick={openHelp}>Emergency Resources</button>
       </nav>
     </header>
 
@@ -1232,9 +1233,14 @@
         <div class="exp-head">
           <h2>Companion</h2>
           {#if aiReady}
-            <select bind:value={aiModel} class="model-sel">
-              {#each ai?.models ?? [] as m}<option value={m}>{m}</option>{/each}
-            </select>
+            <span class="row-actions">
+              <select bind:value={aiModel} class="model-sel" title="Model the Companion talks to">
+                {#each ai?.models ?? [] as m}<option value={m}>{m}</option>{/each}
+              </select>
+              <button class="ghost small-btn" onclick={() => (showModels = !showModels)}>
+                {showModels ? "Close" : "Models…"}
+              </button>
+            </span>
           {/if}
         </div>
 
@@ -1249,6 +1255,31 @@
             A calm harm-reduction companion, running locally. Not medical advice. In an emergency,
             contact emergency services or poison control.
           </p>
+
+          {#if showModels}
+            <div class="models-panel">
+              <p class="muted small">
+                Installed: {(ai?.models ?? []).join(", ") || "none"}. The active model above is used by both
+                the Companion and text-import. Download another to switch between them — everything runs locally.
+              </p>
+              <div class="pull-row">
+                <input placeholder="Model tag to download, e.g. llama3.1:8b" bind:value={aiPullTag} list="rec-models" />
+                <datalist id="rec-models">
+                  {#each aiRecommended as [tag, label]}<option value={tag}>{label}</option>{/each}
+                </datalist>
+                <button class="primary small-btn" disabled={aiBusy || !aiPullTag.trim()} onclick={doPull}>
+                  {aiBusy ? "Downloading…" : "Download"}
+                </button>
+              </div>
+              <div class="style-chips">
+                {#each aiRecommended as [tag, label]}
+                  <button type="button" class="chip" class:on={aiPullTag === tag} onclick={() => (aiPullTag = tag)}>{label}</button>
+                {/each}
+              </div>
+              {#if aiErr}<p class="notice bad-notice">{aiErr}</p>{/if}
+              {#if aiLog.length}<pre class="ai-log">{aiLog.slice(-14).join("\n")}</pre>{/if}
+            </div>
+          {/if}
 
           <label class="share">
             <input type="checkbox" bind:checked={cShareSession} />
@@ -1741,6 +1772,9 @@
   .help-modal h2 { margin-top: 0; }
 
   /* ---- support style intake ---- */
+  .models-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .pull-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .pull-row input { flex: 1; min-width: 14rem; padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
   .support-style { margin: 0.8rem 0; display: flex; flex-direction: column; gap: 0.5rem; }
   .style-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .actions-note { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
