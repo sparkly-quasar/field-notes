@@ -1044,7 +1044,7 @@
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
         <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
-        <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>By substance</button>
+        <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
         <button title="Emergency &amp; support resources" onclick={openHelp}>Emergency Resources</button>
       </nav>
@@ -1430,7 +1430,7 @@
     <!-- ============ BY SUBSTANCE ============ -->
     {#if tab === "bysub"}
       <section class="card">
-        <h2>By substance</h2>
+        <h2>Substance Log</h2>
         {#if usage.length}
           {#each usage as u}
             <div class="usage">

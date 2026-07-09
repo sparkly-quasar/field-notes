@@ -58,7 +58,7 @@ anywhere.
   covers substances you add yourself once they're classified.
 - **Substances** — catalogue substances, assign interaction classes (common ones
   are auto-classified), keep your own dose notes.
-- **By substance** — every dose grouped by substance, so you can see your history
+- **Substance Log** — every dose grouped by substance, so you can see your history
   and typical dosages at a glance.
 
 ## Architecture
