@@ -41,7 +41,7 @@ anywhere.
   active session escalates it automatically.
 - **Encryption at rest & backups** — opt-in **SQLCipher** passphrase encryption
   (AES-256); when on, the app opens to an unlock screen. Single-file **backup &
-  restore**, plus enable/disable/change-passphrase, in a **Data & security** tab.
+  restore**, plus enable/disable/change-password, in a **Settings** tab.
 - **Obsidian vault sync** — export each experience to an Obsidian vault as a
   readable Markdown note and import them back — **bidirectional and fully offline**;
   hand-written notes are left untouched.
