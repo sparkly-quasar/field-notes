@@ -147,6 +147,12 @@ CREATE TABLE IF NOT EXISTS pw_substances (
 );
 "#;
 
+/// The schema, for tests in sibling modules that build an in-memory DB directly.
+#[cfg(test)]
+pub(crate) fn schema_for_tests() -> &'static str {
+    SCHEMA
+}
+
 // ---------- models ----------
 
 #[derive(Debug, Clone, Serialize)]
