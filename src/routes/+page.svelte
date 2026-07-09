@@ -42,6 +42,9 @@
     importBackup,
     obsidianExport,
     obsidianImport,
+    dataDir,
+    revealDataDir,
+    wipeAllData,
     type DbStatus,
     type ParsedExperience,
     type PwInfo,
@@ -59,6 +62,7 @@
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
   import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { exit } from "@tauri-apps/plugin-process";
 
   type Tab = "journal" | "companion" | "substances" | "bysub" | "data";
 
@@ -89,6 +93,9 @@
   let bkEncrypt = $state(false);
   let bkPassword = $state("");
   let bkPassword2 = $state("");
+  // erase / uninstall
+  let dataDirPath = $state("");
+  const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
   // Obsidian vault sync
   const VAULT_KEY = "fieldnotes.vaultFolder";
@@ -456,6 +463,50 @@
     } finally {
       secBusy = false;
     }
+  }
+
+  // ---- erase all data / uninstall ----
+  async function showDataFolder() {
+    secReset();
+    try {
+      await revealDataDir();
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    }
+  }
+
+  async function eraseAllData() {
+    secReset();
+    if (!confirm("Erase ALL Field Notes data on this device?\n\nThis permanently deletes every experience, dose, note, substance, and setting, and turns off encryption. It cannot be undone.")) return;
+    if (!confirm("Last chance — there is no recovery. Really erase everything?")) return;
+    secBusy = true;
+    try {
+      await wipeAllData();
+      // Clear locally-stored preferences too.
+      localStorage.removeItem(HIDE_DISCLAIMER_KEY);
+      localStorage.removeItem(VAULT_KEY);
+      localStorage.removeItem("fn.model");
+      // Reset in-memory state to a fresh journal.
+      selected = null;
+      experiences = [];
+      substances = [];
+      usage = [];
+      cMessages = [];
+      supportStyle = "";
+      vaultFolder = "";
+      dontShowDisclaimer = false;
+      db = await dbStatus();
+      await Promise.all([loadJournal(), loadSubstances()]);
+      secMsg = "All data erased. You can keep using a fresh journal, or quit and remove the app.";
+    } catch (e) {
+      secErr = typeof e === "string" ? e : String(e);
+    } finally {
+      secBusy = false;
+    }
+  }
+
+  async function quitApp() {
+    await exit(0);
   }
 
   async function loadJournal() {
@@ -828,7 +879,7 @@
     if (t === "substances") { await loadSubstances(); await loadPwStatus(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadAi();
-    if (t === "data") { secReset(); db = await dbStatus(); }
+    if (t === "data") { secReset(); db = await dbStatus(); dataDirPath = await dataDir(); }
   }
 
   // ---- DoseWiki reference ----
@@ -1520,6 +1571,47 @@
           Skip the disclaimer splash on startup
         </label>
       </section>
+
+      <section class="card danger-card">
+        <h2>Erase &amp; uninstall</h2>
+        <p class="muted small">
+          Your journal lives entirely on this device, in:
+        </p>
+        {#if dataDirPath}
+          <div class="vault-pick">
+            <input readonly value={dataDirPath} />
+            <button class="ghost small-btn" disabled={secBusy} onclick={showDataFolder}>Show folder</button>
+          </div>
+        {/if}
+
+        <div class="sec-block">
+          <h3>Erase all data</h3>
+          <p class="muted small">
+            Permanently delete every experience, dose, note, substance, and setting on this device, and turn off
+            encryption. This cannot be undone. Backups you've exported and notes already in an Obsidian vault are
+            <em>not</em> touched.
+          </p>
+          <button class="danger-btn" disabled={secBusy} onclick={eraseAllData}>Erase all data…</button>
+        </div>
+
+        <div class="sec-block">
+          <h3>Remove the app</h3>
+          {#if isMac}
+            <p class="muted small">
+              Quit Field Notes, then open <strong>Applications</strong> and drag <strong>Field Notes</strong> to the
+              Trash. To leave nothing behind, also delete the data folder above (erase your data first, or just
+              delete the folder).
+            </p>
+          {:else}
+            <p class="muted small">
+              Quit Field Notes, then remove it the way you installed it — delete the <code>.AppImage</code>, or
+              <code>sudo apt remove field-notes</code> / <code>sudo dnf remove field-notes</code>. To leave nothing
+              behind, also delete the data folder above.
+            </p>
+          {/if}
+          <button class="ghost small-btn" disabled={secBusy} onclick={quitApp}>Quit Field Notes</button>
+        </div>
+      </section>
     {/if}
 
     <footer>Offline · private · harm-reduction. Not medical advice.</footer>
@@ -1775,6 +1867,10 @@
   /* ---- crisis banner + emergency resources ---- */
   .help-btn { background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 600; cursor: pointer; }
   .help-btn:hover { filter: brightness(1.08); }
+  .danger-card { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+  .danger-btn { background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.45rem 0.9rem; font-weight: 600; cursor: pointer; }
+  .danger-btn:hover:not(:disabled) { filter: brightness(1.08); }
+  .danger-btn:disabled { opacity: 0.55; cursor: default; }
   .crisis-banner { border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1rem; border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 14%, var(--card)); }
   .crisis-banner.psychiatric, .crisis-banner.medical { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--card)); }
   .crisis-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }

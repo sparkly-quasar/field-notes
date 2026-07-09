@@ -300,3 +300,8 @@ export const obsidianExport = (folder: string) =>
   invoke<ObsidianExportResult>("obsidian_export", { folder });
 export const obsidianImport = (folder: string) =>
   invoke<ObsidianImportResult>("obsidian_import", { folder });
+
+// ---- erase all data / uninstall ----
+export const dataDir = () => invoke<string>("data_dir");
+export const revealDataDir = () => invoke<void>("reveal_data_dir");
+export const wipeAllData = () => invoke<void>("wipe_all_data");

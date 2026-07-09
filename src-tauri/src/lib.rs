@@ -118,6 +118,9 @@ pub fn run() {
             commands::obsidian_import,
             commands::crisis_scan,
             commands::emergency_resources,
+            commands::data_dir,
+            commands::reveal_data_dir,
+            commands::wipe_all_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");
