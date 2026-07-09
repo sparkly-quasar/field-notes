@@ -31,7 +31,6 @@
     type CrisisResource,
     parseExperience,
     importExperience,
-    pwUpdate,
     pwStatus,
     pwLookup,
     dbStatus,
@@ -117,8 +116,6 @@
 
   // DoseWiki reference data
   let pwStat = $state<PwStatus | null>(null);
-  let pwBusy = $state(false);
-  let pwErr = $state<string | null>(null);
   let dRef = $state<PwInfo | null>(null); // reference for the dose being logged
 
   // import-from-text state
@@ -825,18 +822,6 @@
   async function loadPwStatus() {
     pwStat = await pwStatus();
   }
-  async function updatePw() {
-    pwBusy = true;
-    pwErr = null;
-    try {
-      await pwUpdate();
-      pwStat = await pwStatus();
-    } catch (e) {
-      pwErr = typeof e === "string" ? e : String(e);
-    } finally {
-      pwBusy = false;
-    }
-  }
   async function lookupRef(name: string) {
     dRef = name.trim() ? await pwLookup(name.trim()) : null;
   }
@@ -1332,18 +1317,13 @@
     <!-- ============ SUBSTANCES ============ -->
     {#if tab === "substances"}
       <section class="card ref-card">
-        <div class="exp-head">
-          <h2>Dose reference</h2>
-          <button class="primary small-btn" disabled={pwBusy} onclick={updatePw}>{pwBusy ? "Reloading…" : "Reload reference"}</button>
-        </div>
+        <h2>Dose reference</h2>
         {#if pwStat && pwStat.count > 0}
           <p class="muted small">{pwStat.count} substances bundled offline{pwStat.snapshot ? ` · snapshot ${pwStat.snapshot}` : ""}. Dose ranges, durations &amp; graded interactions show while you log.</p>
         {:else}
           <p class="muted small">Dose ranges, durations, and graded interaction data for hundreds of substances, bundled with the app — fully offline. Nothing is ever sent when you look things up.</p>
         {/if}
-        {#if pwBusy}<p class="muted small">Reloading the bundled reference…</p>{/if}
-        {#if pwErr}<p class="notice bad-notice">{pwErr}</p>{/if}
-        <p class="muted attribution">Dose data from <strong>DoseWiki</strong> (dose.wiki), dedicated to the public domain under CC0. Reference only — not a prescription.</p>
+        <p class="muted attribution">Dose data from <strong>DoseWiki</strong> (dose.wiki), dedicated to the public domain under CC0. Reference only — not a prescription. Updates ship with new versions of the app.</p>
       </section>
 
       <section class="card">
