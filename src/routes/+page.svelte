@@ -37,6 +37,8 @@
     changePassphrase,
     exportBackup,
     importBackup,
+    obsidianExport,
+    obsidianImport,
     type DbStatus,
     type ParsedExperience,
     type PwInfo,
@@ -80,6 +82,13 @@
   let chgCurrent = $state("");
   let chgNew = $state("");
   let chgNew2 = $state("");
+
+  // Obsidian vault sync
+  const VAULT_KEY = "fieldnotes.vaultFolder";
+  let vaultFolder = $state("");
+  let obsBusy = $state(false);
+  let obsErr = $state<string | null>(null);
+  let obsMsg = $state<string | null>(null);
 
   let experiences = $state<ExperienceSummary[]>([]);
   let substances = $state<Substance[]>([]);
@@ -180,6 +189,7 @@
     interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
+    vaultFolder = localStorage.getItem(VAULT_KEY) ?? "";
     loadDbStatus();
     const un = listen<string>("ai-progress", (e) => {
       aiLog = [...aiLog.slice(-200), e.payload];
@@ -325,6 +335,49 @@
       secErr = typeof e === "string" ? e : String(e);
     } finally {
       secBusy = false;
+    }
+  }
+
+  async function chooseVaultFolder() {
+    obsErr = obsMsg = null;
+    try {
+      const path = await openDialog({ title: "Choose a folder in your Obsidian vault", directory: true, multiple: false });
+      if (!path || typeof path !== "string") return;
+      vaultFolder = path;
+      localStorage.setItem(VAULT_KEY, path);
+    } catch (e) {
+      obsErr = typeof e === "string" ? e : String(e);
+    }
+  }
+
+  async function doObsidianExport() {
+    obsErr = obsMsg = null;
+    if (!vaultFolder) return (obsErr = "Choose a vault folder first.");
+    obsBusy = true;
+    try {
+      const r = await obsidianExport(vaultFolder);
+      obsMsg = `Exported ${r.written} note${r.written === 1 ? "" : "s"} to your vault.`;
+    } catch (e) {
+      obsErr = typeof e === "string" ? e : String(e);
+    } finally {
+      obsBusy = false;
+    }
+  }
+
+  async function doObsidianImport() {
+    obsErr = obsMsg = null;
+    if (!vaultFolder) return (obsErr = "Choose a vault folder first.");
+    if (!confirm("Importing pulls experiences from the vault into this journal. For any experience already here, the vault's version wins. Continue?")) return;
+    obsBusy = true;
+    try {
+      const r = await obsidianImport(vaultFolder);
+      obsMsg = `Imported from vault — ${r.created} new, ${r.updated} updated, ${r.skipped} skipped.`;
+      selected = null;
+      await Promise.all([loadJournal(), loadSubstances(), loadUsage()]);
+    } catch (e) {
+      obsErr = typeof e === "string" ? e : String(e);
+    } finally {
+      obsBusy = false;
     }
   }
 
@@ -1238,6 +1291,29 @@
       </section>
 
       <section class="card">
+        <h2>Obsidian vault sync</h2>
+        <p class="muted small">
+          Keep a copy of your journal in an Obsidian vault as Markdown notes — one per experience, with a
+          readable summary you can annotate. Fully offline; nothing leaves your device.
+        </p>
+        {#if obsErr}<p class="notice bad-notice">{obsErr}</p>{/if}
+        {#if obsMsg}<p class="notice good-notice">{obsMsg}</p>{/if}
+
+        <div class="vault-pick">
+          <input readonly placeholder="No vault folder chosen" value={vaultFolder} />
+          <button class="ghost small-btn" disabled={obsBusy} onclick={chooseVaultFolder}>Choose folder…</button>
+        </div>
+        <div class="row-actions">
+          <button class="primary small-btn" disabled={obsBusy || !vaultFolder} onclick={doObsidianExport}>Export to vault →</button>
+          <button class="ghost small-btn" disabled={obsBusy || !vaultFolder} onclick={doObsidianImport}>← Import from vault</button>
+        </div>
+        <p class="muted small">
+          Export overwrites this app's own notes in that folder (app → vault). Import pulls experiences back in;
+          for anything already here, the vault's copy wins (vault → app). Hand-written notes are left untouched.
+        </p>
+      </section>
+
+      <section class="card">
         <h2>Startup disclaimer</h2>
         <label class="dont-show">
           <input
@@ -1387,6 +1463,8 @@
   .sec-block { border-top: 1px solid var(--line); margin-top: 1.1rem; padding-top: 1.1rem; display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
   .sec-block h3 { margin: 0; font-size: 0.98rem; }
   .sec-block input { padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 16rem; max-width: 24rem; }
+  .vault-pick { display: flex; gap: 0.6rem; align-items: center; margin: 0.9rem 0; flex-wrap: wrap; }
+  .vault-pick input { flex: 1; min-width: 14rem; padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); }
   .model-sel { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.6rem; max-width: 55%; }
   .disclaimer { margin-top: 0; }
   .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }

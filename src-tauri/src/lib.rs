@@ -6,6 +6,7 @@
 mod commands;
 mod db;
 mod interactions;
+mod obsidian;
 mod ollama;
 mod pw;
 
@@ -112,6 +113,8 @@ pub fn run() {
             commands::change_passphrase,
             commands::export_backup,
             commands::import_backup,
+            commands::obsidian_export,
+            commands::obsidian_import,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Field Notes");

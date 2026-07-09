@@ -258,3 +258,17 @@ export const changePassphrase = (current: string, newPassphrase: string) =>
   invoke<void>("change_passphrase", { current, newPassphrase });
 export const exportBackup = (path: string) => invoke<void>("export_backup", { path });
 export const importBackup = (path: string) => invoke<void>("import_backup", { path });
+
+// ---- Obsidian vault sync ----
+export interface ObsidianExportResult {
+  written: number;
+}
+export interface ObsidianImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+export const obsidianExport = (folder: string) =>
+  invoke<ObsidianExportResult>("obsidian_export", { folder });
+export const obsidianImport = (folder: string) =>
+  invoke<ObsidianImportResult>("obsidian_import", { folder });

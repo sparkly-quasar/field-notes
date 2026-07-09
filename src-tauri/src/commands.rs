@@ -475,3 +475,17 @@ pub fn import_backup(app: AppHandle, db: State<'_, Db>, path: String) -> Result<
     refresh_dose_reference(&app, db.inner());
     Ok(())
 }
+
+// ---------- Obsidian vault sync ----------
+
+/// Export every experience to the chosen Obsidian vault folder as Markdown notes.
+#[tauri::command]
+pub fn obsidian_export(db: State<'_, Db>, folder: String) -> Result<crate::obsidian::ExportResult, String> {
+    db.with(|c| Ok(crate::obsidian::export_all(c, Path::new(&folder))))?
+}
+
+/// Import Field Notes notes from the chosen Obsidian vault folder back into the journal.
+#[tauri::command]
+pub fn obsidian_import(db: State<'_, Db>, folder: String) -> Result<crate::obsidian::ImportResult, String> {
+    db.with(|c| Ok(crate::obsidian::import_all(c, Path::new(&folder))))?
+}
