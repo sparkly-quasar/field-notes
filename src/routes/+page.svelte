@@ -25,6 +25,10 @@
     aiStart,
     aiPull,
     companionChat,
+    crisisScan,
+    emergencyResources,
+    type CrisisResult,
+    type CrisisResource,
     parseExperience,
     importExperience,
     pwUpdate,
@@ -174,6 +178,35 @@
   let cInput = $state("");
   let cSending = $state(false);
   let cShareSession = $state(true);
+  let cActions = $state<string[]>([]); // journal actions the companion took this reply
+
+  // support style (session intake) — honored by the companion
+  const SUPPORT_STYLES = [
+    "Mostly just listen",
+    "Help me stay grounded",
+    "Talk me through the hard parts",
+    "Stay quiet unless I reach out",
+    "Gentle periodic check-ins",
+    "Practical reminders (water, rest, breathing)",
+  ];
+  let supportStyle = $state("");
+
+  // deterministic crisis layer (independent of the model)
+  let crisis = $state<CrisisResult | null>(null);
+  let showHelp = $state(false); // emergency-resources / panic screen
+  let helpResources = $state<CrisisResource[]>([]);
+
+  // live session mode
+  let liveSession = $state(false);
+  let lsNow = $state(Date.now());
+  let lsTimer: ReturnType<typeof setInterval> | null = null;
+  // quick-log within the live session
+  let qSub = $state("");
+  let qAmt = $state("");
+  let qUnit = $state("mg");
+  let qRoute = $state("oral");
+  let qNote = $state("");
+  let lsNote = $state("");
 
   const nowIso = () => new Date().toISOString();
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -194,7 +227,10 @@
     const un = listen<string>("ai-progress", (e) => {
       aiLog = [...aiLog.slice(-200), e.payload];
     });
-    return () => un.then((f) => f());
+    return () => {
+      un.then((f) => f());
+      if (lsTimer) clearInterval(lsTimer);
+    };
   });
 
   // Decide the startup screen: a locked encrypted journal shows the unlock
@@ -683,23 +719,95 @@
     }
   }
 
-  // the experience the companion is aware of (most recent), if sharing is on
+  // the experience the companion is aware of — the live-session one if active,
+  // otherwise the most recent (when sharing is on)
   const attachedExp = $derived(cShareSession && experiences.length ? experiences[0] : null);
+  const companionExpId = $derived(
+    liveSession && selected ? selected.id : attachedExp ? attachedExp.id : null,
+  );
+
+  async function refreshSelected() {
+    if (selected) selected = await getExperience(selected.id);
+  }
 
   async function sendCompanion() {
     if (!cInput.trim() || !aiModel || cSending) return;
-    const history: ChatMsg[] = [...cMessages, { role: "user", content: cInput.trim() }];
+    const text = cInput.trim();
+    const history: ChatMsg[] = [...cMessages, { role: "user", content: text }];
     cMessages = history;
     cInput = "";
     cSending = true;
+    cActions = [];
+    // The deterministic crisis layer runs independently of the model's reply.
+    crisisScan(text, companionExpId)
+      .then((r) => { if (r.level !== "none") crisis = r; })
+      .catch(() => {});
     try {
-      const reply = await companionChat(aiModel, history, attachedExp ? attachedExp.id : null);
-      cMessages = [...cMessages, { role: "assistant", content: reply }];
+      const res = await companionChat(aiModel, history, companionExpId, supportStyle || null);
+      cMessages = [...cMessages, { role: "assistant", content: res.reply || "…" }];
+      cActions = res.actions;
+      if (res.journal_changed) {
+        await loadJournal();
+        await refreshSelected();
+      }
     } catch (e) {
       cMessages = [...cMessages, { role: "assistant", content: `⚠️ ${typeof e === "string" ? e : String(e)}` }];
     } finally {
       cSending = false;
     }
+  }
+
+  // ---- crisis / emergency resources ----
+  async function openHelp() {
+    helpResources = await emergencyResources();
+    showHelp = true;
+  }
+
+  // ---- live session ----
+  function startLiveSession() {
+    if (!selected) return;
+    liveSession = true;
+    lsNow = Date.now();
+    lsTimer = setInterval(() => (lsNow = Date.now()), 1000);
+  }
+  function endLiveSession() {
+    liveSession = false;
+    if (lsTimer) { clearInterval(lsTimer); lsTimer = null; }
+  }
+  function elapsedSince(iso: string): string {
+    const ms = Math.max(0, lsNow - new Date(iso).getTime());
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  async function quickLog() {
+    if (!selected || !qSub.trim()) return;
+    const n = qAmt.trim() === "" ? null : Number(qAmt);
+    const res = await logDose({
+      experience_id: selected.id,
+      substance_name: qSub.trim(),
+      amount: n !== null && Number.isFinite(n) ? n : null,
+      unit: qUnit || "mg",
+      route: qRoute,
+      taken_at: nowIso(),
+      note: qNote,
+    });
+    qSub = ""; qAmt = ""; qNote = "";
+    if (res.warnings.length) lastWarnings = res.warnings;
+    await refreshSelected();
+    await loadJournal();
+    // A newly dangerous combination should raise the crisis banner deterministically.
+    const c = await crisisScan("", selected.id);
+    if (c.level !== "none") crisis = c;
+  }
+
+  async function quickNote() {
+    if (!selected || !lsNote.trim()) return;
+    await addTimelineEvent({ experience_id: selected.id, at: nowIso(), note: lsNote.trim(), mood: "", intensity: null });
+    lsNote = "";
+    await refreshSelected();
   }
 
   async function goTab(t: Tab) {
@@ -864,9 +972,26 @@
         {/if}
       </div>
     {/if}
+
+    {#if crisis && crisis.level !== "none"}
+      <div class="crisis-banner {crisis.level}">
+        <div class="crisis-head">
+          <strong>{crisis.headline}</strong>
+          <button class="icon-btn" title="Dismiss" onclick={() => (crisis = null)}>✕</button>
+        </div>
+        <ul class="crisis-res">
+          {#each crisis.resources as r}
+            <li><strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}<br /><span class="muted small">{r.detail}</span></li>
+          {/each}
+        </ul>
+        <p class="muted small">This is an automatic safety prompt, not a diagnosis. You know your situation best — reaching out for help is always okay.</p>
+      </div>
+    {/if}
+
     <header>
       <h1>Field Notes</h1>
       <nav>
+        <button class="help-btn" title="Emergency & support resources" onclick={openHelp}>Get help now</button>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
         <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
@@ -883,6 +1008,7 @@
           <div class="exp-head">
             <h2>{selected.title || "Untitled experience"}</h2>
             <span class="row-actions">
+              {#if !selected.ended_at}<button class="primary small-btn" onclick={startLiveSession}>Live session</button>{/if}
               {#if !editExp}<button class="link" onclick={startEditExp}>Edit</button>{/if}
               <button class="link danger-link" onclick={delExp}>Delete</button>
             </span>
@@ -1130,15 +1256,35 @@
             {#if attachedExp}<span class="muted small"> · aware of “{attachedExp.title || "Untitled"}”</span>{/if}
           </label>
 
+          <div class="support-style">
+            <span class="muted small">What kind of support do you want?</span>
+            <div class="style-chips">
+              {#each SUPPORT_STYLES as sstyle}
+                <button
+                  type="button"
+                  class="chip"
+                  class:on={supportStyle === sstyle}
+                  onclick={() => (supportStyle = supportStyle === sstyle ? "" : sstyle)}
+                >{sstyle}</button>
+              {/each}
+            </div>
+          </div>
+
           <div class="chat">
             {#if !cMessages.length}
-              <p class="muted small chat-empty">Say hello, or ask about how you're feeling. It can see your logged doses if sharing is on.</p>
+              <p class="muted small chat-empty">Say hello, or ask about how you're feeling. If a session is shared it can see your doses — and, at your request, log doses or notes for you.</p>
             {/if}
             {#each cMessages as m}
               <div class="bubble {m.role}">{m.content}</div>
             {/each}
             {#if cSending}<div class="bubble assistant muted">…</div>{/if}
           </div>
+
+          {#if cActions.length}
+            <div class="actions-note">
+              {#each cActions as a}<span class="action-chip">✓ {a}</span>{/each}
+            </div>
+          {/if}
 
           <div class="chat-input">
             <input
@@ -1332,6 +1478,107 @@
 
     <footer>Offline · private · harm-reduction. Not medical advice.</footer>
   </main>
+
+  <!-- ============ EMERGENCY / PANIC RESOURCES ============ -->
+  {#if showHelp}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="modal-overlay" role="presentation" onclick={() => (showHelp = false)}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="help-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+        <h2>Get help now</h2>
+        <p class="muted small">
+          You're not alone. These lines are staffed by people who want to help, and calling is always okay.
+          Field Notes is not an emergency service.
+        </p>
+        <ul class="crisis-res">
+          {#each helpResources as r}
+            <li>
+              <strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}
+              <br /><span class="muted small">{r.detail}</span>
+            </li>
+          {/each}
+        </ul>
+        <button class="primary" onclick={() => (showHelp = false)}>Close</button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- ============ LIVE SESSION ============ -->
+  {#if liveSession && selected}
+    <div class="live">
+      <div class="live-bar">
+        <div>
+          <div class="live-title">{selected.title || "Live session"}</div>
+          <div class="muted">Started {fmtTime(selected.started_at)} · {elapsedSince(selected.started_at)} in</div>
+        </div>
+        <div class="row-actions">
+          <button class="help-btn" onclick={openHelp}>Get help now</button>
+          <button class="ghost" onclick={endLiveSession}>Exit</button>
+        </div>
+      </div>
+
+      <div class="live-body">
+        <section class="live-timeline">
+          <h3>Doses</h3>
+          {#if selected.doses.length}
+            <ul class="live-doses">
+              {#each selected.doses as d}
+                <li><span class="muted">{fmtTime(d.taken_at)}</span> — {d.substance_name} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="muted">Nothing logged yet.</p>
+          {/if}
+
+          <h3>Quick log</h3>
+          <div class="quick-log">
+            <input placeholder="Substance" bind:value={qSub} />
+            <input placeholder="Amount" inputmode="decimal" bind:value={qAmt} />
+            <input placeholder="Unit" bind:value={qUnit} />
+            <input placeholder="Route" bind:value={qRoute} />
+            <button class="primary" disabled={!qSub.trim()} onclick={quickLog}>Log dose</button>
+          </div>
+
+          <h3>Timeline</h3>
+          <div class="quick-log">
+            <input placeholder="How are you feeling right now?" bind:value={lsNote} onkeydown={(e) => e.key === "Enter" && quickNote()} />
+            <button class="primary" disabled={!lsNote.trim()} onclick={quickNote}>Add note</button>
+          </div>
+          {#if selected.timeline.length}
+            <ul class="live-events">
+              {#each selected.timeline as t}
+                <li><span class="muted">{fmtTime(t.at)}</span> {t.note}</li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+
+        <section class="live-companion">
+          <h3>Companion</h3>
+          {#if !aiReady}
+            <p class="muted">The local companion isn't set up. You can still log and use the timeline.</p>
+          {:else}
+            <div class="chat live-chat">
+              {#if !cMessages.length}
+                <p class="muted chat-empty">I'm here with you. Say anything — or just check in.</p>
+              {/if}
+              {#each cMessages as m}
+                <div class="bubble {m.role}">{m.content}</div>
+              {/each}
+              {#if cSending}<div class="bubble assistant muted">…</div>{/if}
+            </div>
+            {#if cActions.length}
+              <div class="actions-note">{#each cActions as a}<span class="action-chip">✓ {a}</span>{/each}</div>
+            {/if}
+            <div class="chat-input">
+              <input placeholder="Talk to your companion…" bind:value={cInput} onkeydown={(e) => e.key === "Enter" && sendCompanion()} />
+              <button class="primary" disabled={cSending} onclick={sendCompanion}>Send</button>
+            </div>
+          {/if}
+        </section>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -1478,4 +1725,36 @@
   .chat-input input { flex: 1; }
 
   footer { margin-top: 1.6rem; text-align: center; color: var(--muted); font-size: 0.8rem; }
+
+  /* ---- crisis banner + emergency resources ---- */
+  .help-btn { background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 600; cursor: pointer; }
+  .help-btn:hover { filter: brightness(1.08); }
+  .crisis-banner { border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1rem; border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 14%, var(--card)); }
+  .crisis-banner.psychiatric, .crisis-banner.medical { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--card)); }
+  .crisis-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .crisis-res { list-style: none; padding: 0; margin: 0.7rem 0; display: flex; flex-direction: column; gap: 0.6rem; }
+  .crisis-res .contact { font-variant-numeric: tabular-nums; }
+  .crisis-res li { line-height: 1.4; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; padding: 1.5rem; z-index: 50; }
+  .help-modal { background: var(--card); border: 1px solid var(--danger); border-radius: 16px; padding: 1.6rem; max-width: 520px; width: 100%; }
+  .help-modal h2 { margin-top: 0; }
+
+  /* ---- support style intake ---- */
+  .support-style { margin: 0.8rem 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  .style-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .actions-note { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+  .action-chip { font-size: 0.8rem; color: var(--note); border: 1px solid var(--note); border-radius: 999px; padding: 0.15rem 0.6rem; }
+
+  /* ---- live session ---- */
+  .live { position: fixed; inset: 0; background: var(--bg); z-index: 40; display: flex; flex-direction: column; padding: 1.2rem clamp(1rem, 4vw, 3rem); overflow-y: auto; }
+  .live-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
+  .live-title { font-size: 1.5rem; font-weight: 700; }
+  .live-body { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.2rem; align-items: start; }
+  @media (max-width: 780px) { .live-body { grid-template-columns: 1fr; } }
+  .live-timeline h3, .live-companion h3 { margin: 1.1rem 0 0.5rem; }
+  .live-doses, .live-events { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; font-size: 1.05rem; }
+  .quick-log { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .quick-log input { flex: 1; min-width: 6rem; padding: 0.55rem 0.7rem; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 1rem; }
+  .live-chat { min-height: 200px; max-height: 42vh; }
 </style>

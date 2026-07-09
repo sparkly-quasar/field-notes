@@ -317,26 +317,295 @@ pub fn import_experience(db: State<'_, Db>, parsed: ollama::ParsedExperience) ->
     Ok(exp)
 }
 
+#[derive(Serialize)]
+pub struct CompanionReply {
+    pub reply: String,
+    /// Human-readable descriptions of any journal actions the model took.
+    pub actions: Vec<String>,
+    /// True if the model changed the journal (so the UI should refresh).
+    pub journal_changed: bool,
+}
+
+fn sys(content: impl Into<String>) -> serde_json::Value {
+    serde_json::json!({ "role": "system", "content": content.into() })
+}
+
+/// Tool definitions offered to the Companion during an active session.
+fn companion_tools() -> serde_json::Value {
+    serde_json::json!([
+        { "type": "function", "function": {
+            "name": "log_dose",
+            "description": "Record a dose the person reports having just taken, in the current session. Only call this when they clearly state they took something. Never suggest or initiate dosing.",
+            "parameters": { "type": "object", "properties": {
+                "substance": { "type": "string" },
+                "amount": { "type": "number", "description": "amount taken; omit if unknown" },
+                "unit": { "type": "string", "description": "e.g. mg, g, ug, ml" },
+                "route": { "type": "string", "description": "e.g. oral, insufflated, sublingual" },
+                "note": { "type": "string" }
+            }, "required": ["substance"] }
+        }},
+        { "type": "function", "function": {
+            "name": "add_note",
+            "description": "Add a note/feeling to the session timeline at the current time.",
+            "parameters": { "type": "object", "properties": {
+                "note": { "type": "string" },
+                "mood": { "type": "string" },
+                "intensity": { "type": "integer", "description": "1-10 subjective intensity, if given" }
+            }, "required": ["note"] }
+        }},
+        { "type": "function", "function": {
+            "name": "session_status",
+            "description": "Get a summary of the current session: doses logged so far and any known interaction flags. Use for 'how am I doing?'.",
+            "parameters": { "type": "object", "properties": {} }
+        }},
+        { "type": "function", "function": {
+            "name": "lookup_dose",
+            "description": "Look up the bundled dose reference (ranges, duration) for a substance. Facts only — never a prescription.",
+            "parameters": { "type": "object", "properties": {
+                "substance": { "type": "string" }
+            }, "required": ["substance"] }
+        }},
+        { "type": "function", "function": {
+            "name": "check_interactions",
+            "description": "Check known interaction risks between two or more substances using the deterministic safety checker.",
+            "parameters": { "type": "object", "properties": {
+                "substances": { "type": "array", "items": { "type": "string" } }
+            }, "required": ["substances"] }
+        }}
+    ])
+}
+
+fn arg_obj(call: &serde_json::Value) -> serde_json::Value {
+    match call.pointer("/function/arguments") {
+        Some(serde_json::Value::String(s)) => {
+            serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({}))
+        }
+        Some(v) => v.clone(),
+        None => serde_json::json!({}),
+    }
+}
+
+fn now_iso(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
+    conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get(0))
+}
+
+/// Execute one Companion tool call against the journal. Returns (result text for
+/// the model, optional human-readable action description, whether the journal changed).
+fn run_companion_tool(
+    db: &Db,
+    experience_id: Option<i64>,
+    name: &str,
+    args: &serde_json::Value,
+) -> Result<(String, Option<String>, bool), String> {
+    let s = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    match name {
+        "log_dose" => {
+            let Some(id) = experience_id else {
+                return Ok(("No active session to log into.".into(), None, false));
+            };
+            let substance = s("substance");
+            if substance.trim().is_empty() {
+                return Ok(("Missing substance name; nothing logged.".into(), None, false));
+            }
+            let amount = args.get("amount").and_then(|v| v.as_f64());
+            let unit = { let u = s("unit"); if u.is_empty() { "mg".into() } else { u } };
+            let route = s("route");
+            let note = s("note");
+            let (dose, warns) = db.with(|c| {
+                let now = now_iso(c)?;
+                db::log_dose(c, &DoseInput {
+                    experience_id: id,
+                    substance_name: substance.clone(),
+                    amount,
+                    unit: unit.clone(),
+                    route: route.clone(),
+                    taken_at: now,
+                    note: note.clone(),
+                })
+            })?;
+            let amt = dose.amount.map(|a| format!("{a} {}", dose.unit)).unwrap_or_else(|| dose.unit.clone());
+            let desc = format!("Logged {amt} {}{}", dose.substance_name, if dose.route.is_empty() { String::new() } else { format!(" ({})", dose.route) });
+            let mut result = format!("Logged: {desc}.");
+            if !warns.is_empty() {
+                result.push_str(" Interaction flags: ");
+                result.push_str(&warns.iter().map(|w| format!("[{}] {} + {}: {}", w.severity, w.a, w.b, w.message)).collect::<Vec<_>>().join("; "));
+            }
+            Ok((result, Some(desc), true))
+        }
+        "add_note" => {
+            let Some(id) = experience_id else {
+                return Ok(("No active session to note into.".into(), None, false));
+            };
+            let note = s("note");
+            if note.trim().is_empty() {
+                return Ok(("Empty note; nothing added.".into(), None, false));
+            }
+            let mood = s("mood");
+            let intensity = args.get("intensity").and_then(|v| v.as_i64());
+            db.with(|c| {
+                let now = now_iso(c)?;
+                db::add_timeline_event(c, &TimelineInput {
+                    experience_id: id,
+                    at: now,
+                    note: note.clone(),
+                    mood: mood.clone(),
+                    intensity,
+                })
+            })?;
+            Ok(("Note added to the timeline.".into(), Some("Added a timeline note".into()), true))
+        }
+        "session_status" => {
+            let Some(id) = experience_id else {
+                return Ok(("No active session.".into(), None, false));
+            };
+            let ctx = db.with(|c| Ok(session_context(c, id)))?;
+            Ok((ctx.unwrap_or_else(|| "No doses logged in this session yet.".into()), None, false))
+        }
+        "lookup_dose" => {
+            let substance = s("substance");
+            let info = db.with(|c| db::pw_lookup(c, &substance))?;
+            match info {
+                Some(pi) => {
+                    let mut out = format!("Dose reference for {}:", pi.name);
+                    for roa in &pi.roas {
+                        let rng = |r: &pw::Range| match (r.min, r.max) {
+                            (Some(a), Some(b)) => format!("{a}-{b}"),
+                            (Some(a), None) => format!("{a}+"),
+                            _ => "?".into(),
+                        };
+                        out.push_str(&format!(
+                            " [{}] {} light {}, common {}, strong {}.",
+                            roa.name, roa.units.clone().unwrap_or_default(), rng(&roa.light), rng(&roa.common), rng(&roa.strong)
+                        ));
+                    }
+                    out.push_str(" Reference only, not a prescription.");
+                    Ok((out, None, false))
+                }
+                None => Ok((format!("No dose reference found for '{substance}'."), None, false)),
+            }
+        }
+        "check_interactions" => {
+            let names: Vec<String> = args
+                .get("substances")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            if names.len() < 2 {
+                return Ok(("Need at least two substances to check.".into(), None, false));
+            }
+            let subs: Vec<(String, Vec<String>)> =
+                names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
+            let mut warns = interactions::check(&subs);
+            warns.extend(db.with(|c| Ok(db::pw_interaction_warnings(c, &names)))?);
+            let warns = interactions::dedup_pairs(warns);
+            if warns.is_empty() {
+                Ok(("No known interaction flags for that combination. Absence of a flag does not mean it's safe.".into(), None, false))
+            } else {
+                let text = warns.iter().map(|w| format!("[{}] {} + {}: {}", w.severity, w.a, w.b, w.message)).collect::<Vec<_>>().join("; ");
+                Ok((format!("Interaction flags: {text}"), None, false))
+            }
+        }
+        other => Ok((format!("Unknown tool '{other}'."), None, false)),
+    }
+}
+
 #[tauri::command]
 pub fn companion_chat(
     db: State<'_, Db>,
     model: String,
     history: Vec<ChatMsg>,
     experience_id: Option<i64>,
-) -> Result<String, String> {
-    let mut messages = vec![ChatMsg { role: "system".into(), content: ollama::SYSTEM_PROMPT.into() }];
+    support_style: Option<String>,
+) -> Result<CompanionReply, String> {
+    let mut messages: Vec<serde_json::Value> = vec![sys(ollama::SYSTEM_PROMPT)];
+    if let Some(style) = support_style.as_deref().filter(|s| !s.is_empty()) {
+        messages.push(sys(format!(
+            "The person has chosen this kind of support for now: \"{style}\". Honor it, and gently re-offer to adjust if it seems to change."
+        )));
+    }
     if let Some(id) = experience_id {
-        let ctx = {
-            let guard = db.conn.lock().unwrap();
-            let conn = guard.as_ref().ok_or_else(Db::locked_err)?;
-            session_context(conn, id)
-        };
+        let ctx = db.with(|c| Ok(session_context(c, id)))?;
         if let Some(ctx) = ctx {
-            messages.push(ChatMsg { role: "system".into(), content: ctx });
+            messages.push(sys(ctx));
         }
     }
-    messages.extend(history);
-    ollama::chat(&model, &messages)
+    for m in &history {
+        messages.push(serde_json::json!({ "role": m.role, "content": m.content }));
+    }
+
+    // Tools are only offered when there's a session to act on.
+    let tools = if experience_id.is_some() { companion_tools() } else { serde_json::json!([]) };
+    let mut actions: Vec<String> = Vec::new();
+    let mut changed = false;
+    let mut last_content = String::new();
+
+    // Bounded tool loop: the model may call tools, we run them, feed results back.
+    for _ in 0..5 {
+        let msg = ollama::chat_tools(&model, &messages, &tools)?;
+        last_content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+        let calls = msg.get("tool_calls").and_then(|t| t.as_array()).cloned().unwrap_or_default();
+        if calls.is_empty() {
+            return Ok(CompanionReply { reply: last_content, actions, journal_changed: changed });
+        }
+        // Record the assistant's tool-call turn, then answer each call.
+        messages.push(msg.clone());
+        for call in &calls {
+            let name = call.pointer("/function/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            let args = arg_obj(call);
+            let (result, desc, did_change) = run_companion_tool(db.inner(), experience_id, &name, &args)?;
+            if let Some(d) = desc {
+                actions.push(d);
+            }
+            changed |= did_change;
+            messages.push(serde_json::json!({ "role": "tool", "tool_name": name, "content": result }));
+        }
+    }
+
+    // Ran the loop out — return whatever text we have (or a gentle fallback).
+    let reply = if last_content.is_empty() {
+        "I've done what I can with that — how are you feeling now?".to_string()
+    } else {
+        last_content
+    };
+    Ok(CompanionReply { reply, actions, journal_changed: changed })
+}
+
+// ---------- crisis escalation (deterministic) ----------
+
+/// Scan a message for crisis signals, independent of the language model. If a
+/// session is active and its combination is flagged dangerous, elevate to medical.
+#[tauri::command]
+pub fn crisis_scan(db: State<'_, Db>, text: String, experience_id: Option<i64>) -> crate::crisis::CrisisResult {
+    let mut result = crate::crisis::scan(&text);
+    if let Some(id) = experience_id {
+        let has_danger = db
+            .with(|c| {
+                let detail = db::get_experience(c, id)?;
+                let names: Vec<String> = detail
+                    .doses
+                    .iter()
+                    .map(|d| d.substance_name.clone())
+                    .collect::<BTreeSet<String>>()
+                    .into_iter()
+                    .collect();
+                let subs: Vec<(String, Vec<String>)> =
+                    names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
+                let mut warns = interactions::check(&subs);
+                warns.extend(db::pw_interaction_warnings(c, &names));
+                Ok(warns.iter().any(|w| w.severity == "danger"))
+            })
+            .unwrap_or(false);
+        if has_danger {
+            result = crate::crisis::escalate(result, crate::crisis::Level::Medical, "a dangerous interaction is flagged in this session");
+        }
+    }
+    result
+}
+
+/// The full list of emergency/support resources — for the always-available panic screen.
+#[tauri::command]
+pub fn emergency_resources() -> Vec<crate::crisis::Resource> {
+    crate::crisis::all_resources()
 }
 
 // ---------- encryption at rest & backups ----------

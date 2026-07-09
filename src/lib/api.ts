@@ -240,8 +240,35 @@ export const aiPull = (tag: string) => invoke<void>("ai_pull", { tag });
 
 export const ollamaUp = () => invoke<boolean>("ollama_up");
 export const ollamaModels = () => invoke<string[]>("ollama_models");
-export const companionChat = (model: string, history: ChatMsg[], experienceId: number | null) =>
-  invoke<string>("companion_chat", { model, history, experienceId });
+
+export interface CompanionReply {
+  reply: string;
+  actions: string[];
+  journal_changed: boolean;
+}
+export const companionChat = (
+  model: string,
+  history: ChatMsg[],
+  experienceId: number | null,
+  supportStyle: string | null,
+) => invoke<CompanionReply>("companion_chat", { model, history, experienceId, supportStyle });
+
+// ---- deterministic crisis escalation ----
+export type CrisisLevel = "none" | "peer" | "psychiatric" | "medical";
+export interface CrisisResource {
+  label: string;
+  contact: string;
+  detail: string;
+}
+export interface CrisisResult {
+  level: CrisisLevel;
+  headline: string;
+  matched: string[];
+  resources: CrisisResource[];
+}
+export const crisisScan = (text: string, experienceId: number | null) =>
+  invoke<CrisisResult>("crisis_scan", { text, experienceId });
+export const emergencyResources = () => invoke<CrisisResource[]>("emergency_resources");
 
 // ---- encryption at rest & backups ----
 export interface DbStatus {
