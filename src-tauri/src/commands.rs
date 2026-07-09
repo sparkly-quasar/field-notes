@@ -757,6 +757,53 @@ pub fn import_backup(app: AppHandle, db: State<'_, Db>, path: String) -> Result<
     Ok(())
 }
 
+// ---------- erase all data / uninstall ----------
+
+/// The on-device directory holding the journal and its sidecar files.
+#[tauri::command]
+pub fn data_dir(db: State<'_, Db>) -> String {
+    db.path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+/// Open the data directory in the OS file manager, so the user can inspect or
+/// delete it manually when uninstalling.
+#[tauri::command]
+pub fn reveal_data_dir(db: State<'_, Db>) -> Result<(), String> {
+    let dir = db.path.parent().ok_or("No data directory.")?;
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(dir).spawn().map_err(err)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(dir).spawn().map_err(err)?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = dir;
+        return Err("Opening the data folder isn't supported on this platform.".to_string());
+    }
+    Ok(())
+}
+
+/// Permanently erase all journal data on this device: the journal database and
+/// its WAL/SHM sidecars are deleted, then a fresh empty (unencrypted) journal is
+/// created so the app stays usable. Irreversible — the caller must confirm first.
+#[tauri::command]
+pub fn wipe_all_data(app: AppHandle, db: State<'_, Db>) -> Result<(), String> {
+    {
+        let mut guard = db.conn.lock().unwrap();
+        *guard = None; // close the connection so the files can be removed
+        for ext in ["db", "db-wal", "db-shm"] {
+            let _ = std::fs::remove_file(db.path.with_extension(ext));
+        }
+        // Recreate a clean, empty, unencrypted journal.
+        *guard = Some(db::open(&db.path, None).map_err(err)?);
+    }
+    refresh_dose_reference(&app, db.inner());
+    Ok(())
+}
+
 // ---------- Obsidian vault sync ----------
 
 /// Export every experience to the chosen Obsidian vault folder as Markdown notes.
