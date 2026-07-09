@@ -14,7 +14,7 @@ installer).
 
 ---
 
-## Shipped so far (v0.2.1 released; DoseWiki migration on `main`, unreleased)
+## Shipped so far (v0.3.0 — DoseWiki, encryption, Obsidian & tool-enabled Companion)
 
 - **Journal** — experiences, doses, and a live timeline in a local **SQLite** DB
   (`db.rs`), with **edit/delete** everywhere and **backdating** (log past
@@ -31,7 +31,23 @@ installer).
   CC0 public domain**), slimmed to ~0.9 MB (`data/dosewiki/slim.py`) and shipped as a
   Tauri resource loaded into the cache on launch — **no network call at all**. A
   courtesy DoseWiki credit is shown in-app. *(Migrated off PsychonautWiki's live
-  CC-BY-SA GraphQL scrape — roadmap item #1; on `main`, ships in the next tagged build.)*
+  CC-BY-SA GraphQL scrape — shipped in v0.3.0.)*
+- **Encryption at rest + backup/restore** (`crisis.rs` aside, in `db.rs`/`commands.rs`) —
+  opt-in **SQLCipher** passphrase encryption (AES-256); the app opens to an **unlock
+  screen** when the journal is encrypted. Enable/disable/change-passphrase and
+  single-file **VACUUM INTO backups** + restore, all in a **Data & security** tab.
+  The startup disclaimer can be dismissed ("don't show again"). *(v0.3.0.)*
+- **Obsidian vault sync** (`obsidian.rs`) — **bidirectional, fully offline**. Export
+  each experience as a readable Markdown note (frontmatter + doses/timeline) with a
+  canonical ```fieldnotes``` block for lossless round-trips; import reads that block
+  back (vault wins on conflicts), leaving hand-written notes untouched. *(v0.3.0.)*
+- **Tool-enabled Companion + live session + crisis guardrails** — the Companion can
+  now **act** via tools (log doses/notes, session status, dose/interaction lookups)
+  at the user's request; a calm **live-session** workspace (elapsed time, running
+  timeline, one-tap logging, panic button) supports altered states; and a
+  **deterministic crisis layer** (`crisis.rs`) surfaces graded, localized emergency
+  resources **independent of the model**. System prompt follows the Zendo four
+  principles + Fireside stance with consent-based support-style intake. *(v0.3.0.)*
 - **Deterministic safety checker** (`interactions.rs`) — flags dangerous combos,
   wired to the dose-reference interaction data; DoseWiki's dangerous/unsafe/caution
   tiers map onto our danger/caution/note severities (with the reason text), and
@@ -46,9 +62,9 @@ installer).
 
 ## Roadmap (not yet built)
 
-> ✅ **Item #1 (DoseWiki migration) is done on `main`** (unreleased — it ships in
-> the next tagged build) — see "Shipped so far" above. The remaining items are
-> renumbered below.
+> ✅ **Shipped in v0.3.0:** DoseWiki migration, encryption-at-rest + backup/restore,
+> Obsidian vault sync, and the tool-enabled Companion + live session + crisis
+> guardrails — see "Shipped so far" above. The remaining items are below.
 
 1. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
    data, add a **retrieval corpus** over openly-licensed full-text sources for
@@ -65,28 +81,11 @@ installer).
    the required notices** — but NC forecloses any future commercial-license path for
    that pack, so keep it **separately licensed**, never mixed into the PolyForm code.
 
-2. **Local LLM companion with tool access + live-session mode.** Today the
-   Companion only *reads* injected context. Give the model **tools** to actually
-   drive the journal from chat ("log 100 mg MDMA", "how am I doing?"), plus a
-   calm, altered-state-friendly **live session UI** (large text, one-tap logging,
-   running timeline, panic → grounding). Fully offline, against a local model
-   (via Cairn / Ollama). **The support model, session intake, and crisis
-   guardrails are specified in [Companion design principles](#companion-design-principles-peer-support-model)
-   below — that spec is load-bearing, not optional polish.**
-
-3. **Obsidian vault integration.** Read/parse journal entries from an Obsidian
-   vault and write **structured experience summaries** back. Bidirectional, fully
-   offline. (Reuse the filesystem/obsidian-MCP patterns from prior work.)
-
-4. **User-added substances → opt-in upstream contribution.** Local CRUD for
+2. **User-added substances → opt-in upstream contribution.** Local CRUD for
    uncatalogued substances already exists; add a **consent-gated** export that
    generates a draft the user reviews and submits manually to the upstream source
    (**DoseWiki** — it's CC0 and open-source). **Never auto-upload** — this is
    sensitive, legally fraught data.
-
-5. **Encrypted-at-rest database (passphrase).** Protect this sensitive, local-only
-   data with an encrypted DB (e.g. SQLCipher + passphrase). Pair with
-   **export / backup & restore** so data survives a lost DB or a machine switch.
 
 ---
 
@@ -171,11 +170,12 @@ emotional presence.
 
 ## Suggested next increment
 
-DoseWiki migration is **done** (on `main`, unreleased), which clears the licensing story
-for everything after it. Next, highest value / lowest cost: **#5 encryption + export**
-(protect the data), then **#3 Obsidian** or **#2 tool-enabled Companion** as the next
-headline feature. **#1 (RAG corpus)** stays gated on the licensing decision for any
-share-alike sources.
+The v0.3.0 batch (DoseWiki, encryption + backup, Obsidian sync, tool-enabled
+Companion + live session + crisis guardrails) is **shipped**. Of what remains:
+**#2 (opt-in upstream contribution of user-added substances)** is the smaller,
+self-contained next step; **#1 (RAG corpus)** stays gated on the licensing
+decision for any share-alike sources (the DoseWiki CC0 slice is unencumbered, but
+a PiHKAL/TiHKAL Part 2 pack must ship separately with its NC/share-alike notices).
 
 ---
 
