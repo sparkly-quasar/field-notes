@@ -219,29 +219,6 @@ pub fn list_models() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Send a chat completion and return the assistant's reply (non-streaming).
-pub fn chat(model: &str, messages: &[ChatMsg]) -> Result<String, String> {
-    if !api_up() {
-        return Err("Ollama isn't running on this computer. Start Ollama and try again.".into());
-    }
-    let body = serde_json::json!({
-        "model": model,
-        "messages": messages,
-        "stream": false,
-        "options": { "temperature": 0.6 }
-    });
-    let resp = ureq::post(&format!("{BASE}/api/chat"))
-        .send_json(body)
-        .map_err(|e| format!("Ollama request failed: {e}"))?;
-    let v: serde_json::Value =
-        resp.into_json().map_err(|e| format!("Bad response from Ollama: {e}"))?;
-    Ok(v.get("message")
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("")
-        .to_string())
-}
-
 // ---------- free-text experience import ----------
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
