@@ -85,6 +85,10 @@
   let chgCurrent = $state("");
   let chgNew = $state("");
   let chgNew2 = $state("");
+  // encrypt-this-backup option (only offered when the journal itself is plaintext)
+  let bkEncrypt = $state(false);
+  let bkPassword = $state("");
+  let bkPassword2 = $state("");
 
   // Obsidian vault sync
   const VAULT_KEY = "fieldnotes.vaultFolder";
@@ -303,14 +307,14 @@
 
   async function doEnableEncryption() {
     secReset();
-    if (encNewPass.length < 1) return (secErr = "Choose a passphrase.");
-    if (encNewPass !== encNewPass2) return (secErr = "The passphrases don't match.");
+    if (encNewPass.length < 1) return (secErr = "Choose a password.");
+    if (encNewPass !== encNewPass2) return (secErr = "The passwords don't match.");
     secBusy = true;
     try {
       await enableEncryption(encNewPass);
       encNewPass = encNewPass2 = "";
       db = await dbStatus();
-      secMsg = "Encryption is on. You'll need this passphrase each time you open the app.";
+      secMsg = "Encryption is on. You'll need this password each time you open the app.";
     } catch (e) {
       secErr = typeof e === "string" ? e : String(e);
     } finally {
@@ -320,7 +324,7 @@
 
   async function doDisableEncryption() {
     secReset();
-    if (!encDisablePass) return (secErr = "Enter your current passphrase.");
+    if (!encDisablePass) return (secErr = "Enter your current password.");
     secBusy = true;
     try {
       await disableEncryption(encDisablePass);
@@ -336,14 +340,14 @@
 
   async function doChangePassphrase() {
     secReset();
-    if (!chgCurrent) return (secErr = "Enter your current passphrase.");
-    if (chgNew.length < 1) return (secErr = "Choose a new passphrase.");
-    if (chgNew !== chgNew2) return (secErr = "The new passphrases don't match.");
+    if (!chgCurrent) return (secErr = "Enter your current password.");
+    if (chgNew.length < 1) return (secErr = "Choose a new password.");
+    if (chgNew !== chgNew2) return (secErr = "The new passwords don't match.");
     secBusy = true;
     try {
       await changePassphrase(chgCurrent, chgNew);
       chgCurrent = chgNew = chgNew2 = "";
-      secMsg = "Passphrase changed.";
+      secMsg = "Password changed.";
     } catch (e) {
       secErr = typeof e === "string" ? e : String(e);
     } finally {
@@ -353,6 +357,13 @@
 
   async function doExportBackup() {
     secReset();
+    // When the journal is plaintext, allow encrypting just the backup file.
+    let password: string | null = null;
+    if (!db.encrypted && bkEncrypt) {
+      if (bkPassword.length < 1) return (secErr = "Choose a password for the backup.");
+      if (bkPassword !== bkPassword2) return (secErr = "The backup passwords don't match.");
+      password = bkPassword;
+    }
     try {
       const path = await save({
         title: "Save journal backup",
@@ -361,10 +372,12 @@
       });
       if (!path) return;
       secBusy = true;
-      await exportBackup(path);
-      secMsg = db.encrypted
-        ? "Backup written. It is encrypted with your current passphrase."
-        : "Backup written (unencrypted — keep it somewhere safe).";
+      await exportBackup(path, password);
+      bkPassword = bkPassword2 = "";
+      secMsg =
+        db.encrypted || password
+          ? "Backup written — it's encrypted, so you'll need its password to restore or open it."
+          : "Backup written (unencrypted — keep it somewhere safe).";
     } catch (e) {
       secErr = typeof e === "string" ? e : String(e);
     } finally {
@@ -883,14 +896,14 @@
   <div class="gate">
     <div class="gate-card">
       <h1>Field Notes</h1>
-      <p class="lead">This journal is encrypted. Enter your passphrase to unlock it.</p>
+      <p class="lead">This journal is encrypted. Enter your password to unlock it.</p>
       <form class="unlock-form" onsubmit={(e) => { e.preventDefault(); doUnlock(); }}>
         <!-- svelte-ignore a11y_autofocus -->
         <input
           type="password"
           autocomplete="current-password"
           autofocus
-          placeholder="Passphrase"
+          placeholder="Password"
           bind:value={unlockPass}
         />
         {#if unlockErr}<p class="notice bad-notice">{unlockErr}</p>{/if}
@@ -898,7 +911,7 @@
           {unlockBusy ? "Unlocking…" : "Unlock"}
         </button>
       </form>
-      <p class="muted small">There is no recovery — if you lose this passphrase, the journal cannot be opened.</p>
+      <p class="muted small">There is no recovery — if you lose this password, the journal cannot be opened.</p>
     </div>
   </div>
 {:else if !acknowledged}
@@ -1400,34 +1413,34 @@
         {#if db.encrypted}
           <p class="muted small">
             This journal is <strong>encrypted</strong>. Its contents are unreadable on disk without your
-            passphrase, which you enter each time you open the app.
+            password, which you enter each time you open the app.
           </p>
 
           <div class="sec-block">
-            <h3>Change passphrase</h3>
-            <input type="password" autocomplete="current-password" placeholder="Current passphrase" bind:value={chgCurrent} />
-            <input type="password" autocomplete="new-password" placeholder="New passphrase" bind:value={chgNew} />
-            <input type="password" autocomplete="new-password" placeholder="Confirm new passphrase" bind:value={chgNew2} />
-            <button class="primary small-btn" disabled={secBusy} onclick={doChangePassphrase}>Change passphrase</button>
+            <h3>Change password</h3>
+            <input type="password" autocomplete="current-password" placeholder="Current password" bind:value={chgCurrent} />
+            <input type="password" autocomplete="new-password" placeholder="New password" bind:value={chgNew} />
+            <input type="password" autocomplete="new-password" placeholder="Confirm new password" bind:value={chgNew2} />
+            <button class="primary small-btn" disabled={secBusy} onclick={doChangePassphrase}>Change password</button>
           </div>
 
           <div class="sec-block">
             <h3>Turn off encryption</h3>
             <p class="muted small">Returns the journal to plaintext on this device.</p>
-            <input type="password" autocomplete="current-password" placeholder="Current passphrase" bind:value={encDisablePass} />
+            <input type="password" autocomplete="current-password" placeholder="Current password" bind:value={encDisablePass} />
             <button class="ghost small-btn" disabled={secBusy} onclick={doDisableEncryption}>Disable encryption</button>
           </div>
         {:else}
           <p class="muted small">
             The journal is currently stored <strong>unencrypted</strong>. Turn on encryption to protect it with a
-            passphrase (AES-256 via SQLCipher). You'll enter the passphrase each time you open the app.
+            password (AES-256 via SQLCipher). You'll enter the password each time you open the app.
           </p>
           <p class="notice warn-notice">
-            There is no recovery. If you forget this passphrase, the journal cannot be opened by anyone — including you.
+            There is no recovery. If you forget this password, the journal cannot be opened by anyone — including you.
           </p>
           <div class="sec-block">
-            <input type="password" autocomplete="new-password" placeholder="Choose a passphrase" bind:value={encNewPass} />
-            <input type="password" autocomplete="new-password" placeholder="Confirm passphrase" bind:value={encNewPass2} />
+            <input type="password" autocomplete="new-password" placeholder="Choose a password" bind:value={encNewPass} />
+            <input type="password" autocomplete="new-password" placeholder="Confirm password" bind:value={encNewPass2} />
             <button class="primary small-btn" disabled={secBusy} onclick={doEnableEncryption}>Enable encryption</button>
           </div>
         {/if}
@@ -1437,21 +1450,43 @@
         <h2>Backup &amp; restore</h2>
         <p class="muted small">
           A backup is a single-file copy of your whole journal. {db.encrypted
-            ? "It keeps its encryption — you'll need this passphrase to restore or open it elsewhere."
-            : "It is unencrypted, so store it somewhere safe."}
+            ? "It keeps its encryption — you'll need this password to restore or open it elsewhere."
+            : "The journal itself is unencrypted, so a plain backup is too — store it somewhere safe, or encrypt it below."}
         </p>
+
+        {#if !db.encrypted}
+          <label class="dont-show">
+            <input type="checkbox" bind:checked={bkEncrypt} />
+            Encrypt this backup with a password
+          </label>
+          {#if bkEncrypt}
+            <div class="sec-block">
+              <input type="password" autocomplete="new-password" placeholder="Backup password" bind:value={bkPassword} />
+              <input type="password" autocomplete="new-password" placeholder="Confirm backup password" bind:value={bkPassword2} />
+              <p class="muted small">You'll need this password to restore the backup — there's no recovery if you lose it.</p>
+            </div>
+          {/if}
+        {/if}
+
         <div class="row-actions">
           <button class="primary small-btn" disabled={secBusy} onclick={doExportBackup}>Export backup…</button>
           <button class="ghost small-btn" disabled={secBusy} onclick={doImportBackup}>Restore from backup…</button>
         </div>
-        <p class="muted small">Restoring replaces the journal on this device with the backup's contents.</p>
+        <p class="muted small">Restoring replaces the journal on this device with the backup's contents. An encrypted backup opens the unlock screen so you can enter its password.</p>
       </section>
 
       <section class="card">
         <h2>Obsidian vault sync</h2>
         <p class="muted small">
           Keep a copy of your journal in an Obsidian vault as Markdown notes — one per experience, with a
-          readable summary you can annotate. Fully offline; nothing leaves your device.
+          readable summary you can annotate. The sync itself is fully offline.
+        </p>
+        <p class="notice warn-notice">
+          Notes exported to your vault are <strong>plain, unencrypted Markdown</strong> that lives outside this
+          app — Field Notes' encryption does <em>not</em> protect them. If your vault syncs to iCloud, Obsidian
+          Sync, Dropbox, Git, or similar, this sensitive data <strong>leaves your device</strong> and is subject
+          to that service's security. <strong>Sync at your own risk</strong>, and prefer a local-only vault for
+          anything you want kept private.
         </p>
         {#if obsErr}<p class="notice bad-notice">{obsErr}</p>{/if}
         {#if obsMsg}<p class="notice good-notice">{obsMsg}</p>{/if}

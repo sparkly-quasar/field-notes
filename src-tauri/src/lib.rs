@@ -26,7 +26,7 @@ pub struct Db {
 
 impl Db {
     fn locked_err() -> String {
-        "The journal is locked — unlock it with your passphrase.".to_string()
+        "The journal is locked — unlock it with your password.".to_string()
     }
 
     /// Run `f` against the open connection, or return a "locked" error if there
