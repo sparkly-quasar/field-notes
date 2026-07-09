@@ -1,75 +1,89 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
-//! PsychonautWiki reference importer. Fetches substance data (dose ranges,
-//! durations, dangerous interactions) from the PsychonautWiki GraphQL API ONCE,
-//! on explicit user request, and caches it locally so all later lookups are
-//! offline and private. Nothing is queried live per-lookup.
+//! Dose reference importer. Reads a bundled snapshot of the DoseWiki substance
+//! encyclopedia (dose ranges, durations, graded interactions) and maps it into
+//! the local reference cache. The data ships *with* the app as an offline
+//! resource, so there is no network call and every lookup is private.
 //!
-//! PsychonautWiki content is licensed CC-BY-SA 4.0; cached data carries that
-//! license and attribution (see NOTICE), separate from this app's license.
+//! DoseWiki content is dedicated to the public domain under CC0 (the site code is
+//! MIT); no attribution is legally required. We credit DoseWiki in-app as a
+//! courtesy. See `data/dosewiki/README.md` for the snapshot + slimming pipeline.
 
 use serde::{Deserialize, Serialize};
 
-const ENDPOINT: &str = "https://api.psychonautwiki.org/";
+/// Date of the bundled DoseWiki snapshot (see `data/dosewiki/slim.py`). Bump this
+/// whenever `resources/dosewiki.json` is regenerated from a fresh download.
+pub const DOSEWIKI_SNAPSHOT: &str = "2026-07-08";
 
-// ---- GraphQL response shapes ----
+/// Path of the bundled reference file, relative to the Tauri resource dir.
+const RESOURCE_PATH: &str = "resources/dosewiki.json";
+
+// ---- slimmed DoseWiki JSON shapes (see data/dosewiki/slim.py) ----
 
 #[derive(Deserialize)]
-struct GqlResp {
-    data: Option<GqlData>,
+struct DwSub {
+    title: String,
+    #[serde(default)]
+    alternative_names: Vec<String>,
+    #[serde(default)]
+    chemical_class: Vec<String>,
+    #[serde(default)]
+    psychoactive_class: Vec<String>,
+    #[serde(default)]
+    routes: Vec<DwRoute>,
+    #[serde(default)]
+    interactions: DwInteractions,
 }
 #[derive(Deserialize)]
-struct GqlData {
-    substances: Option<Vec<GqlSub>>,
+struct DwRoute {
+    #[serde(default)]
+    route: String,
+    #[serde(default)]
+    dose_ranges: DwDoseRanges,
+    #[serde(default)]
+    stages: DwStages,
+    #[serde(default)]
+    half_life: Option<String>,
+}
+#[derive(Deserialize, Default)]
+struct DwDoseRanges {
+    threshold: Option<DwRange>,
+    light: Option<DwRange>,
+    moderate: Option<DwRange>,
+    strong: Option<DwRange>,
+    heavy: Option<DwRange>,
 }
 #[derive(Deserialize)]
-struct GqlSub {
-    name: String,
-    #[serde(rename = "commonNames")]
-    common_names: Option<Vec<String>>,
-    class: Option<GqlClass>,
-    roas: Option<Vec<GqlRoa>>,
-    #[serde(rename = "dangerousInteractions")]
-    dangerous: Option<Vec<GqlNamed>>,
-}
-#[derive(Deserialize)]
-struct GqlClass {
-    psychoactive: Option<Vec<String>>,
-    chemical: Option<Vec<String>>,
-}
-#[derive(Deserialize)]
-struct GqlNamed {
-    name: Option<String>,
-}
-#[derive(Deserialize)]
-struct GqlRoa {
-    name: Option<String>,
-    dose: Option<GqlDose>,
-    duration: Option<GqlDuration>,
-}
-#[derive(Deserialize)]
-struct GqlDose {
-    units: Option<String>,
-    threshold: Option<f64>,
-    light: Option<GqlRange>,
-    common: Option<GqlRange>,
-    strong: Option<GqlRange>,
-    heavy: Option<f64>,
-}
-#[derive(Deserialize)]
-struct GqlRange {
+struct DwRange {
     min: Option<f64>,
     max: Option<f64>,
+    #[serde(default)]
+    unit: Option<String>,
+}
+#[derive(Deserialize, Default)]
+struct DwStages {
+    onset: Option<DwStage>,
+    come_up: Option<DwStage>,
+    peak: Option<DwStage>,
+    offset: Option<DwStage>,
+    after_effects: Option<DwStage>,
+    total_duration: Option<DwStage>,
 }
 #[derive(Deserialize)]
-struct GqlDuration {
-    onset: Option<GqlDur>,
-    total: Option<GqlDur>,
-}
-#[derive(Deserialize)]
-struct GqlDur {
+struct DwStage {
     min: Option<f64>,
     max: Option<f64>,
-    units: Option<String>,
+    #[serde(default)]
+    unit: Option<String>,
+}
+#[derive(Deserialize, Default)]
+struct DwInteractions {
+    #[serde(default)]
+    dangerous: Vec<String>,
+    // `unsafe` is a Rust keyword, so store it under a safe field name.
+    #[serde(default, rename = "unsafe")]
+    unsafe_: Vec<String>,
+    #[serde(default)]
+    caution: Vec<String>,
 }
 
 // ---- stored / exposed shape ----
@@ -78,6 +92,16 @@ struct GqlDur {
 pub struct Range {
     pub min: Option<f64>,
     pub max: Option<f64>,
+}
+
+/// A single graded interaction: the substance/class this one is risky with, an
+/// optional human reason, and a severity mapped onto our danger/caution/note scale.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PwInteraction {
+    pub name: String,
+    pub reason: Option<String>,
+    /// "danger" | "caution" | "note"
+    pub severity: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,7 +114,12 @@ pub struct PwRoa {
     pub strong: Range,
     pub heavy: Option<f64>,
     pub onset: Option<String>,
+    pub come_up: Option<String>,
+    pub peak: Option<String>,
+    pub offset: Option<String>,
+    pub after_effects: Option<String>,
     pub total: Option<String>,
+    pub half_life: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,71 +129,146 @@ pub struct PwInfo {
     pub psychoactive: Vec<String>,
     pub chemical: Vec<String>,
     pub roas: Vec<PwRoa>,
-    pub interactions: Vec<String>,
+    pub interactions: Vec<PwInteraction>,
 }
 
-fn range(g: Option<GqlRange>) -> Range {
-    g.map(|r| Range { min: r.min, max: r.max }).unwrap_or_default()
+fn range(g: &Option<DwRange>) -> Range {
+    match g {
+        Some(r) => Range { min: r.min, max: r.max },
+        None => Range::default(),
+    }
 }
 
-fn fmt_dur(g: Option<GqlDur>) -> Option<String> {
-    let d = g?;
-    let units = d.units.unwrap_or_default();
+/// First unit found across a route's dose ranges (they're generally consistent).
+fn route_units(d: &DwDoseRanges) -> Option<String> {
+    [&d.moderate, &d.light, &d.threshold, &d.strong, &d.heavy]
+        .into_iter()
+        .flatten()
+        .find_map(|r| r.unit.clone().filter(|u| !u.is_empty()))
+}
+
+fn fmt_stage(g: &Option<DwStage>) -> Option<String> {
+    let d = g.as_ref()?;
+    let units = d.unit.clone().unwrap_or_default();
     match (d.min, d.max) {
-        (Some(a), Some(b)) if (a - b).abs() > f64::EPSILON => Some(format!("{a}–{b} {units}")),
-        (Some(a), _) | (_, Some(a)) => Some(format!("{a} {units}")),
+        (Some(a), Some(b)) if (a - b).abs() > f64::EPSILON => Some(format!("{a}–{b} {units}").trim().to_string()),
+        (Some(a), _) | (_, Some(a)) => Some(format!("{a} {units}").trim().to_string()),
         _ => None,
     }
 }
 
-fn map_sub(s: GqlSub) -> PwInfo {
-    let (psychoactive, chemical) = s
-        .class
-        .map(|c| (c.psychoactive.unwrap_or_default(), c.chemical.unwrap_or_default()))
-        .unwrap_or_default();
-    let roas = s
-        .roas
-        .unwrap_or_default()
-        .into_iter()
-        .map(|r| {
-            let dose = r.dose;
-            let (units, threshold, light, common, strong, heavy) = match dose {
-                Some(d) => (d.units, d.threshold, range(d.light), range(d.common), range(d.strong), d.heavy),
-                None => (None, None, Range::default(), Range::default(), Range::default(), None),
-            };
-            let (onset, total) = r.duration.map(|d| (fmt_dur(d.onset), fmt_dur(d.total))).unwrap_or((None, None));
-            PwRoa { name: r.name.unwrap_or_default(), units, threshold, light, common, strong, heavy, onset, total }
-        })
-        .collect();
-    PwInfo {
-        name: s.name,
-        common_names: s.common_names.unwrap_or_default(),
-        psychoactive,
-        chemical,
-        roas,
-        interactions: s
-            .dangerous
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|n| n.name)
-            .collect(),
+/// Split a DoseWiki interaction entry `Name (reason)` into (name, reason). The
+/// head before the first `(` is the substance/class we match on; the parenthetical
+/// (if any) is a human-readable reason.
+fn split_interaction(entry: &str) -> Option<(String, Option<String>)> {
+    let entry = entry.trim();
+    if entry.is_empty() {
+        return None;
+    }
+    match entry.find('(') {
+        Some(i) => {
+            let name = entry[..i].trim().to_string();
+            let reason = entry[i + 1..].trim_end_matches(')').trim().to_string();
+            let reason = if reason.is_empty() { None } else { Some(reason) };
+            if name.is_empty() { None } else { Some((name, reason)) }
+        }
+        None => Some((entry.to_string(), None)),
     }
 }
 
-/// Fetch the full substance list from PsychonautWiki (one network call).
-pub fn fetch_all() -> Result<Vec<PwInfo>, String> {
-    let query = "{ substances(limit: 2000) { name commonNames class { psychoactive chemical } \
-        roas { name dose { units threshold light { min max } common { min max } strong { min max } heavy } \
-        duration { onset { min max units } total { min max units } } } dangerousInteractions { name } } }";
-    let resp = ureq::post(ENDPOINT)
-        .send_json(serde_json::json!({ "query": query }))
-        .map_err(|e| format!("Couldn't reach PsychonautWiki: {e}"))?;
-    let parsed: GqlResp = resp
-        .into_json()
-        .map_err(|e| format!("Bad response from PsychonautWiki: {e}"))?;
-    let subs = parsed
-        .data
-        .and_then(|d| d.substances)
-        .ok_or_else(|| "PsychonautWiki returned no substances".to_string())?;
+fn interactions_of(list: &[String], severity: &str) -> Vec<PwInteraction> {
+    list.iter()
+        .filter_map(|e| split_interaction(e))
+        .map(|(name, reason)| PwInteraction { name, reason, severity: severity.to_string() })
+        .collect()
+}
+
+fn map_sub(s: DwSub) -> PwInfo {
+    let roas = s
+        .routes
+        .into_iter()
+        .map(|r| {
+            let d = &r.dose_ranges;
+            PwRoa {
+                name: r.route,
+                units: route_units(d),
+                threshold: d.threshold.as_ref().and_then(|t| t.min),
+                light: range(&d.light),
+                common: range(&d.moderate), // DoseWiki calls our "common" tier "moderate"
+                strong: range(&d.strong),
+                heavy: d.heavy.as_ref().and_then(|h| h.min),
+                onset: fmt_stage(&r.stages.onset),
+                come_up: fmt_stage(&r.stages.come_up),
+                peak: fmt_stage(&r.stages.peak),
+                offset: fmt_stage(&r.stages.offset),
+                after_effects: fmt_stage(&r.stages.after_effects),
+                total: fmt_stage(&r.stages.total_duration),
+                half_life: r.half_life.filter(|h| !h.is_empty()),
+            }
+        })
+        .collect();
+
+    // dangerous -> danger, unsafe -> caution, caution -> note (per ROADMAP #1).
+    let mut interactions = interactions_of(&s.interactions.dangerous, "danger");
+    interactions.extend(interactions_of(&s.interactions.unsafe_, "caution"));
+    interactions.extend(interactions_of(&s.interactions.caution, "note"));
+
+    PwInfo {
+        name: s.title,
+        common_names: s.alternative_names,
+        psychoactive: s.psychoactive_class,
+        chemical: s.chemical_class,
+        roas,
+        interactions,
+    }
+}
+
+/// Parse the slimmed DoseWiki JSON (the bundled `dosewiki.json`) into our shape.
+pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
+    let subs: Vec<DwSub> =
+        serde_json::from_str(json).map_err(|e| format!("Couldn't parse the bundled dose reference: {e}"))?;
     Ok(subs.into_iter().map(map_sub).collect())
+}
+
+/// Load the whole bundled reference from the app's resource directory.
+pub fn load_bundled(app: &tauri::AppHandle) -> Result<Vec<PwInfo>, String> {
+    use tauri::Manager;
+    let path = app
+        .path()
+        .resolve(RESOURCE_PATH, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("Couldn't locate the bundled dose reference: {e}"))?;
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Couldn't read the bundled dose reference at {}: {e}", path.display()))?;
+    parse_slim(&json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_interaction_name_and_reason() {
+        let (n, r) = split_interaction("Tramadol (serotonin syndrome risk)").unwrap();
+        assert_eq!(n, "Tramadol");
+        assert_eq!(r.as_deref(), Some("serotonin syndrome risk"));
+
+        let (n, r) = split_interaction("Lithium").unwrap();
+        assert_eq!(n, "Lithium");
+        assert!(r.is_none());
+
+        assert!(split_interaction("   ").is_none());
+    }
+
+    #[test]
+    fn parses_bundled_snapshot() {
+        // The committed resource must parse and carry dose + interaction data.
+        let json = include_str!("../resources/dosewiki.json");
+        let subs = parse_slim(json).expect("parse bundled dosewiki.json");
+        assert!(subs.len() > 500, "expected hundreds of substances, got {}", subs.len());
+        assert!(subs.iter().any(|s| !s.roas.is_empty()), "expected some dose data");
+        let graded: Vec<&PwInteraction> = subs.iter().flat_map(|s| &s.interactions).collect();
+        assert!(graded.iter().any(|i| i.severity == "danger" || i.severity == "note"),
+            "expected graded interactions");
+        assert!(graded.iter().any(|i| i.reason.is_some()), "expected interaction reasons");
+    }
 }

@@ -16,7 +16,7 @@ pub struct Warning {
     pub severity: &'static str,
     pub a: String,
     pub b: String,
-    pub message: &'static str,
+    pub message: String,
 }
 
 /// The class vocabulary the UI offers when classifying a substance.
@@ -96,7 +96,7 @@ pub fn check(substances: &[(String, Vec<String>)]) -> Vec<Warning> {
                 }
             }
             if let Some(rule) = best {
-                out.push(Warning { severity: rule.2, a: na.clone(), b: nb.clone(), message: rule.3 });
+                out.push(Warning { severity: rule.2, a: na.clone(), b: nb.clone(), message: rule.3.to_string() });
             }
         }
     }
@@ -112,9 +112,20 @@ fn rank(sev: &str) -> u8 {
     }
 }
 
-/// Message for a pair flagged by PsychonautWiki's dangerous-interaction list.
-pub const PW_MESSAGE: &str =
-    "Listed as a dangerous interaction on PsychonautWiki — treat as high risk and check trusted sources.";
+/// Human-readable message for a pair flagged by DoseWiki's graded interaction
+/// lists. `severity` is our danger/caution/note; `reason` is DoseWiki's optional
+/// parenthetical explanation.
+pub fn dosewiki_message(severity: &str, reason: Option<&str>) -> String {
+    let lead = match severity {
+        "danger" => "DoseWiki lists this as a dangerous combination",
+        "caution" => "DoseWiki lists this as unsafe",
+        _ => "DoseWiki notes caution with this combination",
+    };
+    match reason {
+        Some(r) if !r.is_empty() => format!("{lead}: {r}"),
+        _ => format!("{lead} — treat as risky and check trusted sources."),
+    }
+}
 
 /// Merge warnings from multiple sources, keeping the most severe per unordered
 /// substance pair (so a combination isn't reported twice).

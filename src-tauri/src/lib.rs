@@ -24,6 +24,19 @@ pub fn run() {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let conn = db::init(&dir.join("journal.db")).expect("failed to open journal database");
             app.manage(Db(Mutex::new(conn)));
+            // Load the bundled, offline DoseWiki dose reference into the cache on
+            // every launch, so it stays in sync with the app's snapshot. Reads a
+            // local resource only — no network. A failure here must not block startup.
+            match pw::load_bundled(app.handle()) {
+                Ok(subs) => {
+                    let db = app.state::<Db>();
+                    let mut conn = db.0.lock().unwrap();
+                    if let Err(e) = db::pw_replace_all(&mut conn, &subs) {
+                        eprintln!("failed to populate dose reference cache: {e}");
+                    }
+                }
+                Err(e) => eprintln!("failed to load bundled dose reference: {e}"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

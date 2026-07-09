@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS timeline_events (
     intensity      INTEGER
 );
 
--- Cached PsychonautWiki reference data (CC-BY-SA 4.0). One row per substance;
--- `data` is a serialized pw::PwInfo. Populated only on explicit user refresh.
+-- Cached DoseWiki reference data (CC0 public domain). One row per substance;
+-- `data` is a serialized pw::PwInfo, loaded from the bundled offline snapshot.
 CREATE TABLE IF NOT EXISTS pw_substances (
     name       TEXT PRIMARY KEY,
     data       TEXT NOT NULL,
@@ -552,9 +552,9 @@ pub fn delete_substance(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
-// ---------- PsychonautWiki reference cache ----------
+// ---------- DoseWiki reference cache ----------
 
-/// Replace the whole cache with a freshly fetched set, in one transaction.
+/// Replace the whole cache with a freshly loaded set, in one transaction.
 pub fn pw_replace_all(conn: &mut Connection, subs: &[PwInfo]) -> rusqlite::Result<usize> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM pw_substances", [])?;
@@ -595,7 +595,7 @@ pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
     Ok((count, last))
 }
 
-/// Does a PsychonautWiki interaction entry (a substance name or a class like
+/// Does a DoseWiki interaction entry (a substance name or a class like
 /// "Stimulants"/"MAOIs") refer to `other`? Matches `other`'s name, aliases, and
 /// psychoactive/chemical classes, with light singular/substring tolerance.
 fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
@@ -611,10 +611,29 @@ fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
     })
 }
 
-/// Warnings from PsychonautWiki's `dangerousInteractions` for every pair of the
-/// given substances that has cached reference data.
+/// Rank a DoseWiki-derived severity for picking the most severe match per pair.
+fn sev_rank(sev: &str) -> u8 {
+    match sev {
+        "danger" => 3,
+        "caution" => 2,
+        _ => 1,
+    }
+}
+
+/// Map a stored severity string back to the static set the `Warning` type uses.
+fn static_sev(sev: &str) -> &'static str {
+    match sev {
+        "danger" => "danger",
+        "caution" => "caution",
+        _ => "note",
+    }
+}
+
+/// Graded warnings from DoseWiki's interaction lists for every pair of the given
+/// substances that has cached reference data. Keeps the most severe match per
+/// pair and carries DoseWiki's reason text.
 pub fn pw_interaction_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interactions::Warning> {
-    use crate::interactions::{Warning, PW_MESSAGE};
+    use crate::interactions::{dosewiki_message, Warning};
     let infos: Vec<(String, PwInfo)> = names
         .iter()
         .filter_map(|n| pw_lookup(conn, n).ok().flatten().map(|info| (n.clone(), info)))
@@ -624,10 +643,25 @@ pub fn pw_interaction_warnings(conn: &Connection, names: &[String]) -> Vec<crate
         for b in (a + 1)..infos.len() {
             let (na, ia) = &infos[a];
             let (nb, ib) = &infos[b];
-            let hit = ia.interactions.iter().any(|x| matches_interaction(x, ib))
-                || ib.interactions.iter().any(|x| matches_interaction(x, ia));
-            if hit {
-                out.push(Warning { severity: "danger", a: na.clone(), b: nb.clone(), message: PW_MESSAGE });
+            // Consider graded matches in both directions; keep the most severe.
+            let matches = ia
+                .interactions
+                .iter()
+                .filter(|x| matches_interaction(&x.name, ib))
+                .chain(ib.interactions.iter().filter(|x| matches_interaction(&x.name, ia)));
+            let mut best: Option<&crate::pw::PwInteraction> = None;
+            for x in matches {
+                if best.map_or(0, |b| sev_rank(&b.severity)) < sev_rank(&x.severity) {
+                    best = Some(x);
+                }
+            }
+            if let Some(x) = best {
+                out.push(Warning {
+                    severity: static_sev(&x.severity),
+                    a: na.clone(),
+                    b: nb.clone(),
+                    message: dosewiki_message(&x.severity, x.reason.as_deref()),
+                });
             }
         }
     }
@@ -692,29 +726,27 @@ mod tests {
         assert_eq!(detail.doses.len(), 2);
     }
 
-    // Needs network (fetches live PsychonautWiki data). Run explicitly:
-    //   cargo test --lib -- --ignored --nocapture pw_interactions
+    // Uses the bundled DoseWiki snapshot (no network). MDMA + Tramadol is a
+    // graded "dangerous" interaction on both sides, so it must surface at log time.
     #[test]
-    #[ignore]
     fn pw_interactions_flag_mdma_tramadol() {
         let mut c = mem();
-        let all = crate::pw::fetch_all().expect("fetch PW");
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).expect("parse bundled");
         pw_replace_all(&mut c, &all).unwrap();
 
         let exp = create_experience(&c, &ExperienceInput {
             title: "t".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-01-01T00:00:00Z".into(),
         }).unwrap();
+        let mut last = Vec::new();
         for (name, at) in [("MDMA", "2026-01-01T00:00:00Z"), ("Tramadol", "2026-01-01T01:00:00Z")] {
             let (_d, w) = log_dose(&c, &DoseInput {
                 experience_id: exp.id, substance_name: name.into(), amount: Some(50.0),
                 unit: "mg".into(), route: "oral".into(), taken_at: at.into(), note: String::new(),
             }).unwrap();
-            eprintln!("after {name}: {:?}", w.iter().map(|x| (x.severity, x.a.as_str(), x.b.as_str())).collect::<Vec<_>>());
-            if name == "Tramadol" {
-                assert!(w.iter().any(|x| x.message.contains("PsychonautWiki")),
-                    "expected a PsychonautWiki interaction warning for MDMA + Tramadol");
-            }
+            last = w;
         }
+        assert!(last.iter().any(|x| x.severity == "danger" && x.message.contains("DoseWiki")),
+            "expected a DoseWiki danger warning for MDMA + Tramadol, got {last:?}");
     }
 }

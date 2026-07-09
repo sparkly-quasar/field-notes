@@ -117,27 +117,28 @@ pub fn delete_substance(db: State<'_, Db>, id: i64) -> Result<(), String> {
     db::delete_substance(&db.0.lock().unwrap(), id).map_err(err)
 }
 
-// ---------- PsychonautWiki reference cache ----------
+// ---------- DoseWiki reference cache ----------
 
 #[derive(Serialize)]
 pub struct PwStatus {
     pub count: i64,
-    pub last_fetched: Option<String>,
+    /// Date of the bundled DoseWiki snapshot (not a per-device fetch time).
+    pub snapshot: &'static str,
 }
 
-/// Fetch fresh reference data from PsychonautWiki and replace the local cache.
-/// This is the only outbound network call the app makes, and only on request.
+/// (Re)load the reference cache from the bundled DoseWiki snapshot. This reads a
+/// local resource file only — no network call is ever made.
 #[tauri::command]
-pub fn pw_update(db: State<'_, Db>) -> Result<usize, String> {
-    let subs = pw::fetch_all()?;
+pub fn pw_update(app: AppHandle, db: State<'_, Db>) -> Result<usize, String> {
+    let subs = pw::load_bundled(&app)?;
     let mut conn = db.0.lock().unwrap();
     db::pw_replace_all(&mut conn, &subs).map_err(err)
 }
 
 #[tauri::command]
 pub fn pw_status(db: State<'_, Db>) -> Result<PwStatus, String> {
-    let (count, last_fetched) = db::pw_status(&db.0.lock().unwrap()).map_err(err)?;
-    Ok(PwStatus { count, last_fetched })
+    let (count, _last_fetched) = db::pw_status(&db.0.lock().unwrap()).map_err(err)?;
+    Ok(PwStatus { count, snapshot: pw::DOSEWIKI_SNAPSHOT })
 }
 
 #[tauri::command]

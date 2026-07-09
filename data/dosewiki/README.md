@@ -14,9 +14,12 @@ This replaces the live PsychonautWiki GraphQL scrape (`src-tauri/src/pw.rs`). Be
 it's a single CC0 file, we can **bundle it offline** instead of fetching per-install —
 no network dependency at all.
 
-> Not yet wired into the app. This directory is staged for the migration; the code
-> in `pw.rs` / `db.rs` / the Substances UI still reads PsychonautWiki. See the
-> migration plan below and in `ROADMAP.md`.
+> **Wired in.** `slim.py` here reduces the ~17 MB `SubstanceIndex.json` to the
+> fields the app uses and writes `src-tauri/resources/dosewiki.json` (~0.9 MB),
+> which is bundled as a Tauri resource and loaded into the reference cache on every
+> launch (`src-tauri/src/pw.rs` → `db.rs`). No network call remains. To refresh:
+> re-download `SubstanceIndex.json`, rerun `python3 slim.py`, and bump
+> `DOSEWIKI_SNAPSHOT` in `pw.rs`.
 
 ## Schema (per substance)
 
