@@ -1,11 +1,19 @@
 # Field Notes
 
-**An offline, private harm-reduction journal & trip-sitting workstation for psychonauts and all other explorers.**
+**A private journal and safety companion for psychedelic and other substance
+experiences — everything stays on your computer.**
 
-Field Notes lets you catalogue substances, log experiences and the doses taken
-during them, get flagged about dangerous interactions, and review your history
-organized by substance — all stored **locally on your own device**, nothing sent
-anywhere.
+Field Notes is a journal that understands what a session is. Write plain diary
+entries or log an experience as it happens — what you took, how much, and how
+you're feeling over time. Before you combine substances, check them against a
+built-in reference of known dangerous combinations. During a session, a calm
+AI companion is there to talk — it runs entirely on your machine, so the
+conversation never leaves the room.
+
+There are no accounts, no cloud, and no network requests. Your journal can be
+encrypted with a password, and nothing you write is ever scanned, analyzed, or
+sent anywhere. It works on **Windows, macOS, and Linux**, with optional access
+from your phone.
 
 > ⚠️ **Harm-reduction and journaling tool — not medical advice, and not
 > encouragement to use anything.** Dose and interaction information is a reference
@@ -14,116 +22,102 @@ anywhere.
 > combinations — **absence of a warning does not mean a combination is safe.** In
 > an emergency, contact local emergency services or poison control.
 
-> **Status:** working app, actively developed. Local journal + dose logging + a
-> deterministic safety-interaction checker + a local-model Companion + an offline
-> reference corpus + an optional phone portal. Built on the same Tauri + Svelte
-> stack as [Cairn](https://github.com/sparkly-quasar/cairn).
+## Features
 
-## What works today
-
-- **Journal** — create experiences (intention, set & setting), log doses with
-  amount/unit/route and a live timeline of how you're feeling. Full edit & delete,
-  and backdate anything so you can record past experiences accurately.
-- **Import from text** — paste a past experience in your own words and a **local**
-  model extracts the substances, doses, and timeline into a structured record for
-  you to review before saving. Runs entirely on-device via Ollama.
-- **Companion** — a calm, non-judgmental peer-support chat, fully local (Ollama),
-  modeled on the Zendo four principles + Fireside stance. It can be made aware of
-  your current session and, at your request, **use tools** to log doses/notes,
-  summarize how the session is going, or look up dose/interaction references — and
-  it never encourages use. Pick a **support style** ("just listen", "keep me
-  grounded", …) that it honors.
-- **Live session** — a calm, altered-state-friendly workspace for an ongoing
-  experience: elapsed time, running timeline, one-tap dose/note logging, the
-  companion inline, and an always-present **Get help now** button.
-- **Crisis guardrails** — a **deterministic** safety layer (independent of the
-  model) watches for medical / psychiatric / distress signals and surfaces graded,
-  localized emergency & peer-support resources; a dangerous interaction in the
-  active session escalates it automatically.
-- **Encryption at rest & backups** — opt-in **SQLCipher** passphrase encryption
-  (AES-256); when on, the app opens to an unlock screen. Single-file **backup &
-  restore**, plus enable/disable/change-password, in a **Settings** tab.
-- **Obsidian vault sync** — export each experience to an Obsidian vault as a
-  readable Markdown note and import them back — **bidirectional and fully offline**;
-  hand-written notes are left untouched.
-- **Dose reference** — dose ranges, durations, and **graded** interaction data
-  (dangerous / unsafe / caution, with reasons) for hundreds of substances, **bundled
-  with the app** and shown inline while logging — fully offline, no network request
-  ever. Sourced from [DoseWiki](https://dose.wiki) (public-domain **CC0**; courtesy
-  credit in-app). The snapshot + slimming pipeline live in
-  [`data/dosewiki/`](./data/dosewiki/).
-- **Safety checker** — every dose is checked against the others in that experience
-  for widely-documented dangerous combinations (opioid + benzodiazepine, MAOI +
-  serotonin releaser, lithium + psychedelics, SSRI + MDMA, …), rated
-  danger / caution / note. It reasons over coarse pharmacological *classes*, so it
-  also covers substances you add yourself once they're classified, **and** over
-  DoseWiki's graded pair data. The standalone **combo checker** — the one you use
-  *before* taking something — consults exactly the same sources, so it never knows
-  less than the dose log does.
-- **Offline reference search** — the DoseWiki prose corpus (7,800+ passages across
-  575 substances) bundled with the app and searched **in-process, on-device** with
-  BM25. No embeddings, no server, no network. Thin entries are **labeled as thin**
-  rather than hidden, so the Companion can hedge instead of bluffing.
-- **Phone access** (optional, off by default) — turn it on and a phone on your
-  **Tailscale tailnet** becomes a mirror of the desktop: start and end sessions, log
-  and edit doses, notes with the crisis scan, browse history, check combos, look up
-  doses. The server binds **127.0.0.1 only** (nothing is exposed to your local
-  network), every request needs a paired token *even on the tailnet*, it refuses to
-  serve a locked journal, and it exposes a strict **allowlist** — wiping the journal,
-  the passphrase, backups, and filesystem access are unreachable from a phone by
-  construction. Publishing it to your tailnet is one button, and reversible.
-- **Contribute upstream** (consent-gated) — substances you've catalogued that
-  DoseWiki doesn't cover can be exported as a draft record to submit by hand. It
-  **never touches the network**, **never includes journal data** (the catalogue row
-  only — no doses, no timestamps), and **never invents dose figures**.
-- **Substances** — catalogue substances, assign interaction classes (common ones
-  are auto-classified), keep your own dose notes.
-- **Substance Log** — every dose grouped by substance, so you can see your history
-  and typical dosages at a glance.
-
-## Architecture
-
-- **Tauri 2 + Svelte (TypeScript)** desktop app (macOS + Linux + Windows).
-- **Local SQLite** (`rusqlite`, bundled) at the app data dir — `substances`,
-  `experiences`, `doses`, `timeline_events`. No network, no accounts.
-- The safety-critical layers are **deterministic Rust, independent of any model** —
-  `interactions.rs` (interaction rules + class vocabulary, common-knowledge
-  harm-reduction categories not derived from any copyrighted source), `crisis.rs`
-  (distress detection + graded resources), `pw.rs` (the dose reference).
-- `knowledge.rs` — BM25 over the bundled corpus, in-process. `portal.rs` — the
-  optional phone server; its module docs state four load-bearing rules, and tests pin
-  all four. `contribute.rs` — upstream drafts, with no HTTP client in the file at all.
-
-## Roadmap
-
-- **Offline capture on the phone** — log while the Mac is asleep or you're off the
-  tailnet, with an outbox that syncs when it's reachable again. Gated on porting the
-  deterministic safety checks to run phone-side: an offline phone whose interaction
-  checker has gone dark is worse than no phone at all.
+- **Journal** — log experiences with intention, set & setting, doses, and a
+  running timeline of how you feel. Edit, delete, or backdate anything.
+- **Plain notes** — not everything is a session. Write ordinary journal entries
+  (a title, your words, a date) alongside them.
+- **Combination warnings** — every dose is checked against the others for
+  well-documented dangerous combinations, and there's a standalone checker to
+  consult *before* taking anything.
+- **Dose reference** — dose ranges, durations, and graded interaction data for
+  hundreds of substances, bundled with the app and available offline. Sourced
+  from [DoseWiki](https://dose.wiki) (public domain).
+- **Companion** — a calm, non-judgmental support chat that runs on a local AI
+  model. It can be aware of your current session, look up references, and log
+  things for you when you ask. Pick a support style ("just listen", "keep me
+  grounded", …) and it honors it.
+- **Live session** — a quiet, altered-state-friendly screen for an ongoing
+  experience: elapsed time, one-tap logging, the companion, and an always-visible
+  **Get help now** button.
+- **Crisis resources** — if a chat with the Companion shows signs of crisis, or a
+  dangerous combination is logged, real emergency and peer-support contacts
+  appear. This is driven by fixed rules, never by the AI — and your journal
+  writing is never scanned.
+- **Import from text** — paste a past experience in your own words and the local
+  model turns it into a structured entry you review before saving.
+- **Reference search** — search thousands of passages of substance information
+  (pharmacology, tolerance, legality) offline.
+- **Encryption & backups** — optional password encryption for the whole journal,
+  plus one-file backup and restore.
+- **Obsidian sync** — export entries to an Obsidian vault as readable Markdown
+  notes and import them back; works both ways, fully offline.
+- **Phone access** (optional, off by default) — pair your phone and use the
+  journal, combo checker, reference, and Companion from bed at 3am. Private by
+  design: see [Architecture](#architecture) for how.
+- **Substance catalogue & log** — keep your own substance list with notes, and
+  review your history grouped by substance.
+- **Contribute upstream** (consent-gated) — export substances you've catalogued
+  that DoseWiki doesn't cover as a draft to submit by hand. Never automatic,
+  never includes journal data.
 
 ## Install & update
 
 Download an installer for your platform from the
 [Releases page](https://github.com/sparkly-quasar/field-notes/releases):
 
+- **Windows** — run the `-setup.exe` installer (or the `.msi`). Not code-signed yet,
+  so SmartScreen may warn on first launch — click **More info → Run anyway**.
 - **macOS** — open the `.dmg`, drag Field Notes to Applications. Not notarized yet,
   so on first launch **right-click → Open** (or `xattr -dr com.apple.quarantine
   "/Applications/Field Notes.app"`).
 - **Linux** — the `.AppImage` (make it executable and run), or the `.deb` / `.rpm`.
-- **Windows** — run the `-setup.exe` installer (or the `.msi`). Not code-signed yet,
-  so SmartScreen may warn on first launch — click **More info → Run anyway**.
 
-**To update:** grab the latest release and install it over the old version
-(replace the app in Applications, or the AppImage; reinstall the `.deb`/`.rpm`;
-re-run the Windows installer). **Your journal is safe** — all data lives in the
-OS app-data directory
-(`~/Library/Application Support/com.fieldnotes.journal` on macOS,
-`~/.local/share/com.fieldnotes.journal` on Linux,
-`%APPDATA%\com.fieldnotes.journal` on Windows), separate from the app bundle,
-so updating never touches it. **From v0.2.0 on, the app checks for updates on
-launch** and offers to install them in place ("Install & restart") — signed and
-verified, fully in-app. (v0.1.0 predates the updater, so update to v0.2.0 manually
-once; after that it's automatic.)
+**To update:** the app checks for updates on launch and installs them in place
+("Install & restart") — signed and verified, fully in-app. You can also install
+any release over the old version by hand. **Your journal is safe either way** —
+all data lives in the OS app-data directory
+(`%APPDATA%\com.fieldnotes.journal` on Windows,
+`~/Library/Application Support/com.fieldnotes.journal` on macOS,
+`~/.local/share/com.fieldnotes.journal` on Linux), separate from the app itself,
+so updating never touches it.
+
+## Architecture
+
+- **Tauri 2 + Svelte (TypeScript)** desktop app (Windows + macOS + Linux), built
+  on the same stack as [Cairn](https://github.com/sparkly-quasar/cairn).
+- **Local SQLite** (`rusqlite`, bundled) at the app data dir — `substances`,
+  `experiences` (sessions *and* plain notes, split by an explicit `kind` column),
+  `doses`, `timeline_events`. No network, no accounts. Opt-in **SQLCipher**
+  encryption at rest (AES-256).
+- The safety-critical layers are **deterministic Rust, independent of any model** —
+  `interactions.rs` (interaction rules + class vocabulary, common-knowledge
+  harm-reduction categories not derived from any copyrighted source), `crisis.rs`
+  (crisis signals in Companion chat + graded resources; journal prose is never
+  scanned — owner's decision, recorded in `ROADMAP.md`), `pw.rs` (the dose
+  reference; snapshot + slimming pipeline in [`data/dosewiki/`](./data/dosewiki/)).
+- `knowledge.rs` — BM25 over the bundled DoseWiki prose corpus (7,800+ passages,
+  575 substances), in-process, no embeddings.
+- `portal.rs` — the optional phone server. Binds **127.0.0.1 only** and is fronted
+  by your **Tailscale tailnet**; every request needs a paired token; it refuses to
+  serve a locked journal; and it exposes a strict **allowlist** — wiping the
+  journal, the passphrase, backups, and filesystem access are unreachable from a
+  phone by construction. Its module docs state four load-bearing rules, and tests
+  pin all four.
+- `contribute.rs` — upstream draft exports, with no HTTP client in the file at all.
+- The AI features (Companion, text import) talk only to a local
+  [Ollama](https://ollama.com) instance on `127.0.0.1` — the app can install it
+  and download a model for you on first use.
+
+## Roadmap
+
+- **Offline capture on the phone** — log while the desktop is asleep or you're off
+  the tailnet, with an outbox that syncs when it's reachable again. Gated on
+  porting the deterministic safety checks to run phone-side: an offline phone
+  whose interaction checker has gone dark is worse than no phone at all.
+
+See [`ROADMAP.md`](./ROADMAP.md) for the full picture and design history.
 
 ## Development
 
@@ -132,6 +126,8 @@ npm install
 npm run tauri dev
 npm run tauri build
 ```
+
+Releases are cut per [`RELEASING.md`](./RELEASING.md).
 
 ### Development notes
 
@@ -161,6 +157,10 @@ session at least once:
   Tailscale step being too much to ask of an end user, and the Companion tab giving up
   forever if Ollama was asleep at page load. Typechecks and unit tests don't open tabs.
   Drive the thing.
+- **Windows CI skips `cargo test`** — Windows test binaries die at launch with
+  `STATUS_ENTRYPOINT_NOT_FOUND` because tauri-build links the app manifest only to
+  the main binary ([tauri#13419](https://github.com/tauri-apps/tauri/issues/13419)).
+  The shipped app is unaffected; the suite runs on macOS/Linux.
 
 ## License
 
