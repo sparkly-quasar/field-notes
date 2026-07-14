@@ -316,6 +316,7 @@ pub const EXPOSED: &[&str] = &[
     "ai_status",
     "ollama_up",
     "ollama_models",
+    "ai_start",
 ];
 
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> Result<Value, DispatchError> {
@@ -384,6 +385,13 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         "ai_status" => ok(commands::ai_status()),
         "ollama_up" => ok(commands::ollama_up()),
         "ollama_models" => ok(commands::ollama_models()),
+        // Wake the desktop's local model server. Without this the phone's Companion is
+        // dead whenever Ollama happens to be asleep, and the only cure is walking to the
+        // desk — which is the exact situation the portal exists to avoid. It starts a
+        // loopback process the app already owns; it does **not** install anything
+        // (`ai_install`/`ai_pull` stay desktop-only). `commands::ai_start` is `async`
+        // purely to keep Tauri's UI thread free, so we call the same inner function.
+        "ai_start" => done(crate::ollama::ensure_serving()),
 
         _ => Err(DispatchError::NotExposed),
     }
@@ -441,10 +449,11 @@ mod tests {
             "reveal_data_dir",
             // Destroys the journal.
             "wipe_all_data",
-            // Installs software / mutates app state.
+            // Installs software or downloads gigabytes. (`ai_start` *is* exposed: it only
+            // wakes a local server the app already owns, and without it the phone's
+            // Companion stays dead until someone walks to the desk.)
             "ai_install",
             "ai_pull",
-            "ai_start",
             "pw_update",
             // The portal may not reconfigure or disable itself — including publishing
             // itself to the tailnet, which is a decision made at the desk.
