@@ -58,11 +58,12 @@ installer).
   wired to the dose-reference interaction data; DoseWiki's dangerous/unsafe/caution
   tiers map onto our danger/caution/note severities (with the reason text), and
   inline dose-range + interaction warnings appear while logging a dose.
-- **Distribution** — cross-platform signed installers (macOS universal `.dmg` +
-  Linux `.AppImage`/`.deb`/`.rpm`) via `tauri-action` CI on `v*` tags, plus
-  **in-app auto-update** (Tauri updater; "Install & restart" banner). macOS is
-  currently **unsigned** (right-click → Open on first launch) pending an Apple
-  Developer ID.
+- **Distribution** — cross-platform installers (macOS universal `.dmg` +
+  Linux `.AppImage`/`.deb`/`.rpm` + **Windows NSIS `.exe`/`.msi` from v0.5.0**)
+  via `tauri-action` CI on `v*` tags, plus **in-app auto-update** (Tauri updater;
+  "Install & restart" banner). macOS is currently **unsigned** (right-click →
+  Open on first launch) pending an Apple Developer ID; Windows is unsigned too
+  (SmartScreen "More info → Run anyway").
 
 ---
 
@@ -382,7 +383,7 @@ emotional presence.
 **v0.4.0 and v0.4.1 are shipped and public** — the knowledge corpus, contribution
 drafts, the phone portal (Phase 3a), the combo-checker fix, and the phone Companion fix.
 
-### Plain journal entries (not a drug session) — proposed
+### Plain journal entries (not a drug session) — ✅ shipped in v0.5.0
 
 Today an entry **has to be a session**. If you just want to write about your day, the
 app has nowhere to put it, which quietly narrows a journal into a drug log. It should
