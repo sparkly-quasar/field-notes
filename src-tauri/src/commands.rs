@@ -884,7 +884,11 @@ pub fn reveal_data_dir(db: State<'_, Db>) -> Result<(), String> {
     {
         std::process::Command::new("xdg-open").arg(dir).spawn().map_err(err)?;
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer").arg(dir).spawn().map_err(err)?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = dir;
         return Err("Opening the data folder isn't supported on this platform.".to_string());
@@ -980,12 +984,19 @@ pub struct TailscaleStatus {
 
 /// Where Tailscale's CLI actually lives. The Mac App Store build hides it inside
 /// the .app, which is why `which tailscale` finds nothing on plenty of machines.
+/// The Windows installer puts it in Program Files without touching PATH either.
 fn tailscale_bin() -> Option<String> {
+    #[cfg(not(windows))]
     const PATHS: &[&str] = &[
         "/usr/local/bin/tailscale",
         "/opt/homebrew/bin/tailscale",
         "/usr/bin/tailscale",
         "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ];
+    #[cfg(windows)]
+    const PATHS: &[&str] = &[
+        r"C:\Program Files\Tailscale\tailscale.exe",
+        r"C:\Program Files (x86)\Tailscale IPN\tailscale.exe",
     ];
     PATHS.iter().find(|p| Path::new(p).exists()).map(|p| p.to_string())
 }
@@ -994,7 +1005,9 @@ fn tailscale_bin() -> Option<String> {
 /// messages are the useful ones here ("HTTPS must be enabled in the admin console",
 /// "not logged in"), and a generic "failed to publish" would throw them away.
 fn tailscale_run(bin: &str, args: &[&str]) -> Result<String, String> {
-    let out = std::process::Command::new(bin)
+    let mut cmd = std::process::Command::new(bin);
+    crate::ollama::hide_console(&mut cmd);
+    let out = cmd
         .args(args)
         .output()
         .map_err(|e| format!("Couldn't run Tailscale: {e}"))?;
@@ -1017,11 +1030,9 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
         };
     };
 
-    let host = std::process::Command::new(&bin)
-        .args(["status", "--json"])
-        .output()
+    let host = tailscale_run(&bin, &["status", "--json"])
         .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| {
             let dns = v["Self"]["DNSName"].as_str()?.trim_end_matches('.').to_string();
             (!dns.is_empty()).then_some(dns)
@@ -1052,7 +1063,7 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
 /// refuses if the portal isn't actually running, rather than serving a dead port.
 #[tauri::command]
 pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
-    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this Mac.")?;
+    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
     let port = portal.status().port.ok_or("Turn on phone access first.")?;
     tailscale_run(&bin, &["serve", "--bg", &port.to_string()])?;
     Ok(portal_tailscale(portal))
@@ -1062,7 +1073,7 @@ pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String
 /// the tailnet's route to it.
 #[tauri::command]
 pub fn portal_unserve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
-    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this Mac.")?;
+    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
     tailscale_run(&bin, &["serve", "--https=443", "off"])?;
     Ok(portal_tailscale(portal))
 }
