@@ -1,7 +1,6 @@
 # Field Notes
 
-**A private journal and safety companion for psychedelic and other substance
-experiences — everything stays on your computer.**
+**A private offline journal and safety companion for psychedelic and other substance experiences.**
 
 Field Notes is a journal that understands what a session is. Write plain diary
 entries or log an experience as it happens — what you took, how much, and how
