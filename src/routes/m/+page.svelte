@@ -19,6 +19,7 @@
     createExperience,
     endExperience,
     logDose,
+    updateExperience,
     updateDose,
     deleteDose,
     addTimelineEvent,
@@ -28,7 +29,6 @@
     usageBySubstance,
     checkCombo,
     crisisScan,
-    emergencyResources,
     companionChat,
     aiStatus,
     aiStart,
@@ -41,7 +41,6 @@
     type Dose,
     type Warning,
     type CrisisResult,
-    type CrisisResource,
     type ChatMsg,
     type PwInfo,
     type KnowledgeHit,
@@ -76,8 +75,11 @@
   // timeline note
   let note = $state("");
   let intensity = $state("");
-  let crisis = $state<CrisisResult | null>(null);
-  let resources = $state<CrisisResource[]>([]);
+
+  // plain note (kind: "note") — no session required
+  let plainTitle = $state("");
+  let plainBody = $state("");
+  let noteSaved = $state(false);
 
   // journal browsing
   let open = $state<ExperienceDetail | null>(null);
@@ -104,6 +106,7 @@
   let ask = $state("");
   let thinking = $state(false);
   let waking = $state(false);
+  let chatCrisis = $state<CrisisResult | null>(null);
 
   onMount(async () => {
     captureToken();
@@ -168,7 +171,9 @@
   async function refresh() {
     await run(async () => {
       recent = await listExperiences();
-      const live = recent.find((e) => !e.ended_at);
+      // Only a *session* can be live — a plain note has no ended_at either, but
+      // it isn't something you're "in".
+      const live = recent.find((e) => e.kind === "session" && !e.ended_at);
       session = live ? await getExperience(live.id) : null;
       if (open) open = await getExperience(open.id);
     });
@@ -178,6 +183,28 @@
   const startSession = () =>
     run(async () => {
       await createExperience({ title: "", started_at: new Date().toISOString() });
+      await refresh();
+    });
+
+  // ---- a plain note: the 3am jot that isn't a session ----
+  const submitPlainNote = () =>
+    run(async () => {
+      if (!plainBody.trim()) return;
+      const e = await createExperience({
+        kind: "note",
+        title: plainTitle.trim(),
+        started_at: new Date().toISOString(),
+      });
+      await updateExperience(e.id, {
+        title: e.title,
+        notes: plainBody.trim(),
+        rating: null,
+        started_at: e.started_at,
+        ended_at: null,
+      });
+      plainTitle = plainBody = "";
+      noteSaved = true;
+      setTimeout(() => (noteSaved = false), 2500);
       await refresh();
     });
 
@@ -247,10 +274,9 @@
   const submitNote = () =>
     run(async () => {
       if (!session || !note.trim()) return;
-      // Scan before saving: if someone is writing that they can't breathe, help comes
-      // first — and the note still gets kept.
-      crisis = await crisisScan(note, session.id);
-      if (crisis && crisis.level !== "none") resources = await emergencyResources();
+      // The note is saved as written, and nothing reads it over the user's
+      // shoulder: the journal is private. Crisis guardrails live where the user
+      // is *talking to* something — the Companion — and in the combo checker.
       await addTimelineEvent({
         experience_id: session.id,
         at: new Date().toISOString(),
@@ -304,10 +330,17 @@
   const send = () =>
     run(async () => {
       if (!ask.trim() || !model) return;
-      const next: ChatMsg[] = [...chat, { role: "user", content: ask.trim() }];
+      const text = ask.trim();
+      const next: ChatMsg[] = [...chat, { role: "user", content: text }];
       chat = next;
       ask = "";
       thinking = true;
+      // The deterministic crisis layer runs on what's *said to* the Companion,
+      // independent of the model's reply — same as the desktop. It never reads
+      // the journal itself.
+      crisisScan(text, session?.id ?? null)
+        .then((r) => { if (r.level !== "none") chatCrisis = r; })
+        .catch(() => {});
       try {
         const reply = await companionChat(model, next, session?.id ?? null, null);
         chat = [...next, { role: "assistant", content: reply.reply }];
@@ -356,6 +389,17 @@
           <button class="primary" disabled={busy} onclick={startSession}>Start a session</button>
           <button disabled={busy} onclick={refresh}>Refresh</button>
         </section>
+
+        <section class="pane">
+          <h2>Or just write</h2>
+          <p class="muted">A plain journal entry — no session, no doses.</p>
+          <input placeholder="Title (optional)" bind:value={plainTitle} />
+          <textarea rows="4" placeholder="Write anything." bind:value={plainBody}></textarea>
+          <button class="primary" disabled={busy || !plainBody.trim()} onclick={submitPlainNote}>
+            Save note
+          </button>
+          {#if noteSaved}<p class="muted">Saved to the journal.</p>{/if}
+        </section>
       {:else}
         <section class="pane">
           <h2>Log a dose</h2>
@@ -382,17 +426,6 @@
           <textarea rows="3" placeholder="How's it going?" bind:value={note}></textarea>
           <input placeholder="Intensity 0–10 (optional)" inputmode="numeric" bind:value={intensity} />
           <button class="primary" disabled={busy || !note.trim()} onclick={submitNote}>Add note</button>
-
-          {#if crisis && crisis.level !== "none"}
-            <div class="banner danger">
-              <strong>Reach a person.</strong>
-              <ul>
-                {#each resources as r}
-                  <li>{r.label} — <a href="tel:{r.contact}">{r.contact}</a></li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
         </section>
 
         <section class="pane">
@@ -444,7 +477,14 @@
 
     <!-- ---------------- JOURNAL ---------------- -->
     {#if view === "journal"}
-      {#if open}
+      {#if open && open.kind === "note"}
+        <section class="pane">
+          <button class="link" onclick={() => (open = null)}>‹ Back</button>
+          <h2>{open.title || "Untitled note"}</h2>
+          <p class="muted">{day(open.started_at)}</p>
+          {#if open.notes}<p class="notes">{open.notes}</p>{/if}
+        </section>
+      {:else if open}
         <section class="pane">
           <button class="link" onclick={() => (open = null)}>‹ Back</button>
           <h2>{open.title || "Untitled"}</h2>
@@ -474,11 +514,16 @@
             {#each recent as e}
               <li>
                 <button class="line" onclick={() => openExperience(e.id)}>
-                  <strong>{e.title || "Untitled"}</strong>
-                  <span class="muted">
-                    {day(e.started_at)} · {e.dose_count} dose{e.dose_count === 1 ? "" : "s"}
-                    {#if !e.ended_at}· live{/if}
-                  </span>
+                  {#if e.kind === "note"}
+                    <strong>{e.title || "Untitled note"}</strong>
+                    <span class="muted">{day(e.started_at)} · note</span>
+                  {:else}
+                    <strong>{e.title || "Untitled"}</strong>
+                    <span class="muted">
+                      {day(e.started_at)} · {e.dose_count} dose{e.dose_count === 1 ? "" : "s"}
+                      {#if !e.ended_at}· live{/if}
+                    </span>
+                  {/if}
                 </button>
               </li>
             {:else}
@@ -618,6 +663,17 @@
             <select bind:value={model}>
               {#each models as m}<option>{m}</option>{/each}
             </select>
+          {/if}
+          {#if chatCrisis && chatCrisis.level !== "none"}
+            <div class="banner danger">
+              <strong>{chatCrisis.headline}</strong>
+              <ul>
+                {#each chatCrisis.resources as r}
+                  <li>{r.label}{r.contact ? " — " : ""}{#if r.contact}<a href="tel:{r.contact}">{r.contact}</a>{/if}</li>
+                {/each}
+              </ul>
+              <button onclick={() => (chatCrisis = null)}>Dismiss</button>
+            </div>
           {/if}
           <div class="chat">
             {#each chat as m}

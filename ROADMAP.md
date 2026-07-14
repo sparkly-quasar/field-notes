@@ -58,11 +58,12 @@ installer).
   wired to the dose-reference interaction data; DoseWiki's dangerous/unsafe/caution
   tiers map onto our danger/caution/note severities (with the reason text), and
   inline dose-range + interaction warnings appear while logging a dose.
-- **Distribution** — cross-platform signed installers (macOS universal `.dmg` +
-  Linux `.AppImage`/`.deb`/`.rpm`) via `tauri-action` CI on `v*` tags, plus
-  **in-app auto-update** (Tauri updater; "Install & restart" banner). macOS is
-  currently **unsigned** (right-click → Open on first launch) pending an Apple
-  Developer ID.
+- **Distribution** — cross-platform installers (macOS universal `.dmg` +
+  Linux `.AppImage`/`.deb`/`.rpm` + **Windows NSIS `.exe`/`.msi` from v0.5.0**)
+  via `tauri-action` CI on `v*` tags, plus **in-app auto-update** (Tauri updater;
+  "Install & restart" banner). macOS is currently **unsigned** (right-click →
+  Open on first launch) pending an Apple Developer ID; Windows is unsigned too
+  (SmartScreen "More info → Run anyway").
 
 ---
 
@@ -382,7 +383,7 @@ emotional presence.
 **v0.4.0 and v0.4.1 are shipped and public** — the knowledge corpus, contribution
 drafts, the phone portal (Phase 3a), the combo-checker fix, and the phone Companion fix.
 
-### Plain journal entries (not a drug session) — proposed
+### Plain journal entries (not a drug session) — ✅ shipped in v0.5.0
 
 Today an entry **has to be a session**. If you just want to write about your day, the
 app has nowhere to put it, which quietly narrows a journal into a drug log. It should
@@ -393,10 +394,15 @@ be possible to write a plain text entry, in the same journal, alongside the sess
   *yet* looks exactly like a note, and it would flip type under you mid-session. Add a
   `kind` column (`'session' | 'note'`, defaulting to `'session'` so every existing row
   keeps its meaning) and branch on it.
-- **The crisis scan still runs.** A plain entry is *more* likely to be where someone
-  writes that they're not okay, not less. `crisis.rs` must fire on these exactly as it
-  does on session notes. The interaction checker is simply irrelevant here — that's
-  fine, and different from being switched off.
+- **The crisis scan does NOT run on journal prose — owner's decision (2026-07-14).**
+  The journal is private; the app must not read over the user's shoulder. `crisis.rs`
+  fires in exactly two places: (1) what the user *says to* the Companion in an active
+  chat (self-harm / harm-to-others intent), and (2) the deterministic combo checker
+  when a dangerous interaction is flagged. Journal entries — session notes, timeline
+  notes, and plain entries — are saved as written and never scanned. (The phone's
+  timeline-note scan was removed for the same reason.) Don't relitigate this by
+  "adding safety"; the guardrails live where the user is talking to something, not
+  where they're talking to themselves.
 - **The UI should get quieter, not just different.** A plain entry has no doses, no
   timeline, no combo warnings, no elapsed-time header. It's a title, a body, a date.
   Resist re-using the session layout with the drug parts hidden.
