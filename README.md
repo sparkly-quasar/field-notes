@@ -61,6 +61,23 @@ from your phone.
   that DoseWiki doesn't cover as a draft to submit by hand. Never automatic,
   never includes journal data.
 
+## Screenshots
+
+| | |
+|:---:|:---:|
+| ![Journal home](docs/screenshots/journal-home.png) | ![Live session](docs/screenshots/live-session.png) |
+| **Journal** — sessions and plain notes in one place | **Live session** — elapsed time, one-tap logging, and the companion |
+| ![Companion chat](docs/screenshots/companion-chat.png) | ![Session detail](docs/screenshots/session-detail.png) |
+| **Companion** — local AI support chat with selectable support styles | **Session detail** — doses with inline reference ranges and combination warnings |
+| ![Substances reference](docs/screenshots/substances-reference.png) | ![Reference search](docs/screenshots/reference-search.png) |
+| **Substances** — offline dose reference and your own catalogue | **Reference search** — thousands of DoseWiki passages, searchable offline |
+| ![Substance log](docs/screenshots/substance-log.png) | ![Emergency help](docs/screenshots/emergency-help.png) |
+| **Substance log** — history grouped by substance | **Get help now** — real crisis and peer-support contacts, always one tap away |
+| ![Phone access settings](docs/screenshots/settings-phone-access.png) | ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) |
+| **Phone access** — optional, Tailscale-only, off by default | **Encryption & backups** — AES-256 at rest, one-file backup and restore |
+| ![Obsidian vault sync](docs/screenshots/settings-obsidian-sync.png) | ![Data location](docs/screenshots/settings-data-location.png) |
+| **Obsidian sync** — two-way Markdown export, fully offline | **Your data, one folder** — everything lives on your device, erase anytime |
+
 ## Install & update
 
 Download an installer for your platform from the
