@@ -238,6 +238,13 @@ non-negotiables, each with a test:
    - **Outbox** — service worker + IndexedDB; local temp IDs reconciled against
      server-assigned IDs on replay. A visible **"N entries pending"** marker — never
      leave the user guessing whether a dose was recorded.
+   - **Redirect `/` → `/m` for non-Tauri clients.** The portal's SPA fallback serves
+     `index.html` for any non-file path, so a phone that browses to the tailnet root gets
+     the **desktop** page — which half-renders and throws console errors, because it
+     expects Tauri APIs that don't exist in a browser. Not a security hole (the allowlist
+     is enforced server-side, so nothing dangerous is reachable either way), just untidy.
+     It belongs here rather than as a one-off: the service worker has to decide what the
+     PWA's start URL and scope are anyway, and both should answer to `/m`.
    - ⚠️ **Safety features must not silently go dark offline.** `interactions.rs` and
      `crisis.rs` are deterministic and run on the desktop — offline, the phone would
      happily log a dose while unable to warn that it interacts with what was taken an
