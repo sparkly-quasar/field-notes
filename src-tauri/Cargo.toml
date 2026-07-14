@@ -1,6 +1,6 @@
 [package]
 name = "field_notes"
-version = "0.3.2"
+version = "0.4.0-beta.1"
 description = "Offline harm-reduction journal & trip-sitting workstation"
 authors = ["sparkly-quasar"]
 # Licensed under the PolyForm Noncommercial License 1.0.0 — see ../LICENSE.
@@ -15,6 +15,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+# `test` gives us a real Tauri app with a mock runtime, so portal.rs can be driven
+# over an actual socket — the portal's surface is HTTP, so that's where it's tested.
+tauri = { version = "2", features = ["test"] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -31,3 +36,10 @@ rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"]
 # a bundled offline file, so no outbound/TLS request remains).
 ureq = { version = "2", features = ["json"] }
 tauri-plugin-dialog = "2"
+# The optional, off-by-default phone portal (portal.rs). Bound to 127.0.0.1 only and
+# fronted by `tailscale serve` — see the module docs before touching any of this.
+tiny_http = "0.12"
+# QR pairing: the token is scanned, never typed. `qrcode` renders to SVG offline.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# OS randomness for the portal's bearer token.
+getrandom = "0.2"

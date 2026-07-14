@@ -4,11 +4,14 @@
 //! rest with a passphrase (SQLCipher).
 
 mod commands;
+mod contribute;
 mod crisis;
 mod db;
 mod interactions;
+mod knowledge;
 mod obsidian;
 mod ollama;
+mod portal;
 mod pw;
 
 use rusqlite::Connection;
@@ -49,6 +52,20 @@ impl Db {
     }
 }
 
+/// The bundled DoseWiki prose corpus, indexed for offline BM25 search.
+///
+/// Deliberately independent of [`Db`]: it's public CC0 reference data, not user
+/// data, so it stays searchable while the journal is locked. `None` if the corpus
+/// resource is missing or malformed — searching then returns no hits, which
+/// callers already have to handle (see `knowledge.rs`).
+pub struct Knowledge(pub Option<knowledge::Index>);
+
+impl Knowledge {
+    pub fn search(&self, query: &str, limit: usize) -> Vec<knowledge::Hit> {
+        self.0.as_ref().map(|i| i.search(query, limit)).unwrap_or_default()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -74,6 +91,22 @@ pub fn run() {
             if db.is_unlocked() {
                 commands::refresh_dose_reference(app.handle(), db.inner());
             }
+
+            // The knowledge corpus is bundled reference data held in memory, so it
+            // loads regardless of the journal's lock state. A failure here is not
+            // fatal — the app simply has no prose search.
+            let index = match knowledge::load_bundled(app.handle()) {
+                Ok(i) => Some(i),
+                Err(e) => {
+                    eprintln!("knowledge corpus unavailable: {e}");
+                    None
+                }
+            };
+            app.manage(Knowledge(index));
+
+            // The phone portal is **off**. It only ever starts because the user
+            // asked it to, in Settings, on this machine. See `portal.rs`.
+            app.manage(portal::Portal::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -116,7 +149,17 @@ pub fn run() {
             commands::import_backup,
             commands::obsidian_export,
             commands::obsidian_import,
+            commands::contribution_candidates,
+            commands::contribution_draft,
+            commands::contribution_save,
+            commands::portal_status,
+            commands::portal_enable,
+            commands::portal_disable,
+            commands::portal_qr,
+            commands::portal_tailscale,
             commands::crisis_scan,
+            commands::knowledge_search,
+            commands::knowledge_status,
             commands::emergency_resources,
             commands::data_dir,
             commands::reveal_data_dir,

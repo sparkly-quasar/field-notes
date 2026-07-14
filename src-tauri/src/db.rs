@@ -470,13 +470,23 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
         conn.prepare("SELECT DISTINCT substance_name FROM doses WHERE experience_id = ?1")?;
     let names: Vec<String> =
         stmt.query_map([input.experience_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
+
+    Ok((dose, combo_warnings(conn, &names)))
+}
+
+/// Every warning we know about for a set of substances taken together, from both
+/// sources: the class-rule backstop in `interactions.rs` and DoseWiki's graded
+/// interaction lists. The most severe warning per pair survives.
+///
+/// This is the *only* way warnings should be produced. Logging a dose and asking
+/// the combo checker "is this safe?" must answer identically — the checker is the
+/// one people consult *before* taking something, so it can't know less.
+pub fn combo_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interactions::Warning> {
     let with_classes: Vec<(String, Vec<String>)> =
         names.iter().map(|n| (n.clone(), classes_for(conn, n))).collect();
     let mut warnings = crate::interactions::check(&with_classes);
-    warnings.extend(pw_interaction_warnings(conn, &names));
-    let warnings = crate::interactions::dedup_pairs(warnings);
-
-    Ok((dose, warnings))
+    warnings.extend(pw_interaction_warnings(conn, names));
+    crate::interactions::dedup_pairs(warnings)
 }
 
 pub fn add_timeline_event(conn: &Connection, input: &TimelineInput) -> rusqlite::Result<TimelineEvent> {
@@ -825,5 +835,39 @@ mod tests {
         }
         assert!(last.iter().any(|x| x.severity == "danger" && x.message.contains("DoseWiki")),
             "expected a DoseWiki danger warning for MDMA + Tramadol, got {last:?}");
+    }
+
+    // The combo checker is what people consult *before* dosing, so it must not know
+    // less than the dose log does. MDMA + Tramadol is flagged only by DoseWiki's
+    // graded lists — no class rule covers it — so this pair is precisely the one
+    // that used to sail through the checker while being flagged at log time.
+    #[test]
+    fn the_combo_checker_knows_everything_the_dose_log_knows() {
+        let mut c = mem();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).expect("parse bundled");
+        pw_replace_all(&mut c, &all).unwrap();
+
+        let pair = ["MDMA".to_string(), "Tramadol".to_string()];
+        let w = combo_warnings(&c, &pair);
+        assert!(w.iter().any(|x| x.severity == "danger" && x.message.contains("DoseWiki")),
+            "combo checker missed the DoseWiki danger for MDMA + Tramadol, got {w:?}");
+
+        // ...and the class-rule backstop still fires for pairs DoseWiki may not list.
+        let pair = ["Heroin".to_string(), "Xanax".to_string()];
+        let w = combo_warnings(&c, &pair);
+        assert!(w.iter().any(|x| x.severity == "danger"),
+            "expected a danger warning for opioid + benzodiazepine, got {w:?}");
+
+        // One warning per pair, never a duplicate from the two sources.
+        let three = ["MDMA".to_string(), "Tramadol".to_string(), "Alcohol".to_string()];
+        let w = combo_warnings(&c, &three);
+        let mut pairs: Vec<(String, String)> = w
+            .iter()
+            .map(|x| if x.a <= x.b { (x.a.clone(), x.b.clone()) } else { (x.b.clone(), x.a.clone()) })
+            .collect();
+        pairs.sort();
+        let before = pairs.len();
+        pairs.dedup();
+        assert_eq!(before, pairs.len(), "a pair was warned about twice: {w:?}");
     }
 }

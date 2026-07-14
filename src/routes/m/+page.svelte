@@ -1,0 +1,355 @@
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0 -->
+<!--
+  The phone portal's UI (see src-tauri/src/portal.rs).
+
+  Deliberately a *subset*, not the desktop page made responsive. On a phone, mid-
+  session, one-handed, possibly altered: what matters is logging a dose, jotting a
+  note, checking a combo, and reaching help. Everything else — settings, encryption,
+  backups, import, the substance catalogue — stays on the desktop, where you are
+  sober and sitting down. It also can't be reached from here: portal.rs doesn't
+  allowlist those commands.
+-->
+<script lang="ts">
+  import { onMount } from "svelte";
+  import {
+    listExperiences,
+    getExperience,
+    logDose,
+    addTimelineEvent,
+    checkCombo,
+    crisisScan,
+    emergencyResources,
+    companionChat,
+    ollamaModels,
+    type ExperienceSummary,
+    type ExperienceDetail,
+    type Warning,
+    type CrisisResult,
+    type CrisisResource,
+    type ChatMsg,
+  } from "$lib/api";
+  import { captureToken, hasToken, inTauri } from "$lib/portal";
+
+  type View = "log" | "timeline" | "combo" | "companion";
+
+  let paired = $state(false);
+  let view = $state<View>("log");
+  let err = $state<string | null>(null);
+
+  let session = $state<ExperienceDetail | null>(null);
+  let recent = $state<ExperienceSummary[]>([]);
+
+  // dose entry
+  let dSub = $state("");
+  let dAmt = $state("");
+  let dUnit = $state("mg");
+  let dRoute = $state("oral");
+  let doseWarnings = $state<Warning[]>([]);
+  let busy = $state(false);
+
+  // timeline note
+  let note = $state("");
+  let crisis = $state<CrisisResult | null>(null);
+  let resources = $state<CrisisResource[]>([]);
+
+  // combo check
+  let comboText = $state("");
+  let comboWarnings = $state<Warning[] | null>(null);
+
+  // companion
+  let models = $state<string[]>([]);
+  let model = $state("");
+  let chat = $state<ChatMsg[]>([]);
+  let ask = $state("");
+  let thinking = $state(false);
+
+  onMount(async () => {
+    captureToken();
+    paired = inTauri() || hasToken();
+    if (!paired) return;
+    await refresh();
+    try {
+      models = await ollamaModels();
+      model = models[0] ?? "";
+    } catch {
+      models = []; // Companion needs the desktop's Ollama; it may simply be off.
+    }
+  });
+
+  async function refresh() {
+    try {
+      recent = await listExperiences();
+      const live = recent.find((e) => !e.ended_at);
+      session = live ? await getExperience(live.id) : null;
+      err = null;
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function submitDose() {
+    if (!session || !dSub.trim()) return;
+    busy = true;
+    err = null;
+    try {
+      const res = await logDose({
+        experience_id: session.id,
+        substance_name: dSub.trim(),
+        amount: dAmt.trim() ? Number(dAmt) : null,
+        unit: dUnit,
+        route: dRoute,
+        taken_at: new Date().toISOString(),
+      });
+      // The same deterministic checker the desktop runs — it does not go quiet
+      // just because you're on a phone.
+      doseWarnings = res.warnings;
+      dSub = dAmt = "";
+      await refresh();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function submitNote() {
+    if (!session || !note.trim()) return;
+    busy = true;
+    try {
+      // Scan before saving: if someone is writing that they can't breathe, help
+      // comes first and the note still gets kept.
+      crisis = await crisisScan(note, session.id);
+      if (crisis && crisis.level !== "none") resources = await emergencyResources();
+      await addTimelineEvent({
+        experience_id: session.id,
+        at: new Date().toISOString(),
+        note: note.trim(),
+        intensity: null,
+      });
+      note = "";
+      await refresh();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function runCombo() {
+    const names = comboText.split(/[,+\n]/).map((s) => s.trim()).filter(Boolean);
+    if (names.length < 2) return;
+    comboWarnings = await checkCombo(names);
+  }
+
+  async function send() {
+    if (!ask.trim() || !model) return;
+    const next: ChatMsg[] = [...chat, { role: "user", content: ask.trim() }];
+    chat = next;
+    ask = "";
+    thinking = true;
+    try {
+      const reply = await companionChat(model, next, session?.id ?? null, null);
+      chat = [...next, { role: "assistant", content: reply.reply }];
+      // The Companion has tools: it may have logged something. Reflect that.
+      if (reply.journal_changed) await refresh();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    } finally {
+      thinking = false;
+    }
+  }
+
+  const sev = (w: Warning) => w.severity;
+</script>
+
+<svelte:head><title>Field Notes</title></svelte:head>
+
+<main>
+  {#if !paired}
+    <section class="pane">
+      <h1>Not paired</h1>
+      <p>
+        Open Field Notes on your desktop, go to <strong>Settings → Phone access</strong>, and scan
+        the QR code with this phone.
+      </p>
+    </section>
+  {:else}
+    <header>
+      <strong>Field Notes</strong>
+      {#if session}
+        <span class="live">● {session.title || "Live session"}</span>
+      {:else}
+        <span class="muted">No live session</span>
+      {/if}
+    </header>
+
+    {#if err}<p class="banner danger">{err}</p>{/if}
+
+    {#if !session}
+      <section class="pane">
+        <p class="muted">
+          There's no session running. Start one on the desktop — beginning a session is a
+          sitting-down decision, and this screen is for while it's underway.
+        </p>
+        <button onclick={refresh}>Refresh</button>
+      </section>
+    {:else}
+      {#if view === "log"}
+        <section class="pane">
+          <h2>Log a dose</h2>
+          <input placeholder="Substance" bind:value={dSub} autocapitalize="none" />
+          <div class="row">
+            <input placeholder="Amount" inputmode="decimal" bind:value={dAmt} />
+            <select bind:value={dUnit}>
+              {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
+            </select>
+            <select bind:value={dRoute}>
+              {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
+            </select>
+          </div>
+          <button class="primary" disabled={busy || !dSub.trim()} onclick={submitDose}>
+            {busy ? "Logging…" : "Log dose"}
+          </button>
+
+          {#each doseWarnings as w}
+            <p class="banner {sev(w)}">{w.message}</p>
+          {/each}
+        </section>
+      {/if}
+
+      {#if view === "timeline"}
+        <section class="pane">
+          <h2>Note</h2>
+          <textarea rows="3" placeholder="How's it going?" bind:value={note}></textarea>
+          <button class="primary" disabled={busy || !note.trim()} onclick={submitNote}>Add note</button>
+
+          {#if crisis && crisis.level !== "none"}
+            <div class="banner danger">
+              <strong>Reach a person.</strong>
+              <ul>
+                {#each resources as r}
+                  <li>{r.label} — <a href="tel:{r.contact}">{r.contact}</a></li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+
+          <h2>Timeline</h2>
+          <ul class="tl">
+            {#each session.doses as d}
+              <li><span class="t">{d.taken_at.slice(11, 16)}</span> {d.substance_name} {d.amount ?? ""}{d.unit} {d.route}</li>
+            {/each}
+            {#each session.timeline as t}
+              <li><span class="t">{t.at.slice(11, 16)}</span> {t.note}</li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
+      {#if view === "combo"}
+        <section class="pane">
+          <h2>Check a combo</h2>
+          <p class="muted">Two or more, separated by commas.</p>
+          <input placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocapitalize="none" />
+          <button class="primary" onclick={runCombo}>Check</button>
+          {#if comboWarnings}
+            {#if comboWarnings.length === 0}
+              <p class="banner note">Nothing flagged between those. That isn't the same as "safe".</p>
+            {:else}
+              {#each comboWarnings as w}<p class="banner {sev(w)}">{w.message}</p>{/each}
+            {/if}
+          {/if}
+        </section>
+      {/if}
+
+      {#if view === "companion"}
+        <section class="pane">
+          <h2>Companion</h2>
+          {#if !models.length}
+            <p class="muted">
+              The Companion runs on the desktop's local model, and it isn't reachable right now.
+              Everything else on this screen still works.
+            </p>
+          {:else}
+            <div class="chat">
+              {#each chat as m}
+                <p class="msg {m.role}">{m.content}</p>
+              {/each}
+              {#if thinking}<p class="msg assistant muted">…</p>{/if}
+            </div>
+            <textarea rows="2" placeholder="Say anything" bind:value={ask}></textarea>
+            <button class="primary" disabled={thinking || !ask.trim()} onclick={send}>Send</button>
+          {/if}
+        </section>
+      {/if}
+
+      <nav>
+        <button class:on={view === "log"} onclick={() => (view = "log")}>Dose</button>
+        <button class:on={view === "timeline"} onclick={() => (view = "timeline")}>Note</button>
+        <button class:on={view === "combo"} onclick={() => (view = "combo")}>Combo</button>
+        <button class:on={view === "companion"} onclick={() => (view = "companion")}>Talk</button>
+      </nav>
+    {/if}
+  {/if}
+</main>
+
+<style>
+  :global(body) {
+    margin: 0;
+    background: #14161a;
+    color: #e8eaed;
+    font: 16px/1.5 -apple-system, system-ui, sans-serif;
+    /* Thumb-reachable: the nav is pinned to the bottom, so keep clear of it. */
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+  main { max-width: 34rem; margin: 0 auto; padding: 0.8rem; }
+  header { display: flex; justify-content: space-between; align-items: baseline; padding: 0.4rem 0.2rem 0.8rem; }
+  .live { color: #7ee787; font-size: 0.85rem; }
+  .muted { color: #9aa2ad; }
+
+  .pane { background: #1b1e24; border: 1px solid #2a2f38; border-radius: 14px; padding: 1rem; margin-bottom: 0.8rem; }
+  h1 { font-size: 1.2rem; margin: 0 0 0.5rem; }
+  h2 { font-size: 1rem; margin: 0 0 0.6rem; }
+
+  input, select, textarea {
+    width: 100%; box-sizing: border-box; font: inherit;
+    background: #14161a; color: #e8eaed; border: 1px solid #2a2f38;
+    border-radius: 10px; padding: 0.7rem 0.75rem; margin-bottom: 0.5rem;
+  }
+  .row { display: flex; gap: 0.5rem; }
+  .row input { flex: 2; }
+  .row select { flex: 1; }
+
+  button {
+    font: inherit; font-weight: 600; border-radius: 10px; border: 1px solid #2a2f38;
+    background: #21252c; color: #e8eaed; padding: 0.7rem 1rem; width: 100%;
+    /* Big enough to hit while your hands aren't steady. */
+    min-height: 2.9rem;
+  }
+  button.primary { background: #6ea8fe; color: #10131a; border-color: #6ea8fe; }
+  button:disabled { opacity: 0.5; }
+
+  .banner { border-radius: 10px; padding: 0.7rem 0.8rem; margin: 0.6rem 0 0; border: 1px solid; font-size: 0.92rem; }
+  .banner.danger { border-color: #ff6b6b; background: rgba(255, 107, 107, 0.14); }
+  .banner.caution { border-color: #ffb454; background: rgba(255, 180, 84, 0.12); }
+  .banner.note { border-color: #6ea8fe; background: rgba(110, 168, 254, 0.1); }
+  .banner ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+  .banner a { color: inherit; }
+
+  .tl { list-style: none; padding: 0; margin: 0; }
+  .tl li { border-top: 1px solid #2a2f38; padding: 0.5rem 0; font-size: 0.92rem; }
+  .t { color: #9aa2ad; margin-right: 0.5rem; font-variant-numeric: tabular-nums; }
+
+  .chat { max-height: 45vh; overflow-y: auto; margin-bottom: 0.6rem; }
+  .msg { border-radius: 12px; padding: 0.6rem 0.75rem; margin: 0 0 0.5rem; white-space: pre-wrap; }
+  .msg.user { background: #21252c; }
+  .msg.assistant { background: #1f2a3a; }
+
+  nav {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; gap: 0.4rem; padding: 0.5rem;
+    background: #14161ae6; backdrop-filter: blur(8px); border-top: 1px solid #2a2f38;
+  }
+  nav button { flex: 1; padding: 0.6rem 0; }
+  nav button.on { background: #6ea8fe; color: #10131a; border-color: #6ea8fe; }
+</style>

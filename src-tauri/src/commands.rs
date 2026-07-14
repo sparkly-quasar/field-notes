@@ -2,11 +2,14 @@
 //! Tauri command surface exposed to the Svelte frontend. All journal data lives
 //! in a single on-device SQLite connection guarded by a mutex.
 
+use crate::contribute;
 use crate::db::{self, *};
 use crate::interactions::{self, Warning};
+use crate::knowledge::Hit;
 use crate::ollama::{self, AiStatus, ChatMsg};
+use crate::portal::{self, Portal};
 use crate::pw::{self, PwInfo};
-use crate::Db;
+use crate::{Db, Knowledge};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -31,11 +34,17 @@ pub fn add_substance(db: State<'_, Db>, input: SubstanceInput) -> Result<Substan
     db.with(|c| db::add_substance(c, &input))
 }
 
+/// Answer the same question `log_dose` answers, with the same evidence: the class
+/// rules *and* DoseWiki's graded interaction lists. If the journal is locked we
+/// can't reach either the user's classifications or the cached reference data, so
+/// we fall back to the built-in classes rather than going silent.
 #[tauri::command]
-pub fn check_combo(names: Vec<String>) -> Vec<Warning> {
-    let subs: Vec<(String, Vec<String>)> =
-        names.into_iter().map(|n| { let c = interactions::builtin_classes(&n); (n, c) }).collect();
-    interactions::check(&subs)
+pub fn check_combo(db: State<'_, Db>, names: Vec<String>) -> Vec<Warning> {
+    db.with(|c| Ok(db::combo_warnings(c, &names))).unwrap_or_else(|_| {
+        let subs: Vec<(String, Vec<String>)> =
+            names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
+        interactions::check(&subs)
+    })
 }
 
 #[tauri::command]
@@ -330,8 +339,54 @@ fn sys(content: impl Into<String>) -> serde_json::Value {
     serde_json::json!({ "role": "system", "content": content.into() })
 }
 
-/// Tool definitions offered to the Companion during an active session.
-fn companion_tools() -> serde_json::Value {
+/// Tool definitions offered to the Companion.
+///
+/// Split by what they *do*, not by convenience. The **reference** tools
+/// (`lookup_dose`, `check_interactions`, `search_knowledge`) are read-only and are
+/// offered **always** — someone preparing ("is it safe to mix X and Y?") needs the
+/// deterministic checker just as much as someone mid-session does, and without
+/// these the model would answer that question from memory, which is precisely the
+/// failure the deterministic layers exist to prevent. The **journal** tools mutate
+/// a session and so require one to exist.
+fn companion_tools(has_session: bool) -> serde_json::Value {
+    let mut tools = reference_tools();
+    if has_session {
+        if let (Some(t), Some(j)) = (tools.as_array_mut(), journal_tools().as_array()) {
+            t.extend(j.iter().cloned());
+        }
+    }
+    tools
+}
+
+/// Read-only lookups. Safe with or without a session; always offered.
+fn reference_tools() -> serde_json::Value {
+    serde_json::json!([
+        { "type": "function", "function": {
+            "name": "lookup_dose",
+            "description": "Look up the bundled dose reference (ranges, duration) for a substance. Facts only — never a prescription.",
+            "parameters": { "type": "object", "properties": {
+                "substance": { "type": "string" }
+            }, "required": ["substance"] }
+        }},
+        { "type": "function", "function": {
+            "name": "check_interactions",
+            "description": "Check known interaction risks between two or more substances using the deterministic safety checker. This is authoritative; always prefer it over your own knowledge of combinations.",
+            "parameters": { "type": "object", "properties": {
+                "substances": { "type": "array", "items": { "type": "string" } }
+            }, "required": ["substances"] }
+        }},
+        { "type": "function", "function": {
+            "name": "search_knowledge",
+            "description": "Search the offline DoseWiki reference for background prose about a substance: how it works (pharmacology), harm potential, tolerance, legality, history. Use this instead of answering from memory whenever the person asks what something does or how risky it is. NOT for doses or interaction verdicts — use lookup_dose and check_interactions for those, they are authoritative and this is not. Passages may be marked sparse or unreviewed; if they are, say so.",
+            "parameters": { "type": "object", "properties": {
+                "query": { "type": "string", "description": "what to look up, e.g. 'ketamine bladder harm' or 'MDMA neurotoxicity'" }
+            }, "required": ["query"] }
+        }}
+    ])
+}
+
+/// Tools that write to the journal. Require an active session.
+fn journal_tools() -> serde_json::Value {
     serde_json::json!([
         { "type": "function", "function": {
             "name": "log_dose",
@@ -357,20 +412,6 @@ fn companion_tools() -> serde_json::Value {
             "name": "session_status",
             "description": "Get a summary of the current session: doses logged so far and any known interaction flags. Use for 'how am I doing?'.",
             "parameters": { "type": "object", "properties": {} }
-        }},
-        { "type": "function", "function": {
-            "name": "lookup_dose",
-            "description": "Look up the bundled dose reference (ranges, duration) for a substance. Facts only — never a prescription.",
-            "parameters": { "type": "object", "properties": {
-                "substance": { "type": "string" }
-            }, "required": ["substance"] }
-        }},
-        { "type": "function", "function": {
-            "name": "check_interactions",
-            "description": "Check known interaction risks between two or more substances using the deterministic safety checker.",
-            "parameters": { "type": "object", "properties": {
-                "substances": { "type": "array", "items": { "type": "string" } }
-            }, "required": ["substances"] }
         }}
     ])
 }
@@ -393,6 +434,7 @@ fn now_iso(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
 /// the model, optional human-readable action description, whether the journal changed).
 fn run_companion_tool(
     db: &Db,
+    kb: &Knowledge,
     experience_id: Option<i64>,
     name: &str,
     args: &serde_json::Value,
@@ -505,13 +547,76 @@ fn run_companion_tool(
                 Ok((format!("Interaction flags: {text}"), None, false))
             }
         }
+        "search_knowledge" => {
+            let query = s("query");
+            if query.trim().is_empty() {
+                return Ok(("Empty query; nothing to look up.".into(), None, false));
+            }
+            let hits = kb.search(&query, 4);
+            // An empty result is a real answer, and the only honest one. Say so
+            // explicitly, or the model will fill the silence with its own priors
+            // — which is exactly what the corpus exists to prevent.
+            if hits.is_empty() {
+                return Ok((format!(
+                    "No reference material found for '{query}'. Tell the person you don't \
+                     have good information on this rather than guessing."
+                ), None, false));
+            }
+            let mut out = String::new();
+            let mut caveats: Vec<&str> = Vec::new();
+            for h in &hits {
+                out.push_str(&format!("\n[DoseWiki — {} · {}]\n{}\n", h.title, h.section, h.text));
+                // Coverage is worst for obscure substances — precisely where the
+                // person has nowhere else to look. The flag must reach the model.
+                if h.thin && !caveats.contains(&"thin") {
+                    caveats.push("thin");
+                }
+                if !h.reviewed && !caveats.contains(&"unreviewed") {
+                    caveats.push("unreviewed");
+                }
+            }
+            if !caveats.is_empty() {
+                out.push_str(
+                    "\nNOTE ON SOURCE QUALITY: some passages above come from DoseWiki entries \
+                     that are sparse and/or not editorially reviewed. Say so plainly when you \
+                     use them — do not present thin material with full confidence. Dose and \
+                     interaction facts must still come from lookup_dose / check_interactions, \
+                     never from this prose.",
+                );
+            }
+            Ok((out, None, false))
+        }
         other => Ok((format!("Unknown tool '{other}'."), None, false)),
+    }
+}
+
+/// Search the offline knowledge corpus directly (the UI's reference search).
+///
+/// Hits carry `thin` / `reviewed` — the UI must show them. See `knowledge.rs`.
+#[tauri::command]
+pub fn knowledge_search(kb: State<'_, Knowledge>, query: String, limit: Option<usize>) -> Vec<Hit> {
+    kb.search(&query, limit.unwrap_or(8).clamp(1, 25))
+}
+
+#[derive(Serialize)]
+pub struct KnowledgeStatus {
+    /// False if the bundled corpus failed to load — the UI should hide search.
+    pub available: bool,
+    pub chunks: usize,
+}
+
+#[tauri::command]
+pub fn knowledge_status(kb: State<'_, Knowledge>) -> KnowledgeStatus {
+    KnowledgeStatus {
+        available: kb.0.is_some(),
+        chunks: kb.0.as_ref().map(|i| i.len()).unwrap_or(0),
     }
 }
 
 #[tauri::command]
 pub fn companion_chat(
     db: State<'_, Db>,
+    kb: State<'_, Knowledge>,
     model: String,
     history: Vec<ChatMsg>,
     experience_id: Option<i64>,
@@ -533,8 +638,8 @@ pub fn companion_chat(
         messages.push(serde_json::json!({ "role": m.role, "content": m.content }));
     }
 
-    // Tools are only offered when there's a session to act on.
-    let tools = if experience_id.is_some() { companion_tools() } else { serde_json::json!([]) };
+    // Reference lookups are always offered; journal writes need a session.
+    let tools = companion_tools(experience_id.is_some());
     let mut actions: Vec<String> = Vec::new();
     let mut changed = false;
     let mut last_content = String::new();
@@ -552,7 +657,8 @@ pub fn companion_chat(
         for call in &calls {
             let name = call.pointer("/function/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
             let args = arg_obj(call);
-            let (result, desc, did_change) = run_companion_tool(db.inner(), experience_id, &name, &args)?;
+            let (result, desc, did_change) =
+                run_companion_tool(db.inner(), kb.inner(), experience_id, &name, &args)?;
             if let Some(d) = desc {
                 actions.push(d);
             }
@@ -816,4 +922,122 @@ pub fn obsidian_export(db: State<'_, Db>, folder: String) -> Result<crate::obsid
 #[tauri::command]
 pub fn obsidian_import(db: State<'_, Db>, folder: String) -> Result<crate::obsidian::ImportResult, String> {
     db.with(|c| Ok(crate::obsidian::import_all(c, Path::new(&folder))))?
+}
+
+// ---------- the phone portal (optional; off by default) ----------
+//
+// These are desktop-only by construction: `portal.rs` does not put them on its
+// allowlist, so the portal cannot be used to reconfigure or disable itself.
+
+#[tauri::command]
+pub fn portal_status(portal: State<'_, Portal>) -> portal::PortalStatus {
+    portal.status()
+}
+
+/// Turn on phone access. Requires an unlocked journal; binds `127.0.0.1` only.
+#[tauri::command]
+pub fn portal_enable(app: AppHandle) -> Result<portal::PortalStatus, String> {
+    portal::start(&app)
+}
+
+#[tauri::command]
+pub fn portal_disable(portal: State<'_, Portal>) -> portal::PortalStatus {
+    portal.stop();
+    portal.status()
+}
+
+/// The pairing QR, as an inline SVG. It encodes the bearer token, so it is only
+/// ever rendered on the desktop screen — it is a key, and it is shown to a camera.
+#[tauri::command]
+pub fn portal_qr(portal: State<'_, Portal>, url: Option<String>) -> Result<String, String> {
+    let status = portal.status();
+    let target = url
+        .filter(|u| !u.trim().is_empty())
+        .or(status.pair_url)
+        .ok_or("The portal isn't running.")?;
+    let code = qrcode::QrCode::new(target.as_bytes()).map_err(err)?;
+    Ok(code
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(220, 220)
+        .quiet_zone(true)
+        .build())
+}
+
+#[derive(Serialize)]
+pub struct TailscaleStatus {
+    /// The `tailscale` CLI is on this machine.
+    pub installed: bool,
+    /// The tailnet hostname to reach this machine on, if we could read one.
+    pub host: Option<String>,
+    /// The exact command that publishes the portal to the tailnet. We show it
+    /// rather than silently running it — it is the step that makes the journal
+    /// reachable from another device, and the user should see it happen.
+    pub serve_command: Option<String>,
+}
+
+/// Where Tailscale's CLI actually lives. The Mac App Store build hides it inside
+/// the .app, which is why `which tailscale` finds nothing on plenty of machines.
+fn tailscale_bin() -> Option<String> {
+    const PATHS: &[&str] = &[
+        "/usr/local/bin/tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ];
+    PATHS.iter().find(|p| Path::new(p).exists()).map(|p| p.to_string())
+}
+
+#[tauri::command]
+pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
+    let Some(bin) = tailscale_bin() else {
+        return TailscaleStatus { installed: false, host: None, serve_command: None };
+    };
+
+    let host = std::process::Command::new(&bin)
+        .args(["status", "--json"])
+        .output()
+        .ok()
+        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
+        .and_then(|v| {
+            let dns = v["Self"]["DNSName"].as_str()?.trim_end_matches('.').to_string();
+            (!dns.is_empty()).then_some(dns)
+        });
+
+    let serve_command = portal
+        .status()
+        .port
+        .map(|p| format!("{bin} serve --bg {p}"));
+
+    TailscaleStatus { installed: true, host, serve_command }
+}
+
+// ---------- upstream contribution drafts ----------
+//
+// Every command here is local. None of them make a network call, and none of them
+// may be changed to — see `contribute.rs`. `contribution_save` writes a file to a
+// path the user picked in a save dialog; that is the whole of the "export".
+
+/// The user-added substances, flagged with whether they're a genuine gap upstream.
+#[tauri::command]
+pub fn contribution_candidates(db: State<'_, Db>) -> Result<Vec<contribute::Candidate>, String> {
+    db.with(contribute::candidates)
+}
+
+/// Build a DoseWiki-shaped draft for one substance, for the user to read before
+/// they decide to do anything with it. Building a draft sends nothing.
+#[tauri::command]
+pub fn contribution_draft(db: State<'_, Db>, id: i64) -> Result<contribute::Draft, String> {
+    let conn = db.conn.lock().unwrap();
+    let conn = conn.as_ref().ok_or("The journal is locked — unlock it with your password.")?;
+    contribute::draft(conn, id)
+}
+
+/// Write a reviewed draft to a file the user chose. This is the only "export"
+/// there is: it lands on their disk, and submitting it upstream is something they
+/// do themselves, by hand.
+#[tauri::command]
+pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(), String> {
+    let draft = contribution_draft(db.clone(), id)?;
+    std::fs::write(Path::new(&path), draft.json).map_err(err)?;
+    db.with(|c| contribute::mark_contributed(c, id))
 }
