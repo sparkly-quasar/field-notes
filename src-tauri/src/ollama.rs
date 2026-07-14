@@ -17,6 +17,8 @@ const BASE: &str = "http://127.0.0.1:11434";
 /// install locations. A macOS app launched from Finder/Dock inherits only a
 /// minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) — *not* `/opt/homebrew/bin` —
 /// so without this, `brew` and `ollama` look "missing" even when installed.
+/// On Windows the equivalent gap is a PATH captured before Ollama's installer
+/// appended to the *user* PATH, so its default install dir is added explicitly.
 fn search_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
@@ -26,17 +28,30 @@ fn search_dirs() -> Vec<PathBuf> {
             dirs.push(d);
         }
     };
-    for d in [
-        "/opt/homebrew/bin", // Apple Silicon Homebrew
-        "/opt/homebrew/sbin",
-        "/usr/local/bin", // Intel Homebrew + Ollama.app CLI symlink
-        "/usr/local/sbin",
-    ] {
-        push(&mut dirs, PathBuf::from(d));
+    #[cfg(unix)]
+    {
+        for d in [
+            "/opt/homebrew/bin", // Apple Silicon Homebrew
+            "/opt/homebrew/sbin",
+            "/usr/local/bin", // Intel Homebrew + Ollama.app CLI symlink
+            "/usr/local/sbin",
+        ] {
+            push(&mut dirs, PathBuf::from(d));
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            for sub in [".local/bin", ".ollama/bin"] {
+                push(&mut dirs, PathBuf::from(&home).join(sub));
+            }
+        }
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        for sub in [".local/bin", ".ollama/bin"] {
-            push(&mut dirs, PathBuf::from(&home).join(sub));
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            // OllamaSetup.exe's per-user default.
+            push(&mut dirs, PathBuf::from(&local).join("Programs").join("Ollama"));
+        }
+        if let Some(pf) = std::env::var_os("ProgramFiles") {
+            push(&mut dirs, PathBuf::from(&pf).join("Ollama"));
         }
     }
     dirs
@@ -44,10 +59,24 @@ fn search_dirs() -> Vec<PathBuf> {
 
 /// Absolute path of an executable found across [`search_dirs`], if any.
 fn find_bin(name: &str) -> Option<PathBuf> {
+    let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     search_dirs()
         .into_iter()
-        .map(|d| d.join(name))
+        .map(|d| d.join(&file))
         .find(|p| p.is_file())
+}
+
+/// Keep a spawned console tool from flashing a terminal window on Windows
+/// (CREATE_NO_WINDOW). The app itself is `windows_subsystem = "windows"`, so
+/// every `Command` would otherwise pop one open. No-op elsewhere.
+pub fn hide_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
 }
 
 /// A `Command` for a CLI tool, resolved to its absolute path and with an
@@ -60,6 +89,7 @@ fn command(name: &str) -> Command {
         None => Command::new(name),
     };
     cmd.env("PATH", path);
+    hide_console(&mut cmd);
     cmd
 }
 
@@ -129,7 +159,8 @@ fn run_streamed(app: &AppHandle, event: &str, mut cmd: Command) -> Result<(), St
     }
 }
 
-/// Install Ollama (macOS: Homebrew; Linux: official script), streaming progress.
+/// Install Ollama (macOS: Homebrew; Linux: official script; Windows: WinGet),
+/// streaming progress.
 pub fn install(app: &AppHandle) -> Result<(), String> {
     let _ = app.emit("ai-progress", "Installing Ollama…".to_string());
 
@@ -149,7 +180,21 @@ pub fn install(app: &AppHandle) -> Result<(), String> {
         cmd.args(["-c", "curl -fsSL https://ollama.com/install.sh | sh"]);
         run_streamed(app, "ai-progress", cmd)?;
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        let has_winget = command("winget").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+        if !has_winget {
+            return Err("WinGet isn't available. Install Ollama from https://ollama.com/download, then reopen this.".into());
+        }
+        let mut cmd = command("winget");
+        cmd.args([
+            "install", "--exact", "--id", "Ollama.Ollama",
+            "--silent", "--accept-source-agreements", "--accept-package-agreements",
+            "--disable-interactivity",
+        ]);
+        run_streamed(app, "ai-progress", cmd)?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         return Err("Automatic install isn't supported on this platform. Install Ollama from https://ollama.com/download.".into());
     }
