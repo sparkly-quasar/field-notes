@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Field Notes",
-  "version": "0.3.2",
+  "version": "0.4.0-beta.1",
   "identifier": "com.fieldnotes.journal",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -28,7 +28,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": [
-      "resources/dosewiki.json"
+      "resources/dosewiki.json",
+      "resources/dosewiki-corpus.json"
     ],
     "icon": [
       "icons/32x32.png",

@@ -3,7 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- `viewport-fit=cover` + the safe-area padding in /m keeps the bottom nav clear
+         of the iPhone home indicator once it's installed to the home screen. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Home-screen install for the phone portal (see src/routes/m). This is the PWA
+         *shell* only — offline capture is Phase 3b and needs a service worker. The
+         desktop app ignores all of it. -->
+    <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Field Notes" />
+    <meta name="theme-color" content="#14161a" />
     <title>Field Notes</title>
     %sveltekit.head%
   </head>

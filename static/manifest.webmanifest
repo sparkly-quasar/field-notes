@@ -1,0 +1,14 @@
+{
+  "name": "Field Notes",
+  "short_name": "Field Notes",
+  "description": "Harm-reduction journal — the phone half of a desktop workstation.",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14161a",
+  "theme_color": "#14161a",
+  "icons": [
+    { "src": "/favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

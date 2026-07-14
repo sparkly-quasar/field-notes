@@ -33,6 +33,22 @@
     importExperience,
     pwStatus,
     pwLookup,
+    knowledgeSearch,
+    knowledgeStatus,
+    type KnowledgeHit,
+    type KnowledgeStatus,
+    contributionCandidates,
+    contributionDraft,
+    contributionSave,
+    type ContributionCandidate,
+    type ContributionDraft,
+    portalStatus,
+    portalEnable,
+    portalDisable,
+    portalQr,
+    portalTailscale,
+    type PortalStatus,
+    type TailscaleStatus,
     dbStatus,
     unlockDb,
     enableEncryption,
@@ -62,6 +78,7 @@
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
   import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { exit } from "@tauri-apps/plugin-process";
 
   type Tab = "journal" | "companion" | "substances" | "bysub" | "data";
@@ -128,6 +145,32 @@
   // DoseWiki reference data
   let pwStat = $state<PwStatus | null>(null);
   let dRef = $state<PwInfo | null>(null); // reference for the dose being logged
+
+  // Knowledge corpus — DoseWiki prose, searched offline. Reference reading only:
+  // doses and interaction verdicts come from the deterministic layers, not from here.
+  let kbStat = $state<KnowledgeStatus | null>(null);
+  let kbQuery = $state("");
+  let kbHits = $state<KnowledgeHit[] | null>(null);
+  let kbBusy = $state(false);
+
+  // Upstream contribution drafts. The consent gate is the preview: a draft is only
+  // ever built for the user to read, and only ever leaves the app as a file they
+  // saved themselves. Nothing here talks to the network.
+  let contribCands = $state<ContributionCandidate[]>([]);
+  let contribDraft = $state<ContributionDraft | null>(null);
+  let contribMsg = $state<string | null>(null);
+
+  // Phone portal — off by default, and it stays off until the user says otherwise.
+  let portal = $state<PortalStatus>({ running: false, port: null, pair_url: null });
+  let portalQrSvg = $state<string | null>(null);
+  let ts = $state<TailscaleStatus | null>(null);
+  let portalErr = $state<string | null>(null);
+  // The pairing QR carries the bearer token, so it is hidden until asked for —
+  // it should not be sitting on screen behind you while you're screen-sharing.
+  let showQr = $state(false);
+  let tailscaleUrl = $derived(
+    ts?.host && portal.port ? `https://${ts.host}/m` : null,
+  );
 
   // import-from-text state
   let showImport = $state(false);
@@ -679,6 +722,7 @@
     if (!confirm("Delete this substance? Logged doses keep their name but lose the link.")) return;
     await deleteSubstance(id);
     await loadSubstances();
+    await loadContrib();
   }
 
   // reload the detail but preserve the warning banner we just set
@@ -718,6 +762,7 @@
     nsName = nsCategory = nsDose = nsNotes = "";
     nsClasses = [];
     await loadSubstances();
+    await loadContrib();
   }
 
   function toggleClass(c: string) {
@@ -876,10 +921,10 @@
     tab = t;
     selected = null;
     if (t === "bysub") await loadUsage();
-    if (t === "substances") { await loadSubstances(); await loadPwStatus(); }
+    if (t === "substances") { await loadSubstances(); await loadPwStatus(); await loadKbStatus(); await loadContrib(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadAi();
-    if (t === "data") { secReset(); db = await dbStatus(); dataDirPath = await dataDir(); }
+    if (t === "data") { secReset(); db = await dbStatus(); dataDirPath = await dataDir(); await loadPortal(); }
   }
 
   // ---- DoseWiki reference ----
@@ -888,6 +933,77 @@
   }
   async function lookupRef(name: string) {
     dRef = name.trim() ? await pwLookup(name.trim()) : null;
+  }
+
+  // ---- Knowledge corpus ----
+  async function loadKbStatus() {
+    kbStat = await knowledgeStatus();
+  }
+  // ---- Phone portal ----
+  async function loadPortal() {
+    portal = await portalStatus();
+    ts = await portalTailscale();
+    if (!portal.running) { portalQrSvg = null; showQr = false; }
+  }
+
+  /** What the phone should actually open. Over the tailnet if Tailscale can carry
+   *  it there; otherwise the loopback URL, which only this machine can reach — so
+   *  the QR is honest about the portal being desktop-only until Tailscale is set up. */
+  function pairTarget(): string | null {
+    if (!portal.pair_url) return null;
+    const token = portal.pair_url.match(/#t=([a-f0-9]+)/)?.[1];
+    if (ts?.host && token) return `https://${ts.host}/m#t=${token}`;
+    return portal.pair_url;
+  }
+
+  async function togglePortal() {
+    portalErr = null;
+    try {
+      portal = portal.running ? await portalDisable() : await portalEnable();
+      ts = await portalTailscale();
+      portalQrSvg = null;
+      showQr = false;
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function revealQr() {
+    const target = pairTarget();
+    if (!target) return;
+    portalQrSvg = await portalQr(target);
+    showQr = true;
+  }
+
+  // ---- Upstream contribution ----
+  async function loadContrib() {
+    contribCands = await contributionCandidates();
+  }
+  async function previewDraft(id: number) {
+    contribMsg = null;
+    contribDraft = await contributionDraft(id);
+  }
+  async function saveDraft(d: ContributionDraft, id: number) {
+    const path = await save({
+      defaultPath: `${d.slug}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return;
+    await contributionSave(id, path);
+    contribMsg = `Draft saved to ${path}. Nothing was sent — submitting it is up to you.`;
+    contribDraft = null;
+    await loadContrib();
+  }
+
+  async function runKbSearch() {
+    const q = kbQuery.trim();
+    if (!q) { kbHits = null; return; }
+    kbBusy = true;
+    try {
+      kbHits = await knowledgeSearch(q, 8);
+    } finally {
+      kbBusy = false;
+    }
   }
   const num = (n: number | null) => (n == null ? "" : `${n}`);
   function roaSummary(r: PwRoa): string {
@@ -1391,6 +1507,44 @@
       </section>
 
       <section class="card">
+        <h2>Search the reference</h2>
+        {#if kbStat && kbStat.available}
+          <p class="muted small">{kbStat.chunks.toLocaleString()} passages of DoseWiki prose — pharmacology, harm potential, tolerance, legality — searchable offline. Background reading, not dose advice: doses and combo warnings come from the checker above, which is exact.</p>
+        {:else}
+          <p class="muted small">The reference text isn't loaded, so search is unavailable.</p>
+        {/if}
+
+        <form class="kb-search" onsubmit={(e) => { e.preventDefault(); runKbSearch(); }}>
+          <input placeholder="e.g. ketamine tolerance, MAOI interactions, 2C-B pharmacology" bind:value={kbQuery} />
+          <button class="primary small-btn" type="submit" disabled={kbBusy || !kbStat?.available}>
+            {kbBusy ? "Searching…" : "Search"}
+          </button>
+        </form>
+
+        {#if kbHits}
+          {#if kbHits.length === 0}
+            <p class="muted">Nothing in the reference matches that. Better to have no answer than a made-up one — try a substance name, or check the dose reference.</p>
+          {:else}
+            <ul class="kb-hits">
+              {#each kbHits as h}
+                <li>
+                  <div class="kb-head">
+                    <span><strong>{h.title}</strong><span class="muted small"> · {h.section}</span></span>
+                    <span class="kb-flags">
+                      {#if h.thin}<span class="flag sparse" title="DoseWiki has very little written about this substance — treat it as a starting point, not a full picture.">sparse entry</span>{/if}
+                      {#if !h.reviewed}<span class="flag" title="DoseWiki's editors have not signed off on this entry. Almost none are — that's the state of the source, not a red flag about this one in particular.">unreviewed</span>{/if}
+                    </span>
+                  </div>
+                  <p class="kb-text">{h.text}</p>
+                </li>
+              {/each}
+            </ul>
+            <p class="muted attribution">Passages are quoted from DoseWiki as written. An <strong>unreviewed</strong> tag is the norm, not the exception; <strong>sparse entry</strong> means there's little written about that substance anywhere — which is exactly when it pays to be careful.</p>
+          {/if}
+        {/if}
+      </section>
+
+      <section class="card">
         <h2>Substances</h2>
         <p class="muted small">Catalogue substances you track. Assign classes so the safety checker can flag interactions — or leave them blank and common ones are auto-classified.</p>
 
@@ -1425,6 +1579,52 @@
           <p class="muted">No substances catalogued yet.</p>
         {/if}
       </section>
+
+      {#if contribCands.some((c) => !c.in_dosewiki)}
+        <section class="card">
+          <h2>Missing from DoseWiki</h2>
+          <p class="muted small">
+            You've catalogued substances the reference doesn't cover. Those gaps are usually the obscure
+            compounds where the next person has nowhere at all to look — and DoseWiki is CC0 and open,
+            so they can be closed. Field Notes can draft an entry for you to review.
+          </p>
+          <p class="muted small">
+            <strong>Nothing is ever uploaded.</strong> A draft is built from what you typed about the
+            <em>substance</em> — never from your journal, never from a dose you logged. You read it, you
+            save it, and you submit it yourself, or you don't.
+          </p>
+
+          <ul class="sub-list">
+            {#each contribCands.filter((c) => !c.in_dosewiki) as c}
+              <li>
+                <div class="sub-head">
+                  <span>
+                    <strong>{c.name}</strong>
+                    {#if c.contributed}<span class="flag" title="You've saved a draft for this one. It says nothing about whether you submitted it.">draft saved</span>{/if}
+                  </span>
+                  <button class="small-btn" onclick={() => previewDraft(c.id)}>Review draft…</button>
+                </div>
+
+                {#if contribDraft && contribDraft.name === c.name}
+                  <pre class="draft">{contribDraft.json}</pre>
+                  <div class="row-actions draft-actions">
+                    <button class="link" onclick={() => (contribDraft = null)}>Cancel</button>
+                    <button class="small-btn" onclick={() => openUrl(contribDraft!.upstream_url)}>Open DoseWiki</button>
+                    <button class="primary small-btn" onclick={() => saveDraft(contribDraft!, c.id)}>Save draft to a file…</button>
+                  </div>
+                  <p class="muted small">
+                    Dose and duration are blank on purpose — the app has no verified figures for a substance
+                    you added yourself, and a guessed number published upstream is worse than a blank one.
+                    Fill them in from sources you trust.
+                  </p>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+
+          {#if contribMsg}<p class="muted small">{contribMsg}</p>{/if}
+        </section>
+      {/if}
     {/if}
 
     <!-- ============ BY SUBSTANCE ============ -->
@@ -1458,6 +1658,59 @@
     {#if tab === "data"}
       {#if secErr}<p class="notice bad-notice">{secErr}</p>{/if}
       {#if secMsg}<p class="notice good-notice">{secMsg}</p>{/if}
+
+      <section class="card">
+        <h2>Phone access <span class="off-badge" class:on={portal.running}>{portal.running ? "on" : "off"}</span></h2>
+        <p class="muted small">
+          Optional. Field Notes is an offline, on-device app and it stays that way unless you turn this
+          on: it lets a phone on your <strong>tailnet</strong> reach this journal while the app is
+          running here — the desktop is the workstation, the phone is what's actually in your hand.
+        </p>
+        <p class="muted small">
+          The server listens on <strong>127.0.0.1 only</strong>, so nothing is exposed to your local
+          network; Tailscale is what carries it to your phone, encrypted. Every request needs the
+          paired token, and the portal won't serve a locked journal. Your data still never reaches a
+          third party.
+        </p>
+
+        {#if portalErr}<p class="notice bad-notice">{portalErr}</p>{/if}
+
+        <button class="primary small-btn" onclick={togglePortal}>
+          {portal.running ? "Turn off phone access" : "Turn on phone access"}
+        </button>
+
+        {#if portal.running}
+          <div class="sec-block">
+            <h3>Pair a phone</h3>
+            {#if !ts?.installed}
+              <p class="muted small">
+                ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
+                Install Tailscale on this Mac and your phone, then come back.
+              </p>
+            {:else if !tailscaleUrl}
+              <p class="muted small">⚠️ Tailscale is installed but isn't logged in — sign in, then reopen this tab.</p>
+            {:else}
+              <p class="muted small">
+                One more step, and you run it yourself so you can see exactly what it does — it's the
+                command that publishes the portal to your tailnet:
+              </p>
+              <pre class="draft">{ts.serve_command}</pre>
+              <p class="muted small">Then your phone opens <strong>{tailscaleUrl}</strong>.</p>
+            {/if}
+
+            {#if showQr && portalQrSvg}
+              <div class="qr">{@html portalQrSvg}</div>
+              <p class="muted small">
+                Scan it with the phone's camera. <strong>This code is a key</strong> — it pairs whoever
+                scans it. Don't leave it on screen, and don't photograph it.
+              </p>
+              <button class="small-btn" onclick={() => (showQr = false)}>Hide</button>
+            {:else}
+              <button class="small-btn" onclick={revealQr}>Show pairing QR code…</button>
+            {/if}
+          </div>
+        {/if}
+      </section>
 
       <section class="card">
         <h2>Encryption at rest</h2>
@@ -1820,6 +2073,24 @@
   .dose-form.inline { margin: 0; width: 100%; }
   .tl-note { flex: 1; }
   .sub-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+
+  .kb-search { display: flex; gap: 0.5rem; margin: 0.6rem 0 0.2rem; }
+  .kb-search input { flex: 1; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.6rem; }
+  .kb-hits { list-style: none; padding: 0; margin: 0.8rem 0 0; }
+  .kb-hits li { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.5rem; }
+  .kb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+  .kb-flags { display: inline-flex; gap: 0.3rem; flex-shrink: 0; }
+  .flag { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; border: 1px solid var(--line); border-radius: 999px; padding: 0.1rem 0.5rem; color: var(--muted); white-space: nowrap; cursor: help; }
+  .flag.sparse { color: var(--caution); border-color: var(--caution); }
+  .kb-text { font-size: 0.88rem; line-height: 1.5; margin: 0.45rem 0 0; white-space: pre-wrap; }
+
+  .off-badge { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 0.1rem 0.5rem; vertical-align: middle; margin-left: 0.4rem; }
+  .off-badge.on { color: var(--note); border-color: var(--note); }
+  .qr { background: #fff; padding: 0.8rem; border-radius: 10px; width: max-content; margin: 0.6rem 0; }
+  .qr :global(svg) { display: block; width: 220px; height: 220px; }
+
+  .draft { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0.7rem 0.8rem; margin: 0.6rem 0 0; max-height: 20rem; overflow: auto; font-size: 0.78rem; line-height: 1.45; white-space: pre; }
+  .draft-actions { margin-top: 0.5rem; justify-content: flex-end; width: 100%; }
 
   .ref-card { margin-bottom: 1rem; }
   .ref-inline { border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.8rem; margin-top: 0.5rem; background: color-mix(in srgb, var(--accent) 6%, transparent); }

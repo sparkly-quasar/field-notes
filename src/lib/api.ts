@@ -1,7 +1,20 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 // Typed wrappers around the Tauri command surface (see src-tauri/src/commands.rs).
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { inTauri, portalInvoke } from "./portal";
+
+/**
+ * The one seam between this app and its backend.
+ *
+ * On the desktop it's Tauri's IPC. On a phone reaching the same frontend through the
+ * portal there is no IPC, so it's an HTTP call to the desktop instead. Everything
+ * below this line — and the whole UI above it — is written once and doesn't care
+ * which. Keep it that way: this is the only file that may import `invoke`.
+ */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return inTauri() ? tauriInvoke<T>(cmd, args) : portalInvoke<T>(cmd, args);
+}
 
 export interface Substance {
   id: number;
@@ -179,6 +192,52 @@ export const pwUpdate = () => invoke<number>("pw_update");
 export const pwStatus = () => invoke<PwStatus>("pw_status");
 export const pwLookup = (name: string) => invoke<PwInfo | null>("pw_lookup", { name });
 
+// ---- Knowledge corpus (DoseWiki prose, searched offline with BM25) ----
+// Reference prose only. Doses and interactions come from pwLookup/checkCombo,
+// which are deterministic; never read a dose or a combo verdict out of a Hit.
+export interface KnowledgeHit {
+  title: string;
+  slug: string;
+  section: string;
+  text: string;
+  /** DoseWiki's entry for this substance is sparse — say so rather than lean on it. */
+  thin: boolean;
+  /** DoseWiki's own editors have signed off on this entry. Almost none are. */
+  reviewed: boolean;
+  score: number;
+}
+export interface KnowledgeStatus {
+  available: boolean;
+  chunks: number;
+}
+export const knowledgeSearch = (query: string, limit?: number) =>
+  invoke<KnowledgeHit[]>("knowledge_search", { query, limit });
+export const knowledgeStatus = () => invoke<KnowledgeStatus>("knowledge_status");
+
+// ---- Upstream contribution drafts (DoseWiki is CC0) ----
+// Nothing here touches the network. `contributionSave` writes a file to a path the
+// user picked; submitting it upstream is something they do by hand, or not at all.
+export interface ContributionCandidate {
+  id: number;
+  name: string;
+  /** DoseWiki already covers it — nothing to contribute. */
+  in_dosewiki: boolean;
+  /** A draft has already been exported locally. Does not mean anything was sent. */
+  contributed: boolean;
+}
+export interface ContributionDraft {
+  name: string;
+  slug: string;
+  json: string;
+  upstream_url: string;
+}
+export const contributionCandidates = () =>
+  invoke<ContributionCandidate[]>("contribution_candidates");
+export const contributionDraft = (id: number) =>
+  invoke<ContributionDraft>("contribution_draft", { id });
+export const contributionSave = (id: number, path: string) =>
+  invoke<void>("contribution_save", { id, path });
+
 export const interactionClasses = () => invoke<string[]>("interaction_classes");
 export const listSubstances = () => invoke<Substance[]>("list_substances");
 export const addSubstance = (input: SubstanceInput) => invoke<Substance>("add_substance", { input });
@@ -300,6 +359,26 @@ export const obsidianExport = (folder: string) =>
   invoke<ObsidianExportResult>("obsidian_export", { folder });
 export const obsidianImport = (folder: string) =>
   invoke<ObsidianImportResult>("obsidian_import", { folder });
+
+// ---- phone portal (optional; off by default) ----
+// Desktop-only by construction: portal.rs does not allowlist these, so the portal
+// cannot be used to reconfigure or switch off the portal.
+export interface PortalStatus {
+  running: boolean;
+  port: number | null;
+  /** Contains the bearer token. Only ever rendered on the desktop's own screen. */
+  pair_url: string | null;
+}
+export interface TailscaleStatus {
+  installed: boolean;
+  host: string | null;
+  serve_command: string | null;
+}
+export const portalStatus = () => invoke<PortalStatus>("portal_status");
+export const portalEnable = () => invoke<PortalStatus>("portal_enable");
+export const portalDisable = () => invoke<PortalStatus>("portal_disable");
+export const portalQr = (url?: string) => invoke<string>("portal_qr", { url });
+export const portalTailscale = () => invoke<TailscaleStatus>("portal_tailscale");
 
 // ---- erase all data / uninstall ----
 export const dataDir = () => invoke<string>("data_dir");

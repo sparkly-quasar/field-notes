@@ -100,7 +100,11 @@ jobs:
             The Companion and text-import features run a model locally — the app guides
             you through installing Ollama and downloading one on first use.
           releaseDraft: true
-          # Published as a normal (non-prerelease) "latest" release so the
-          # updater endpoint (/releases/latest/download/latest.json) resolves.
-          prerelease: false
+          # The updater reads /releases/latest/download/latest.json, and GitHub's
+          # "latest" excludes prereleases. So marking a v*-beta / v*-rc tag as a
+          # prerelease is what keeps it out of everyone's auto-update — it must not
+          # depend on remembering to tick a box in the publish dialog. A plain
+          # `v0.4.0` has no `-`, stays non-prerelease, and becomes the update everyone
+          # (including beta testers, since 0.4.0 > 0.4.0-beta.1) is offered.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}

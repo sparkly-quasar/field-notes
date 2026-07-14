@@ -66,32 +66,198 @@ installer).
 
 ---
 
+## Built, not yet released (in `main`)
+
+### Offline knowledge corpus — DoseWiki prose, BM25, no embedding model
+
+`data/dosewiki/corpus.py` → `src-tauri/resources/dosewiki-corpus.json`
+(**7,823 chunks / 575 substances / 3.6 MB**), searched in-process by
+`knowledge.rs`. Reachable three ways: the Companion's `search_knowledge` tool, the
+`knowledge_search` command, and a **Search the reference** card in the Substances
+tab. The index is held in `Knowledge` state **independent of `Db`**, so it works
+while the journal is locked — it's public CC0 data, not user data.
+
+The rules below are **load-bearing**. They are why this is safe to ship; read
+them before touching any of it.
+
+### Upstream contribution drafts (`contribute.rs`)
+
+A user-added substance DoseWiki doesn't cover becomes a **DoseWiki-shaped JSON
+draft** the user reads, saves to a file, and submits **by hand**. Three
+non-negotiables, each with a test:
+- **No network. Ever.** There is no HTTP client in `contribute.rs` and there must
+  never be one — not even an opt-in auto-upload. The data is legally fraught and
+  it is not ours to send.
+- **No journal data in a draft.** Built from the *catalogue* row only — never a
+  dose, an experience, or a timestamp (including `created_at`: when you first
+  catalogued a compound is itself a disclosure). `draft_carries_no_journal_data`
+  enforces it.
+- **No invented numbers.** Dose/duration blocks ship **empty**. Parsing the user's
+  free-text dose note into structured ranges would mean guessing at figures and
+  sending the guess upstream with authority it hasn't earned.
+
+---
+
 ## Roadmap (not yet built)
 
 > ✅ **Shipped in v0.3.0:** DoseWiki migration, encryption-at-rest + backup/restore,
 > Obsidian vault sync, and the tool-enabled Companion + live session + crisis
 > guardrails — see "Shipped so far" above. The remaining items are below.
 
-1. **Substance knowledge pack — offline RAG corpus.** Beyond the structured dose
-   data, add a **retrieval corpus** over openly-licensed full-text sources for
-   richer Q&A (semantic search, not just dose lookups). Sources: **DoseWiki (CC0)**
-   and **Shulgin's PiHKAL/TiHKAL Part 2 compound data** (Shulgin's qualitative
-   bioassay reports are unique full-text that DoseWiki's structured data doesn't have
-   — additive here, not for the dose reference). ⚠️ **Licensing must be settled
-   first:** DoseWiki's CC0 text is unencumbered, but **PiHKAL / TiHKAL are *not*
-   public domain.** **Part 1 (the autobiographical narrative) is all-rights-reserved
-   — pointer / user-import only.** **Part 2 (the compound entries)** may be reproduced
-   **non-commercially** with the copyright / cautionary / ordering notices attached;
-   the Isomer Design database (isomerdesign.com) presents this as **CC BY-NC-SA 4.0**.
-   So Part 2 *can* be bundled as a **separate non-commercial, share-alike pack with
-   the required notices** — but NC forecloses any future commercial-license path for
-   that pack, so keep it **separately licensed**, never mixed into the PolyForm code.
+<details>
+<summary><strong>Reference — the knowledge-corpus rules (item now built; keep these)</strong></summary>
 
-2. **User-added substances → opt-in upstream contribution.** Local CRUD for
-   uncatalogued substances already exists; add a **consent-gated** export that
-   generates a draft the user reviews and submits manually to the upstream source
-   (**DoseWiki** — it's CC0 and open-source). **Never auto-upload** — this is
-   sensitive, legally fraught data.
+   **Licensing — settled, both ways (2026-07-12):**
+   - ⛔ **PiHKAL / TiHKAL: dropped entirely.** Not worth the encumbrance. The corpus is
+     **DoseWiki-only**. *(Previously this item proposed bundling Shulgin's Part 2
+     compound data as a separate CC BY-NC-SA pack; that path is closed — don't
+     relitigate it.)*
+   - ⚠️ **DoseWiki `subjective_effects`: EXCLUDED — do not ingest it.** DoseWiki
+     blankets its export as CC0, but this one field (132 of 577 substances, ~370 kB)
+     ships an embedded attribution block — `author: "Josie Kins"`, *"Forked from
+     Subjective Effect Documentation"* — pointing at archived **PsychonautWiki** pages
+     (**CC BY-SA**) and disregardeverythingisay.com. **No other prose field carries any
+     attribution block.** Content forked from a BY-SA source isn't CC0-able unless the
+     author relicensed, and the `license`/`source` sub-fields are both `null`, so
+     provenance is unresolved. It may well be fine (Josie Kins founded PsychonautWiki
+     and could relicense her own work) — but we are **not** betting a public repo on
+     someone else's licensing assertion over content that ships with a named-author
+     credit. It costs only "what does it feel like" prose, which is **not
+     safety-critical**.
+   - ✅ **Everything else in DoseWiki is unencumbered CC0** and bundles freely with a
+     courtesy credit: `summary`, `harm_potential`, `pharmacology`, `interactions`,
+     `tolerance`, `legality`, `history_culture`. That's the corpus.
+   - *Note: `slim.py` already drops `subjective_effects`, so the shipped dose reference
+     was never exposed. The risk only appears when ingesting prose — keep the exclusion
+     enforced in `corpus.py`.*
+
+   **Retrieval approach — no embedding model.** Search is **BM25 over the bundled
+   corpus, in pure Rust** (`knowledge.rs`), built in memory at launch. Deliberately
+   **not** vector embeddings: those would add an Ollama embed-model dependency, a
+   multi-minute first-run indexing pass, and a model the user must pull — for a corpus
+   of 577 substances where lexical search over named compounds and named interactions is
+   what people actually query. Also avoids depending on FTS5 being compiled into the
+   SQLCipher amalgamation. Semantic rerank stays available as a later enhancement if
+   lexical search proves insufficient in practice.
+
+   ⚠️ **Accuracy is uneven — and it is worst where it matters most.** Measured across
+   the snapshot (2026-07-12):
+   - **93% of entries (537/577) are marked `editorial_review: "needed"` by DoseWiki's
+     own editors.** Exactly **one** is `completed`.
+   - **Prose volume varies ~400×:** min 86 chars, median 2,705, max 33,332. **23
+     substances are near-empty**, 238 total fall under the 2 kB "thin" line.
+   - **Only 338/577 carry citations at all.**
+   - **Coverage tracks fame, not risk.** Richest: LSD, MDMA, ketamine, cocaine,
+     amphetamine. Thinnest: alpha-PCYP, 5f-PB-22, 3,4-Dichloromethylphenidate — i.e. the
+     obscure research chemicals where a user has nowhere else to look and where being
+     wrong is most likely to hurt them. **Naive RAG makes this worse**, because a model
+     writes equally fluent, equally confident prose whether it retrieved 33,000
+     characters or 86.
+   - Entries are written by different contributors, so claims can **conflict between
+     substances**. Retrieval surfaces chunks; it does not reconcile them.
+
+   **Containment rules (build these in — do not rely on the prompt alone):**
+   1. **Dose and interaction facts NEVER come from the corpus.** They come from the
+      deterministic layers — `pw.rs` (dose ranges) and `interactions.rs` (combos). The
+      corpus answers *"how does this work, what are the risks, what's the tolerance
+      profile"*; it is **never** the source of a number or a combo verdict. Keep the
+      paths physically separate so retrieval *cannot* override the deterministic
+      checker.
+   2. **Coverage signals travel with every chunk.** `corpus.py` stamps each chunk with
+      `thin` (substance has <2 kB of prose) and `reviewed` (DoseWiki editorial status).
+      A retrieved chunk from a thin/unreviewed entry arrives **flagged**, and the
+      Companion must say so ("DoseWiki's entry for this is sparse and unreviewed")
+      rather than smoothing over it.
+   3. **Empty retrieval ⇒ "I don't know", never prose.** Below the score threshold the
+      Companion states it has no good data instead of generating.
+
+   All three are implemented: (1) the corpus and the deterministic layers are separate
+   code paths that cannot override each other; (2) `corpus.py` stamps `thin`/`reviewed`
+   on every chunk and they travel through `knowledge.rs` → the tool result → the UI
+   badges; (3) `run_companion_tool` returns an explicit *"no reference material found —
+   don't guess"* on empty retrieval.
+
+</details>
+
+1. **Phone portal — log from your phone over Tailscale.** ***Entirely optional; off by
+   default.*** Field Notes stays a **fully offline, on-device app as it ships** — this
+   adds an opt-in way to reach the journal from a phone during a session (the desktop is
+   the trip-sitting workstation; the phone is what's actually in your hand). Ships as a
+   **web portal served by the desktop app**, installable to the home screen as a **PWA**
+   — *not* a native iOS app (see the decision note below). Two separable phases.
+
+   ### ✅ Phase 3a — the portal (online-only). **BUILT** (`portal.rs`, `/m`).
+
+   The desktop app is the server; the phone is a thin client. It was small, because the
+   code already had the right seams. What shipped:
+   - **Server** (`src-tauri/src/portal.rs`) — `tiny_http`, `POST /api/<command>`,
+     handlers calling the **same** `commands::` functions the desktop calls, so there is
+     no second implementation of any safety rule. It also serves the app's own embedded
+     frontend (SPA fallback to `index.html`), so the phone runs the same build.
+   - **Transport swap** — `src/lib/api.ts` picks Tauri `invoke` on the desktop and
+     `fetch` on the phone (`src/lib/portal.ts`). One function; the 1,900-line UI never
+     learned about it. **`api.ts` remains the only file allowed to import `invoke`.**
+   - **Mobile route** — `/m`: dose, note, combo, Companion. A phone-shaped *subset*, not
+     the desktop page made responsive.
+   - **PWA shell** — `static/manifest.webmanifest` + Apple meta tags: home-screen icon
+     and standalone chrome. The **service worker is Phase 3b**, deliberately absent.
+   - **Auth** — a 256-bit bearer token, compared in constant time, paired by scanning a
+     QR code in Settings. The token rides in the URL **fragment** (never sent to a
+     server, never in a log) and the phone strips it from its address bar on arrival.
+   - **Lifecycle** — off by default; refuses to start against a locked journal and
+     re-checks on **every** request; dies on quit.
+
+   ⚠️ **The four rules in `portal.rs`'s module docs are load-bearing — read them before
+   touching it.** Bind `127.0.0.1` only; token on every request even on the tailnet;
+   never serve a locked journal; and `EXPOSED` is an **allowlist**, so a new command in
+   `commands.rs` is unreachable from the phone until someone adds it there on purpose.
+   Tests pin all four, including that `wipe_all_data`, `unlock_db`, the encryption
+   commands, the filesystem commands, and the `portal_*` commands themselves stay
+   unreachable.
+
+   **Still to do for 3a:** the user runs `tailscale serve --bg <port>` themselves — the
+   app detects Tailscale, shows the exact command, and shows the resulting `*.ts.net`
+   URL, but does not run it for them. That's deliberate for now (it's the step that makes
+   the journal reachable from another device, and it should be visible), but a one-click
+   version behind a confirmation is a reasonable follow-up.
+
+   ### Phase 3b — offline capture. Lets you log while the Mac is asleep or off-tailnet.
+   The journal is **append-only** in practice (a dose/note is a new row), so an outbox
+   that queues *only new entries* sidesteps real bidirectional sync entirely — **keep it
+   that way**; queuing edits/deletes re-opens conflict resolution and is not worth it.
+   - **Outbox** — service worker + IndexedDB; local temp IDs reconciled against
+     server-assigned IDs on replay. A visible **"N entries pending"** marker — never
+     leave the user guessing whether a dose was recorded.
+   - ⚠️ **Safety features must not silently go dark offline.** `interactions.rs` and
+     `crisis.rs` are deterministic and run on the desktop — offline, the phone would
+     happily log a dose while unable to warn that it interacts with what was taken an
+     hour ago, and the crisis scan would never fire. **This is a blocker, not a polish
+     item.** Fix: compile those two modules to **WASM** and ship them in the PWA (one
+     source of truth, still deterministic); cache the bundled DoseWiki file for offline
+     dose lookups. The **Companion is genuinely desktop-only** (it needs Ollama) — it
+     must **visibly grey out** offline, never fail silently.
+   - ⚠️ **Phone-side storage is outside SQLCipher.** Cached journal fragments sit in
+     Safari's IndexedDB in the clear, which partly defeats encryption-at-rest. Treat the
+     phone as a strict **write-through cache** (flush + purge on sync, cache as little
+     for reading as possible); consider encrypting the outbox under a short PIN entered
+     on open. **Decide this deliberately** rather than inheriting it by accident.
+
+   **Decision recorded — why not a native iOS app.** Tauri 2 does target iOS, so it's
+   possible; it's still the wrong tool. (a) **No App Store** — a substance journal is a
+   near-certain rejection under Apple's drug guidelines, and PolyForm-NC complicates it
+   further; distribution collapses to sideloading (re-signing every 7 days) or $99/yr.
+   (b) **It buys nothing** — a native app is either a thin client to this same server (a
+   PWA with an Xcode toolchain bolted on) or it keeps its own DB, which means
+   **bidirectional encrypted sync** — conflict resolution plus cross-device key
+   management, plausibly a bigger project than all of v0.3.0. (c) The **Companion can't
+   run on-device anyway** (no Ollama on iPhone), so the phone is inherently a client.
+   The PWA gives the home-screen icon, full-screen chrome, and offline capture without
+   Xcode, an Apple account, or a second codebase. Revisit **only** if on-phone-only
+   operation (no desktop at all) ever becomes a goal.
+
+   **Known constraint:** the desktop must be **awake** to serve. During a live sit it is,
+   by definition. Phase 3b is what makes the asleep case survivable — ship 3a first and
+   see how often that actually bites before committing to it.
 
 ---
 
@@ -157,15 +323,21 @@ emotional presence.
 
 ## Cross-cutting constraints (read before building)
 
-- **Data licensing** — the dose reference now ships from **DoseWiki (CC0, public
-  domain)**, bundled freely with only a courtesy credit — no share-alike, no
-  attribution obligation. Any *additional* CC-BY-SA sources (e.g. a
-  RAG corpus from PsychonautWiki/TripSit) must still ship as a separate,
-  attributed, share-alike pack kept out of the PolyForm-licensed source.
-  **PiHKAL/TiHKAL** are *not* public domain: Part 1 (narrative) is all-rights-reserved
-  (pointer/user-import only); Part 2 (compound data, e.g. via Isomer Design's
-  CC BY-NC-SA) is bundleable non-commercially **as a separate pack with the required
-  notices attached**.
+- **Data licensing** — **the project ships CC0 data only.** Both the dose reference and
+  the RAG corpus come from **DoseWiki (CC0, public domain)**, bundled freely with a
+  courtesy credit — no share-alike, no attribution obligation, nothing to keep separate.
+  - ⛔ **PiHKAL / TiHKAL: closed, do not revisit.** Dropped 2026-07-12. Part 1 is
+    all-rights-reserved; Part 2 is only reproducible non-commercially with notices
+    attached, which would forfeit any future commercial-license path. Not worth it.
+  - ⚠️ **"CC0" on a source is a claim, not a guarantee — check the records themselves.**
+    DoseWiki declares its whole export CC0, yet its `subjective_effects` field ships a
+    named-author attribution block crediting work forked from **CC BY-SA**
+    PsychonautWiki. That field is **excluded** (see #1). The general rule this teaches:
+    **an embedded attribution/author credit in supposedly-CC0 data is a red flag** —
+    grep for one before ingesting any new field or source.
+  - Any future **CC-BY-SA** source must ship as a separate, attributed, share-alike pack
+    kept out of the PolyForm-licensed source — the bar for taking one on is now high,
+    since nothing currently requires it.
 - **Safety** — the model must **retrieve** dosage/interaction facts, never invent
   them; keep the interaction checker **deterministic**; harm-reduction framing
   (never encouragement, never synthesis/sourcing help); always surface emergency
@@ -173,15 +345,33 @@ emotional presence.
 - **Privacy** — everything stays on-device and offline; treat the journal as
   sensitive (encryption, no telemetry, no network lookups that leak what a user
   is researching).
+  - **The phone portal (#3) does not change this default.** Field Notes remains
+    **fully offline as it ships**: the portal is **opt-in and off by default**, and with
+    the toggle off the app **opens no socket and makes no network connection at all** —
+    the offline guarantee above holds exactly as written, unweakened. Enabling it is a
+    **conscious, reversible choice by the user**, not a change to what the app is.
+  - **When the user does enable it**, the invariant it must preserve is *"your data
+    never reaches a third party"*: traffic goes **device-to-device on your own tailnet**
+    — no server on the internet, no account, no relay that can read it, still **no
+    telemetry**. Non-negotiables for that to hold: bind **`127.0.0.1` only** (never
+    `0.0.0.0` — that would put the journal on whatever café LAN you're on), tailnet-only
+    reach via `tailscale serve`, **token auth even on the tailnet**, and **never served
+    while the DB is locked**. If a future change can't hold all of those, it doesn't
+    ship — but the thing being protected is the *opted-in* state, not the default, which
+    stays offline regardless.
 
 ## Suggested next increment
 
-The v0.3.0 batch (DoseWiki, encryption + backup, Obsidian sync, tool-enabled
-Companion + live session + crisis guardrails) is **shipped**. Of what remains:
-**#2 (opt-in upstream contribution of user-added substances)** is the smaller,
-self-contained next step; **#1 (RAG corpus)** stays gated on the licensing
-decision for any share-alike sources (the DoseWiki CC0 slice is unencumbered, but
-a PiHKAL/TiHKAL Part 2 pack must ship separately with its NC/share-alike notices).
+The v0.3.0 batch is **shipped**. The **knowledge corpus**, the **contribution
+drafts**, and the **phone portal (Phase 3a)** are **built and in `main`**, unreleased —
+cut them as **v0.4.0**.
+
+**Stop here and let 3a be used before building 3b.** Offline capture is a *separate
+project*, not a follow-up commit: it's gated on the WASM port of `interactions.rs` and
+`crisis.rs` (so the safety checks don't go dark offline — that's a blocker, not polish)
+and on a real decision about phone-side encryption. The "known constraint" below —
+the desktop must be awake to serve — is the thing 3b exists to fix. **Find out how
+often that actually bites** before committing to it.
 
 ---
 
