@@ -197,8 +197,11 @@ non-negotiables, each with a test:
    - **Transport swap** — `src/lib/api.ts` picks Tauri `invoke` on the desktop and
      `fetch` on the phone (`src/lib/portal.ts`). One function; the 1,900-line UI never
      learned about it. **`api.ts` remains the only file allowed to import `invoke`.**
-   - **Mobile route** — `/m`: dose, note, combo, Companion. A phone-shaped *subset*, not
-     the desktop page made responsive.
+   - **Mobile route** — `/m`: Now (start/end a session, log a dose, edit or delete one,
+     notes with the crisis scan), Journal (history + substance log), Combo, Look up (dose
+     table + corpus prose + your catalogue), Talk. A phone-shaped **mirror** of the
+     desktop, re-laid out for one hand — not the desktop page made responsive. It started
+     as a four-button subset; beta feedback was that the subset was the wrong call.
    - **PWA shell** — `static/manifest.webmanifest` + Apple meta tags: home-screen icon
      and standalone chrome. The **service worker is Phase 3b**, deliberately absent.
    - **Auth** — a 256-bit bearer token, compared in constant time, paired by scanning a
@@ -215,11 +218,18 @@ non-negotiables, each with a test:
    commands, the filesystem commands, and the `portal_*` commands themselves stay
    unreachable.
 
-   **Still to do for 3a:** the user runs `tailscale serve --bg <port>` themselves — the
-   app detects Tailscale, shows the exact command, and shows the resulting `*.ts.net`
-   URL, but does not run it for them. That's deliberate for now (it's the step that makes
-   the journal reachable from another device, and it should be visible), but a one-click
-   version behind a confirmation is a reasonable follow-up.
+   **Publishing to the tailnet is one button** (`portal_serve` / `portal_unserve`, wired to
+   Settings → Phone access). It was originally a command for the user to run by hand, on the
+   theory that the step deserved to be visible; beta feedback was that this is too much to
+   ask of an end user, and the honest fix is to keep it *visible* — the button says what it
+   runs, shows the resulting `*.ts.net` URL, and is reversible — rather than to keep it
+   *manual*. Tailscale's own refusals ("not logged in", "HTTPS must be enabled in the admin
+   console") are surfaced verbatim, because that message is the fix.
+
+   **Note the asymmetry:** the phone mirrors the journal, but it cannot mirror the *portal's
+   own controls*. `portal_serve`, `portal_unserve`, `portal_enable`, and `portal_disable` are
+   not in `EXPOSED` — a phone may not publish, unpublish, or reconfigure its own access. That
+   decision is made at the desk.
 
    ### Phase 3b — offline capture. Lets you log while the Mac is asleep or off-tailnet.
    The journal is **append-only** in practice (a dose/note is a new row), so an outbox

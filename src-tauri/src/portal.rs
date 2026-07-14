@@ -446,10 +446,15 @@ mod tests {
             "ai_pull",
             "ai_start",
             "pw_update",
-            // The portal may not reconfigure or disable itself.
+            // The portal may not reconfigure or disable itself — including publishing
+            // itself to the tailnet, which is a decision made at the desk.
             "portal_status",
             "portal_enable",
             "portal_disable",
+            "portal_qr",
+            "portal_tailscale",
+            "portal_serve",
+            "portal_unserve",
         ];
         for c in forbidden {
             assert!(!EXPOSED.contains(&c), "`{c}` must not be reachable from the phone");

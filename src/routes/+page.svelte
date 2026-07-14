@@ -47,6 +47,8 @@
     portalDisable,
     portalQr,
     portalTailscale,
+    portalServe,
+    portalUnserve,
     type PortalStatus,
     type TailscaleStatus,
     dbStatus,
@@ -168,6 +170,7 @@
   // The pairing QR carries the bearer token, so it is hidden until asked for —
   // it should not be sitting on screen behind you while you're screen-sharing.
   let showQr = $state(false);
+  let serving = $state(false);
   let tailscaleUrl = $derived(
     ts?.host && portal.port ? `https://${ts.host}/m` : null,
   );
@@ -975,6 +978,25 @@
     showQr = true;
   }
 
+  /** Publish (or stop publishing) the portal to the tailnet. This is the step that
+   *  makes the journal reachable from another device, so it's one button and it's
+   *  reversible — and Tailscale's own refusal (not logged in, HTTPS not enabled in
+   *  the admin console) is shown verbatim, because that message is the fix. */
+  async function toggleServe() {
+    portalErr = null;
+    serving = true;
+    try {
+      ts = ts?.serving ? await portalUnserve() : await portalServe();
+      // The pairing URL changes with it, so any QR on screen is now stale.
+      portalQrSvg = null;
+      showQr = false;
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    } finally {
+      serving = false;
+    }
+  }
+
   // ---- Upstream contribution ----
   async function loadContrib() {
     contribCands = await contributionCandidates();
@@ -1689,13 +1711,27 @@
               </p>
             {:else if !tailscaleUrl}
               <p class="muted small">⚠️ Tailscale is installed but isn't logged in — sign in, then reopen this tab.</p>
+            {:else if ts.serving}
+              <p class="muted small">
+                Published to your tailnet. Your phone can reach <strong>{ts.url ?? tailscaleUrl}</strong> —
+                and nothing else can: it's your tailnet, encrypted end to end, and every request still
+                needs the paired token.
+              </p>
+              <button class="small-btn" disabled={serving} onclick={toggleServe}>
+                {serving ? "Working…" : "Stop publishing to my tailnet"}
+              </button>
             {:else}
               <p class="muted small">
-                One more step, and you run it yourself so you can see exactly what it does — it's the
-                command that publishes the portal to your tailnet:
+                One more step: publish the portal to your tailnet, so your phone can reach it.
+                Tailscale carries it, encrypted — this does not open anything to the internet or to
+                your local network. You can undo it here at any time.
               </p>
-              <pre class="draft">{ts.serve_command}</pre>
-              <p class="muted small">Then your phone opens <strong>{tailscaleUrl}</strong>.</p>
+              <button class="primary small-btn" disabled={serving} onclick={toggleServe}>
+                {serving ? "Publishing…" : "Publish to my tailnet"}
+              </button>
+              <p class="muted small">
+                That runs <code>{ts.serve_command}</code>, if you'd rather do it yourself.
+              </p>
             {/if}
 
             {#if showQr && portalQrSvg}

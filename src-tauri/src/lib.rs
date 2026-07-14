@@ -157,6 +157,8 @@ pub fn run() {
             commands::portal_disable,
             commands::portal_qr,
             commands::portal_tailscale,
+            commands::portal_serve,
+            commands::portal_unserve,
             commands::crisis_scan,
             commands::knowledge_search,
             commands::knowledge_status,
