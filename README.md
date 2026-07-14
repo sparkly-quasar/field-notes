@@ -14,9 +14,10 @@ anywhere.
 > combinations — **absence of a warning does not mean a combination is safe.** In
 > an emergency, contact local emergency services or poison control.
 
-> **Status:** early foundation. Local journal + dose logging + a deterministic
-> safety-interaction checker + by-substance history. Built on the same Tauri +
-> Svelte stack as [Cairn](https://github.com/sparkly-quasar/cairn).
+> **Status:** working app, actively developed. Local journal + dose logging + a
+> deterministic safety-interaction checker + a local-model Companion + an offline
+> reference corpus + an optional phone portal. Built on the same Tauri + Svelte
+> stack as [Cairn](https://github.com/sparkly-quasar/cairn).
 
 ## What works today
 
@@ -54,8 +55,27 @@ anywhere.
 - **Safety checker** — every dose is checked against the others in that experience
   for widely-documented dangerous combinations (opioid + benzodiazepine, MAOI +
   serotonin releaser, lithium + psychedelics, SSRI + MDMA, …), rated
-  danger / caution / note. Works via coarse pharmacological *classes*, so it also
-  covers substances you add yourself once they're classified.
+  danger / caution / note. It reasons over coarse pharmacological *classes*, so it
+  also covers substances you add yourself once they're classified, **and** over
+  DoseWiki's graded pair data. The standalone **combo checker** — the one you use
+  *before* taking something — consults exactly the same sources, so it never knows
+  less than the dose log does.
+- **Offline reference search** — the DoseWiki prose corpus (7,800+ passages across
+  575 substances) bundled with the app and searched **in-process, on-device** with
+  BM25. No embeddings, no server, no network. Thin entries are **labeled as thin**
+  rather than hidden, so the Companion can hedge instead of bluffing.
+- **Phone access** (optional, off by default) — turn it on and a phone on your
+  **Tailscale tailnet** becomes a mirror of the desktop: start and end sessions, log
+  and edit doses, notes with the crisis scan, browse history, check combos, look up
+  doses. The server binds **127.0.0.1 only** (nothing is exposed to your local
+  network), every request needs a paired token *even on the tailnet*, it refuses to
+  serve a locked journal, and it exposes a strict **allowlist** — wiping the journal,
+  the passphrase, backups, and filesystem access are unreachable from a phone by
+  construction. Publishing it to your tailnet is one button, and reversible.
+- **Contribute upstream** (consent-gated) — substances you've catalogued that
+  DoseWiki doesn't cover can be exported as a draft record to submit by hand. It
+  **never touches the network**, **never includes journal data** (the catalogue row
+  only — no doses, no timestamps), and **never invents dose figures**.
 - **Substances** — catalogue substances, assign interaction classes (common ones
   are auto-classified), keep your own dose notes.
 - **Substance Log** — every dose grouped by substance, so you can see your history
@@ -66,19 +86,20 @@ anywhere.
 - **Tauri 2 + Svelte (TypeScript)** desktop app (macOS + Linux).
 - **Local SQLite** (`rusqlite`, bundled) at the app data dir — `substances`,
   `experiences`, `doses`, `timeline_events`. No network, no accounts.
-- `src-tauri/src/interactions.rs` — the deterministic interaction rules + class
-  vocabulary (common-knowledge harm-reduction categories, not derived from any
-  copyrighted source).
+- The safety-critical layers are **deterministic Rust, independent of any model** —
+  `interactions.rs` (interaction rules + class vocabulary, common-knowledge
+  harm-reduction categories not derived from any copyrighted source), `crisis.rs`
+  (distress detection + graded resources), `pw.rs` (the dose reference).
+- `knowledge.rs` — BM25 over the bundled corpus, in-process. `portal.rs` — the
+  optional phone server; its module docs state four load-bearing rules, and tests pin
+  all four. `contribute.rs` — upstream drafts, with no HTTP client in the file at all.
 
-## Roadmap (not yet built)
+## Roadmap
 
-- **Substance knowledge pack** — an offline RAG corpus from openly-licensed sources
-  (DoseWiki CC0, Shulgin's PiHKAL/TiHKAL Part 2). *PiHKAL/TiHKAL aren't public domain:
-  Part 1 (narrative) is all-rights-reserved (pointer only); Part 2 (compound data,
-  e.g. Isomer Design, CC BY-NC-SA) is bundleable non-commercially as a separate pack
-  with notices attached.*
-- **User-added substances → opt-in upstream contribution** (consent-gated; a
-  reviewed draft the user submits manually to DoseWiki — never auto-uploaded).
+- **Offline capture on the phone** — log while the Mac is asleep or you're off the
+  tailnet, with an outbox that syncs when it's reachable again. Gated on porting the
+  deterministic safety checks to run phone-side: an offline phone whose interaction
+  checker has gone dark is worse than no phone at all.
 
 ## Install & update
 
