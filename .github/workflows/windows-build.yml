@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Build the Windows installers (NSIS .exe + WiX .msi) WITHOUT releasing anything.
+# Run manually from the Actions tab to prove the Windows build before tagging a
+# release. Artifacts are attached to the run for download/smoke-testing.
+name: Windows build (no release)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NASM
+        # The vendored OpenSSL that backs SQLCipher assembles with NASM on MSVC.
+        # Strawberry Perl is already on the runner; NASM is not.
+        uses: ilammy/setup-nasm@v1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # No `cargo test` here: Windows test binaries die at launch with
+      # STATUS_ENTRYPOINT_NOT_FOUND because tauri-build links the app manifest
+      # only to the main binary (tauri-apps/tauri#13419). The shipped app is
+      # unaffected; the suite runs on macOS/Linux where the logic is identical.
+
+      - name: Build installers
+        # No tagName/releaseId → tauri-action builds but does not touch releases.
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # createUpdaterArtifacts is on in tauri.conf.json, so `tauri build`
+          # refuses to run without the updater signing key even here.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-notes-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error

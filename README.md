@@ -83,7 +83,7 @@ anywhere.
 
 ## Architecture
 
-- **Tauri 2 + Svelte (TypeScript)** desktop app (macOS + Linux).
+- **Tauri 2 + Svelte (TypeScript)** desktop app (macOS + Linux + Windows).
 - **Local SQLite** (`rusqlite`, bundled) at the app data dir — `substances`,
   `experiences`, `doses`, `timeline_events`. No network, no accounts.
 - The safety-critical layers are **deterministic Rust, independent of any model** —
@@ -110,12 +110,16 @@ Download an installer for your platform from the
   so on first launch **right-click → Open** (or `xattr -dr com.apple.quarantine
   "/Applications/Field Notes.app"`).
 - **Linux** — the `.AppImage` (make it executable and run), or the `.deb` / `.rpm`.
+- **Windows** — run the `-setup.exe` installer (or the `.msi`). Not code-signed yet,
+  so SmartScreen may warn on first launch — click **More info → Run anyway**.
 
 **To update:** grab the latest release and install it over the old version
-(replace the app in Applications, or the AppImage; reinstall the `.deb`/`.rpm`).
-**Your journal is safe** — all data lives in the OS app-data directory
+(replace the app in Applications, or the AppImage; reinstall the `.deb`/`.rpm`;
+re-run the Windows installer). **Your journal is safe** — all data lives in the
+OS app-data directory
 (`~/Library/Application Support/com.fieldnotes.journal` on macOS,
-`~/.local/share/com.fieldnotes.journal` on Linux), separate from the app bundle,
+`~/.local/share/com.fieldnotes.journal` on Linux,
+`%APPDATA%\com.fieldnotes.journal` on Windows), separate from the app bundle,
 so updating never touches it. **From v0.2.0 on, the app checks for updates on
 launch** and offers to install them in place ("Install & restart") — signed and
 verified, fully in-app. (v0.1.0 predates the updater, so update to v0.2.0 manually
