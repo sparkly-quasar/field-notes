@@ -115,6 +115,7 @@
   // erase / uninstall
   let dataDirPath = $state("");
   const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+  const isWindows = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
 
   // Obsidian vault sync
   const VAULT_KEY = "fieldnotes.vaultFolder";
@@ -1131,7 +1132,7 @@
       <p class="muted small">Checking for local AI…</p>
     {:else if !ai.installed}
       <button class="primary small-btn" disabled={aiBusy} onclick={doInstall}>{aiBusy ? "Installing Ollama…" : "Install Ollama"}</button>
-      <p class="muted small">A one-time install of Ollama, the local model runner. macOS uses Homebrew; Linux uses the official installer.</p>
+      <p class="muted small">A one-time install of Ollama, the local model runner. macOS uses Homebrew; Linux uses the official installer; Windows uses WinGet.</p>
     {:else if !ai.running}
       <button class="primary small-btn" disabled={aiBusy} onclick={doStart}>{aiBusy ? "Starting…" : "Start Ollama"}</button>
       <p class="muted small">Ollama is installed but not running.</p>
@@ -1707,7 +1708,7 @@
             {#if !ts?.installed}
               <p class="muted small">
                 ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
-                Install Tailscale on this Mac and your phone, then come back.
+                Install Tailscale on this computer and your phone, then come back.
               </p>
             {:else if !tailscaleUrl}
               <p class="muted small">⚠️ Tailscale is installed but isn't logged in — sign in, then reopen this tab.</p>
@@ -1890,6 +1891,12 @@
               Quit Field Notes, then open <strong>Applications</strong> and drag <strong>Field Notes</strong> to the
               Trash. To leave nothing behind, also delete the data folder above (erase your data first, or just
               delete the folder).
+            </p>
+          {:else if isWindows}
+            <p class="muted small">
+              Quit Field Notes, then open <strong>Settings → Apps → Installed apps</strong>, find
+              <strong>Field Notes</strong>, and choose <strong>Uninstall</strong>. To leave nothing behind, also
+              delete the data folder above (erase your data first, or just delete the folder).
             </p>
           {:else}
             <p class="muted small">

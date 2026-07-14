@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 # Build installable binaries and attach them to a GitHub Release on every v* tag.
 #
-# macOS  → universal .dmg (Apple Silicon + Intel). Signs + notarizes automatically
-#          IF the APPLE_* secrets are set; otherwise the .dmg is unsigned
-#          (users right-click → Open the first time).
-# Linux  → .AppImage / .deb / .rpm.
+# macOS   → universal .dmg (Apple Silicon + Intel). Signs + notarizes automatically
+#           IF the APPLE_* secrets are set; otherwise the .dmg is unsigned
+#           (users right-click → Open the first time).
+# Linux   → .AppImage / .deb / .rpm.
+# Windows → .exe (NSIS) / .msi (WiX). Unsigned, so SmartScreen shows
+#           "More info → Run anyway" on first launch.
 name: Release
 
 on:
@@ -26,6 +28,9 @@ jobs:
           - platform: ubuntu-22.04
             args: ""
             rust-targets: ""
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +45,12 @@ jobs:
             libxdo-dev libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev patchelf
+
+      - name: Install NASM (Windows)
+        # The vendored OpenSSL that backs SQLCipher assembles with NASM on MSVC.
+        # Strawberry Perl is already on the runner; NASM is not.
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/setup-nasm@v1
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -94,6 +105,9 @@ jobs:
             3. Click **Privacy & Security** in the left sidebar.
             4. Scroll to the **Security** section — you'll see a message that the app was blocked.
             5. Click **Open Anyway**, enter your Mac's login password, and click **OK**.
+
+            **Windows:** download the `-setup.exe` installer. It isn't code-signed yet, so
+            SmartScreen may warn on first launch — click **More info → Run anyway**.
 
             **Linux:** use the .AppImage (portable), or the .deb / .rpm for your distro.
 
