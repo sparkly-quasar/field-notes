@@ -30,7 +30,8 @@
     crisisScan,
     emergencyResources,
     companionChat,
-    ollamaModels,
+    aiStatus,
+    aiStart,
     pwLookup,
     knowledgeSearch,
     type ExperienceSummary,
@@ -44,6 +45,7 @@
     type ChatMsg,
     type PwInfo,
     type KnowledgeHit,
+    type AiStatus,
   } from "$lib/api";
   import { captureToken, hasToken, inTauri } from "$lib/portal";
 
@@ -95,24 +97,59 @@
   let newSub = $state("");
 
   // companion
+  let ai = $state<AiStatus | null>(null);
   let models = $state<string[]>([]);
   let model = $state("");
   let chat = $state<ChatMsg[]>([]);
   let ask = $state("");
   let thinking = $state(false);
+  let waking = $state(false);
 
   onMount(async () => {
     captureToken();
     paired = inTauri() || hasToken();
     if (!paired) return;
     await refresh();
-    try {
-      models = await ollamaModels();
-      model = models[0] ?? "";
-    } catch {
-      models = []; // The Companion needs the desktop's Ollama; it may simply be off.
-    }
+    await loadAi();
   });
+
+  /** Ask the desktop what its local model is doing *right now*.
+   *
+   *  This used to run once, at mount. If Ollama happened to be asleep at that
+   *  moment, the Companion stayed dead for the life of the page — no retry, no
+   *  explanation — which is exactly what you don't want mid-session. So: re-check
+   *  whenever the Talk tab is opened, and say which of the three states we're in
+   *  rather than one vague "not reachable". */
+  async function loadAi() {
+    try {
+      ai = await aiStatus();
+      models = ai.models;
+      if (!models.includes(model)) model = models[0] ?? "";
+    } catch {
+      ai = null;
+      models = [];
+    }
+  }
+
+  /** Wake the desktop's model server from the phone. The alternative is walking to
+   *  the desk, which is the situation the portal exists to avoid. */
+  const wakeAi = () =>
+    run(async () => {
+      waking = true;
+      try {
+        await aiStart();
+        // `ollama serve` takes a moment to accept connections.
+        await new Promise((r) => setTimeout(r, 1500));
+        await loadAi();
+      } finally {
+        waking = false;
+      }
+    });
+
+  function goTo(v: View) {
+    view = v;
+    if (v === "companion") loadAi();
+  }
 
   /** Anything that fails does so out loud — a phone that silently drops a dose you
    *  thought you logged is worse than a phone that says it couldn't. */
@@ -555,12 +592,33 @@
     {#if view === "companion"}
       <section class="pane">
         <h2>Companion</h2>
-        {#if !models.length}
+        {#if !ai}
+          <p class="muted">Couldn't ask the desktop about its local model.</p>
+          <button disabled={busy} onclick={loadAi}>Try again</button>
+        {:else if !ai.installed}
           <p class="muted">
-            The Companion runs on the desktop's local model, and it isn't reachable right now.
-            Everything else on this screen still works.
+            The Companion runs on a local model, and this desktop doesn't have one installed.
+            Install it over there — it's a big download, so it isn't something to start from a phone.
           </p>
+        {:else if !ai.running}
+          <p class="muted">
+            The local model isn't running on the desktop right now. Everything else on this screen
+            still works.
+          </p>
+          <button class="primary" disabled={busy || waking} onclick={wakeAi}>
+            {waking ? "Starting it…" : "Start it on the desktop"}
+          </button>
+        {:else if !models.length}
+          <p class="muted">
+            The model server is running, but no models are installed. Pull one on the desktop.
+          </p>
+          <button disabled={busy} onclick={loadAi}>Check again</button>
         {:else}
+          {#if models.length > 1}
+            <select bind:value={model}>
+              {#each models as m}<option>{m}</option>{/each}
+            </select>
+          {/if}
           <div class="chat">
             {#each chat as m}
               <p class="msg {m.role}">{m.content}</p>
@@ -574,11 +632,11 @@
     {/if}
 
     <nav>
-      <button class:on={view === "now"} onclick={() => (view = "now")}>Now</button>
-      <button class:on={view === "journal"} onclick={() => (view = "journal")}>Journal</button>
-      <button class:on={view === "combo"} onclick={() => (view = "combo")}>Combo</button>
-      <button class:on={view === "reference"} onclick={() => (view = "reference")}>Look up</button>
-      <button class:on={view === "companion"} onclick={() => (view = "companion")}>Talk</button>
+      <button class:on={view === "now"} onclick={() => goTo("now")}>Now</button>
+      <button class:on={view === "journal"} onclick={() => goTo("journal")}>Journal</button>
+      <button class:on={view === "combo"} onclick={() => goTo("combo")}>Combo</button>
+      <button class:on={view === "reference"} onclick={() => goTo("reference")}>Look up</button>
+      <button class:on={view === "companion"} onclick={() => goTo("companion")}>Talk</button>
     </nav>
   {/if}
 </main>
