@@ -129,6 +129,35 @@ npm run tauri dev
 npm run tauri build
 ```
 
+### Development notes
+
+Things that aren't obvious from the code, and that have already cost a debugging
+session at least once:
+
+- **`src/lib/api.ts` is the only file allowed to import Tauri's `invoke`.** It is the
+  single seam where the desktop (`invoke`) and the phone (`fetch` to the portal) diverge,
+  which is why the UI never had to learn that the portal exists. Import `invoke`
+  anywhere else and the phone silently breaks.
+- **`portal.rs`'s `EXPOSED` is an allowlist.** A new command in `commands.rs` is
+  unreachable from the phone until someone adds it there *on purpose* — that's the point.
+  The four rules in that file's module docs are load-bearing; tests pin all four.
+- **Adding a command to `EXPOSED` is a security decision, not a plumbing one.** Ask what
+  it does in the hands of someone holding a phone that isn't yours. `ai_start` is exposed
+  (it wakes a loopback server the app already owns); `ai_install` and `ai_pull` are not
+  (they install software and download gigabytes).
+- **Known rough edge:** browsing to the portal's `/` (rather than `/m`) from a phone
+  serves the *desktop* page, which half-renders and throws console errors. Harmless —
+  the allowlist is server-side — and fixed as part of Phase 3b.
+- **Verifying the UI without a screen.** macOS may withhold Screen Recording /
+  Accessibility, which blocks screenshots and AppleScript. Headless Chromium needs
+  neither: point it at the running portal (`http://127.0.0.1:<port>/m#t=<token>`) and
+  drive the real app over a real socket, phone viewport and all. This is how `/m` and the
+  desktop Substances tab are actually verified, rather than merely typechecked.
+- **Two bugs got past "the tests pass" and were caught by a human on a phone** — the
+  Tailscale step being too much to ask of an end user, and the Companion tab giving up
+  forever if Ollama was asleep at page load. Typechecks and unit tests don't open tabs.
+  Drive the thing.
+
 ## License
 
 Licensed under the **[PolyForm Noncommercial License 1.0.0](./LICENSE)**.
