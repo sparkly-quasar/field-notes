@@ -66,7 +66,7 @@ installer).
 
 ---
 
-## Built, not yet released (in `main`)
+## Shipped in v0.4.0 / v0.4.1
 
 ### Offline knowledge corpus — DoseWiki prose, BM25, no embedding model
 
@@ -379,14 +379,37 @@ emotional presence.
 
 ## Suggested next increment
 
-The v0.3.0 batch is **shipped**. The **knowledge corpus**, the **contribution
-drafts**, and the **phone portal (Phase 3a)** are **built and in `main`**, unreleased —
-cut them as **v0.4.0**.
+**v0.4.0 and v0.4.1 are shipped and public** — the knowledge corpus, contribution
+drafts, the phone portal (Phase 3a), the combo-checker fix, and the phone Companion fix.
 
-**Stop here and let 3a be used before building 3b.** Offline capture is a *separate
+### Plain journal entries (not a drug session) — proposed
+
+Today an entry **has to be a session**. If you just want to write about your day, the
+app has nowhere to put it, which quietly narrows a journal into a drug log. It should
+be possible to write a plain text entry, in the same journal, alongside the sessions.
+
+- **Model it explicitly, don't infer it.** The tempting shortcut — "an experience with
+  zero doses is a note" — is wrong: a session where you haven't logged the first dose
+  *yet* looks exactly like a note, and it would flip type under you mid-session. Add a
+  `kind` column (`'session' | 'note'`, defaulting to `'session'` so every existing row
+  keeps its meaning) and branch on it.
+- **The crisis scan still runs.** A plain entry is *more* likely to be where someone
+  writes that they're not okay, not less. `crisis.rs` must fire on these exactly as it
+  does on session notes. The interaction checker is simply irrelevant here — that's
+  fine, and different from being switched off.
+- **The UI should get quieter, not just different.** A plain entry has no doses, no
+  timeline, no combo warnings, no elapsed-time header. It's a title, a body, a date.
+  Resist re-using the session layout with the drug parts hidden.
+- **It's the phone's missing verb.** `/m` currently can't take a note at all without a
+  live session — the Now tab starts from "log a dose". A plain entry is the obvious way
+  to jot something at 3am without pretending it's a session.
+- **Downstream, mostly free:** Obsidian export writes them as ordinary Markdown notes;
+  the Companion can read them for context; the substance log ignores them by definition.
+
+**Then stop and let 3a be used before building 3b.** Offline capture is a *separate
 project*, not a follow-up commit: it's gated on the WASM port of `interactions.rs` and
 `crisis.rs` (so the safety checks don't go dark offline — that's a blocker, not polish)
-and on a real decision about phone-side encryption. The "known constraint" below —
+and on a real decision about phone-side encryption. The "known constraint" above —
 the desktop must be awake to serve — is the thing 3b exists to fix. **Find out how
 often that actually bites** before committing to it.
 
