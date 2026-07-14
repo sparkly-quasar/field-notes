@@ -22,6 +22,10 @@ const BLOCK_CLOSE: &str = "```";
 /// Canonical experience data as parsed back from a note's `fieldnotes` block.
 #[derive(Deserialize)]
 struct NoteData {
+    /// `'session'` or `'note'`. Exports predating plain entries carry no kind —
+    /// they were all sessions.
+    #[serde(default = "default_kind")]
+    kind: String,
     #[serde(default)]
     title: String,
     #[serde(default)]
@@ -37,6 +41,10 @@ struct NoteData {
     doses: Vec<NoteDose>,
     #[serde(default)]
     timeline: Vec<NoteEvent>,
+}
+
+fn default_kind() -> String {
+    "session".into()
 }
 
 #[derive(Deserialize)]
@@ -121,31 +129,44 @@ fn render_note(exp: &db::ExperienceDetail) -> Result<String, String> {
         seen.into_iter().collect()
     };
 
+    let plain_note = e.kind == "note";
+
     let mut s = String::new();
     // ----- frontmatter -----
     s.push_str("---\n");
     s.push_str(&format!("title: {}\n", yaml_escape(&e.title)));
     s.push_str(&format!("date: {}\n", yaml_escape(date)));
-    if let Some(r) = e.rating {
-        s.push_str(&format!("rating: {r}\n"));
-    }
-    s.push_str("substances:\n");
-    for name in &substances {
-        s.push_str(&format!("  - {}\n", yaml_escape(name)));
+    if plain_note {
+        // A plain entry is just a dated piece of writing — no rating, no
+        // substances, and its frontmatter shouldn't pretend otherwise.
+        s.push_str("kind: note\n");
+    } else {
+        if let Some(r) = e.rating {
+            s.push_str(&format!("rating: {r}\n"));
+        }
+        s.push_str("substances:\n");
+        for name in &substances {
+            s.push_str(&format!("  - {}\n", yaml_escape(name)));
+        }
     }
     s.push_str("tags:\n  - field-notes\n");
     s.push_str("---\n\n");
 
     // ----- human-readable body -----
-    s.push_str(&format!("# {}\n\n", if e.title.is_empty() { "Untitled experience" } else { &e.title }));
-    s.push_str(&format!("*Started {}*", e.started_at));
-    if let Some(end) = &e.ended_at {
-        s.push_str(&format!(" · *ended {end}*"));
+    let fallback = if plain_note { "Untitled note" } else { "Untitled experience" };
+    s.push_str(&format!("# {}\n\n", if e.title.is_empty() { fallback } else { &e.title }));
+    if plain_note {
+        s.push_str(&format!("*{date}*\n\n"));
+    } else {
+        s.push_str(&format!("*Started {}*", e.started_at));
+        if let Some(end) = &e.ended_at {
+            s.push_str(&format!(" · *ended {end}*"));
+        }
+        if let Some(r) = e.rating {
+            s.push_str(&format!(" · rating {r}/5"));
+        }
+        s.push_str("\n\n");
     }
-    if let Some(r) = e.rating {
-        s.push_str(&format!(" · rating {r}/5"));
-    }
-    s.push_str("\n\n");
 
     if !e.intention.is_empty() {
         s.push_str(&format!("**Intention:** {}\n\n", e.intention));
@@ -190,7 +211,10 @@ fn render_note(exp: &db::ExperienceDetail) -> Result<String, String> {
     }
 
     if !e.notes.is_empty() {
-        s.push_str("## Notes\n\n");
+        // For a plain note the writing *is* the note — no section header over it.
+        if !plain_note {
+            s.push_str("## Notes\n\n");
+        }
         s.push_str(&e.notes);
         s.push_str("\n\n");
     }
@@ -337,6 +361,7 @@ pub fn import_all(conn: &Connection, vault: &Path) -> Result<ImportResult, Strin
                 let exp = db::create_experience(
                     conn,
                     &ExperienceInput {
+                        kind: note.kind.clone(),
                         title: note.title.clone(),
                         intention: note.intention.clone(),
                         setting: note.setting.clone(),
@@ -388,6 +413,7 @@ mod tests {
         let exp = db::create_experience(
             &src,
             &ExperienceInput {
+                kind: "session".into(),
                 title: "Test session".into(),
                 intention: "learn".into(),
                 setting: "home".into(),
@@ -426,6 +452,59 @@ mod tests {
         let r2 = import_all(&dst, &dir).unwrap();
         assert_eq!(r2.updated, 1);
         assert_eq!(db::list_experiences(&dst).unwrap().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round_trips_a_plain_note_and_keeps_it_quiet() {
+        let dir = std::env::temp_dir().join(format!("fn-obsidian-note-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = mem();
+        let exp = db::create_experience(
+            &src,
+            &ExperienceInput {
+                kind: "note".into(),
+                title: "A quiet day".into(),
+                intention: String::new(),
+                setting: String::new(),
+                started_at: "2026-07-03T09:00:00Z".into(),
+            },
+        )
+        .unwrap();
+        db::update_experience(
+            &src,
+            exp.id,
+            &db::ExperienceUpdate {
+                title: "A quiet day".into(),
+                intention: String::new(),
+                setting: String::new(),
+                notes: "Slept in. Walked by the river.".into(),
+                rating: None,
+                started_at: "2026-07-03T09:00:00Z".into(),
+                ended_at: None,
+            },
+        )
+        .unwrap();
+        export_all(&src, &dir).unwrap();
+
+        // The rendered Markdown is a note, not a session with the drug parts hidden.
+        let file = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap().path();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("kind: note"));
+        assert!(!text.contains("substances:"), "a plain note lists no substances");
+        assert!(!text.contains("## Doses"));
+        assert!(text.contains("Walked by the river."));
+
+        // And it comes back as a note.
+        let dst = mem();
+        let r = import_all(&dst, &dir).unwrap();
+        assert_eq!(r.created, 1);
+        let got = db::list_experiences(&dst).unwrap();
+        assert_eq!(got[0].experience.kind, "note");
+        assert_eq!(got[0].experience.notes, "Slept in. Walked by the river.");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
