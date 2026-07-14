@@ -6,10 +6,6 @@ name: Windows build (no release)
 
 on:
   workflow_dispatch:
-  # TEMPORARY while windows-support is in review: run on pushes to the branch so
-  # the build can be verified before the workflow exists on main. Remove on merge.
-  push:
-    branches: [windows-support]
 
 jobs:
   build:
