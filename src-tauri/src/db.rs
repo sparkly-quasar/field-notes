@@ -30,6 +30,16 @@ pub fn open(path: &Path, key: Option<&str>) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
+    // Migration: `kind` postdates v0.5 journals. CREATE TABLE IF NOT EXISTS won't
+    // touch an existing table, so add the column when it's missing.
+    let has_kind: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('experiences') WHERE name = 'kind'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_kind == 0 {
+        conn.execute_batch("ALTER TABLE experiences ADD COLUMN kind TEXT NOT NULL DEFAULT 'session'")?;
+    }
     Ok(conn)
 }
 
@@ -107,6 +117,10 @@ CREATE TABLE IF NOT EXISTS substances (
 
 CREATE TABLE IF NOT EXISTS experiences (
     id          INTEGER PRIMARY KEY,
+    -- 'session' (a drug session: doses, timeline, the works) or 'note' (a plain
+    -- journal entry: title, body, date — nothing else). Explicit, never inferred:
+    -- a session with no doses logged *yet* is still a session.
+    kind        TEXT NOT NULL DEFAULT 'session',
     title       TEXT NOT NULL DEFAULT '',
     intention   TEXT NOT NULL DEFAULT '',
     setting     TEXT NOT NULL DEFAULT '',
@@ -194,6 +208,8 @@ pub struct TimelineEvent {
 #[derive(Debug, Clone, Serialize)]
 pub struct Experience {
     pub id: i64,
+    /// `'session'` or `'note'`. Set at creation and never changed by edits.
+    pub kind: String,
     pub title: String,
     pub intention: String,
     pub setting: String,
@@ -240,6 +256,9 @@ pub struct SubstanceInput {
 
 #[derive(Debug, Deserialize)]
 pub struct ExperienceInput {
+    /// `'session'` (default) or `'note'` — anything else is treated as `'session'`.
+    #[serde(default = "default_kind")]
+    pub kind: String,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -247,6 +266,10 @@ pub struct ExperienceInput {
     #[serde(default)]
     pub setting: String,
     pub started_at: String,
+}
+
+fn default_kind() -> String {
+    "session".into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -342,6 +365,7 @@ fn classes_for(conn: &Connection, name: &str) -> Vec<String> {
 fn row_to_experience(r: &rusqlite::Row) -> rusqlite::Result<Experience> {
     Ok(Experience {
         id: r.get("id")?,
+        kind: r.get("kind")?,
         title: r.get("title")?,
         intention: r.get("intention")?,
         setting: r.get("setting")?,
@@ -354,12 +378,31 @@ fn row_to_experience(r: &rusqlite::Row) -> rusqlite::Result<Experience> {
 }
 
 pub fn create_experience(conn: &Connection, input: &ExperienceInput) -> rusqlite::Result<Experience> {
+    // Normalize, don't validate-and-reject: unknown kinds mean an older client,
+    // and an older client means a session (that was the only kind there was).
+    let kind = if input.kind == "note" { "note" } else { "session" };
     conn.execute(
-        "INSERT INTO experiences (title, intention, setting, started_at) VALUES (?1, ?2, ?3, ?4)",
-        params![input.title, input.intention, input.setting, input.started_at],
+        "INSERT INTO experiences (kind, title, intention, setting, started_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![kind, input.title, input.intention, input.setting, input.started_at],
     )?;
     let id = conn.last_insert_rowid();
     get_experience_row(conn, id)
+}
+
+/// Refuse a session-only operation against a plain note. Notes have no doses, no
+/// timeline, and no "end": that invariant is enforced here, not hoped for in the UI.
+fn require_session(conn: &Connection, experience_id: i64, what: &str) -> rusqlite::Result<()> {
+    let kind: String =
+        conn.query_row("SELECT kind FROM experiences WHERE id = ?1", [experience_id], |r| r.get(0))?;
+    if kind == "note" {
+        // SqliteFailure with a message Displays as just the message, which is what
+        // `Db::with`'s to_string() hands the UI.
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+            Some(format!("This entry is a plain note, not a session — it can't have {what}.")),
+        ));
+    }
+    Ok(())
 }
 
 fn get_experience_row(conn: &Connection, id: i64) -> rusqlite::Result<Experience> {
@@ -422,6 +465,7 @@ pub fn get_experience(conn: &Connection, id: i64) -> rusqlite::Result<Experience
 }
 
 pub fn end_experience(conn: &Connection, id: i64, ended_at: &str, rating: Option<i64>, notes: &str) -> rusqlite::Result<Experience> {
+    require_session(conn, id, "an end time or rating")?;
     conn.execute(
         "UPDATE experiences SET ended_at = ?2, rating = ?3, notes = ?4 WHERE id = ?1",
         params![id, ended_at, rating, notes],
@@ -434,6 +478,7 @@ pub fn end_experience(conn: &Connection, id: i64, ended_at: &str, rating: Option
 /// Insert a dose and return it together with any interaction warnings against the
 /// other substances already logged in the same experience.
 pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose, Vec<crate::interactions::Warning>)> {
+    require_session(conn, input.experience_id, "doses")?;
     let substance_id: Option<i64> = conn
         .query_row(
             "SELECT id FROM substances WHERE name = ?1 COLLATE NOCASE",
@@ -490,6 +535,7 @@ pub fn combo_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interac
 }
 
 pub fn add_timeline_event(conn: &Connection, input: &TimelineInput) -> rusqlite::Result<TimelineEvent> {
+    require_session(conn, input.experience_id, "timeline events")?;
     conn.execute(
         "INSERT INTO timeline_events (experience_id, at, note, mood, intensity)
          VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -781,6 +827,7 @@ mod tests {
         }).unwrap();
 
         let exp = create_experience(&c, &ExperienceInput {
+            kind: "session".into(),
             title: "test".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-01-01T20:00:00Z".into(),
         }).unwrap();
@@ -813,6 +860,77 @@ mod tests {
         assert_eq!(detail.doses.len(), 2);
     }
 
+    #[test]
+    fn plain_notes_are_explicit_and_session_only_ops_refuse_them() {
+        let c = mem();
+
+        // Kind is normalized at creation: unknown values mean an older client.
+        let weird = create_experience(&c, &ExperienceInput {
+            kind: "diary".into(), title: "old client".into(),
+            intention: String::new(), setting: String::new(),
+            started_at: "2026-07-01T09:00:00Z".into(),
+        }).unwrap();
+        assert_eq!(weird.kind, "session");
+
+        let note = create_experience(&c, &ExperienceInput {
+            kind: "note".into(), title: "just a day".into(),
+            intention: String::new(), setting: String::new(),
+            started_at: "2026-07-02T09:00:00Z".into(),
+        }).unwrap();
+        assert_eq!(note.kind, "note");
+
+        // A note is not a session: no doses, no timeline, no "end".
+        let dose = log_dose(&c, &DoseInput {
+            experience_id: note.id, substance_name: "MDMA".into(), amount: Some(100.0),
+            unit: "mg".into(), route: "oral".into(), taken_at: "2026-07-02T10:00:00Z".into(),
+            note: String::new(),
+        });
+        assert!(dose.is_err());
+        let ev = add_timeline_event(&c, &TimelineInput {
+            experience_id: note.id, at: "2026-07-02T10:00:00Z".into(),
+            note: "hm".into(), mood: String::new(), intensity: None,
+        });
+        assert!(ev.is_err());
+        assert!(end_experience(&c, note.id, "2026-07-02T11:00:00Z", Some(5), "").is_err());
+
+        // Editing the body doesn't flip the kind.
+        let edited = update_experience(&c, note.id, &ExperienceUpdate {
+            title: "just a day".into(), intention: String::new(), setting: String::new(),
+            notes: "wrote some words".into(), rating: None,
+            started_at: "2026-07-02T09:00:00Z".into(), ended_at: None,
+        }).unwrap();
+        assert_eq!(edited.kind, "note");
+    }
+
+    #[test]
+    fn kind_column_is_added_to_pre_v05_journals() {
+        let dir = std::env::temp_dir().join(format!("fn-migrate-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.db");
+
+        // A journal created before `kind` existed: same table minus the column.
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                "CREATE TABLE experiences (
+                    id INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
+                    intention TEXT NOT NULL DEFAULT '', setting TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '', rating INTEGER,
+                    started_at TEXT NOT NULL, ended_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')));
+                 INSERT INTO experiences (title, started_at) VALUES ('old', '2026-01-01T00:00:00Z');",
+            ).unwrap();
+        }
+
+        // Reopening through the front door migrates it.
+        let c = open(&path, None).unwrap();
+        let exp = get_experience_row(&c, 1).unwrap();
+        assert_eq!(exp.kind, "session", "existing rows keep their meaning");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // Uses the bundled DoseWiki snapshot (no network). MDMA + Tramadol is a
     // graded "dangerous" interaction on both sides, so it must surface at log time.
     #[test]
@@ -822,6 +940,7 @@ mod tests {
         pw_replace_all(&mut c, &all).unwrap();
 
         let exp = create_experience(&c, &ExperienceInput {
+            kind: "session".into(),
             title: "t".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-01-01T00:00:00Z".into(),
         }).unwrap();

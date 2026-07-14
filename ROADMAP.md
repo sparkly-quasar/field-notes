@@ -393,10 +393,15 @@ be possible to write a plain text entry, in the same journal, alongside the sess
   *yet* looks exactly like a note, and it would flip type under you mid-session. Add a
   `kind` column (`'session' | 'note'`, defaulting to `'session'` so every existing row
   keeps its meaning) and branch on it.
-- **The crisis scan still runs.** A plain entry is *more* likely to be where someone
-  writes that they're not okay, not less. `crisis.rs` must fire on these exactly as it
-  does on session notes. The interaction checker is simply irrelevant here — that's
-  fine, and different from being switched off.
+- **The crisis scan does NOT run on journal prose — owner's decision (2026-07-14).**
+  The journal is private; the app must not read over the user's shoulder. `crisis.rs`
+  fires in exactly two places: (1) what the user *says to* the Companion in an active
+  chat (self-harm / harm-to-others intent), and (2) the deterministic combo checker
+  when a dangerous interaction is flagged. Journal entries — session notes, timeline
+  notes, and plain entries — are saved as written and never scanned. (The phone's
+  timeline-note scan was removed for the same reason.) Don't relitigate this by
+  "adding safety"; the guardrails live where the user is talking to something, not
+  where they're talking to themselves.
 - **The UI should get quieter, not just different.** A plain entry has no doses, no
   timeline, no combo warnings, no elapsed-time header. It's a title, a body, a date.
   Resist re-using the session layout with the drug parts hidden.

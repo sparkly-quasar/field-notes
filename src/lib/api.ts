@@ -30,6 +30,8 @@ export interface Substance {
 
 export interface Experience {
   id: number;
+  /** "session" (a drug session) or "note" (a plain journal entry). Set at creation. */
+  kind: "session" | "note";
   title: string;
   intention: string;
   setting: string;
@@ -99,6 +101,8 @@ export interface SubstanceInput {
 }
 
 export interface ExperienceInput {
+  /** Defaults to "session" on the backend. */
+  kind?: "session" | "note";
   title?: string;
   intention?: string;
   setting?: string;

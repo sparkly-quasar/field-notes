@@ -273,6 +273,7 @@ pub fn import_experience(db: State<'_, Db>, parsed: ollama::ParsedExperience) ->
     let exp = db::create_experience(
         &conn,
         &ExperienceInput {
+            kind: "session".into(),
             title: if parsed.title.is_empty() { "Imported experience".into() } else { parsed.title.clone() },
             intention: parsed.intention.clone(),
             setting: parsed.setting.clone(),
