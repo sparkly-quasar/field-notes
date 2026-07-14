@@ -38,9 +38,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Run Rust tests
-        working-directory: src-tauri
-        run: cargo test
+      # No `cargo test` here: Windows test binaries die at launch with
+      # STATUS_ENTRYPOINT_NOT_FOUND because tauri-build links the app manifest
+      # only to the main binary (tauri-apps/tauri#13419). The shipped app is
+      # unaffected; the suite runs on macOS/Linux where the logic is identical.
 
       - name: Build installers
         # No tagName/releaseId → tauri-action builds but does not touch releases.
