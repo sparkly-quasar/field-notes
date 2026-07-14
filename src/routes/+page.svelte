@@ -137,6 +137,11 @@
   let neSetting = $state("");
   let neStart = $state("");
   let showNewExp = $state(false);
+  // plain note (kind: "note") — title, body, date; nothing else
+  let nnTitle = $state("");
+  let nnBody = $state("");
+  let nnDate = $state("");
+  let showNewNote = $state(false);
 
   // dose form
   let dSubstance = $state("");
@@ -577,7 +582,36 @@
 
   function openNewExp() {
     showNewExp = !showNewExp;
+    if (showNewExp) showNewNote = false;
     if (showNewExp && !neStart) neStart = nowLocalInput();
+  }
+
+  function openNewNote() {
+    showNewNote = !showNewNote;
+    if (showNewNote) showNewExp = false;
+    if (showNewNote && !nnDate) nnDate = nowLocalInput();
+  }
+
+  async function submitNewNote() {
+    const e = await createExperience({
+      kind: "note",
+      title: nnTitle || "Untitled note",
+      started_at: localInputToIso(nnDate),
+    });
+    // create doesn't take a body — write it in the same breath.
+    if (nnBody.trim()) {
+      await updateExperience(e.id, {
+        title: e.title,
+        notes: nnBody,
+        rating: null,
+        started_at: e.started_at,
+        ended_at: null,
+      });
+    }
+    nnTitle = nnBody = nnDate = "";
+    showNewNote = false;
+    await loadJournal();
+    await openExperience(e.id);
   }
 
   // ---- import a past experience from pasted text ----
@@ -680,7 +714,11 @@
   }
 
   async function delExp() {
-    if (!selected || !confirm("Delete this experience and all its doses? This cannot be undone.")) return;
+    const msg =
+      selected?.kind === "note"
+        ? "Delete this note? This cannot be undone."
+        : "Delete this experience and all its doses? This cannot be undone.";
+    if (!selected || !confirm(msg)) return;
     await deleteExperience(selected.id);
     selected = null;
     await loadJournal();
@@ -831,8 +869,11 @@
   }
 
   // the experience the companion is aware of — the live-session one if active,
-  // otherwise the most recent (when sharing is on)
-  const attachedExp = $derived(cShareSession && experiences.length ? experiences[0] : null);
+  // otherwise the most recent session (when sharing is on). Plain notes are never
+  // attached: session context is about doses, and notes are private writing.
+  const attachedExp = $derived(
+    cShareSession ? (experiences.find((e) => e.kind === "session") ?? null) : null,
+  );
   const companionExpId = $derived(
     liveSession && selected ? selected.id : attachedExp ? attachedExp.id : null,
   );
@@ -1191,7 +1232,36 @@
 
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
-      {#if selected}
+      {#if selected && selected.kind === "note"}
+        <!-- A plain entry: a title, a body, a date. Deliberately quiet — no session chrome. -->
+        <section class="card">
+          <button class="link" onclick={() => (selected = null)}>← Journal</button>
+          <div class="exp-head">
+            <h2>{selected.title || "Untitled note"}</h2>
+            <span class="row-actions">
+              {#if !editExp}<button class="link" onclick={startEditExp}>Edit</button>{/if}
+              <button class="link danger-link" onclick={delExp}>Delete</button>
+            </span>
+          </div>
+          <span class="muted small">{fmtDate(selected.started_at)}</span>
+
+          {#if editExp}
+            <div class="edit-form">
+              <label>Title<input bind:value={eTitle} /></label>
+              <label>Date<input type="datetime-local" bind:value={eStart} /></label>
+              <label>Entry<textarea bind:value={eNotes} rows="10"></textarea></label>
+              <div class="row-actions">
+                <button class="primary small-btn" onclick={saveExp}>Save</button>
+                <button class="ghost small-btn" onclick={() => (editExp = false)}>Cancel</button>
+              </div>
+            </div>
+          {:else if selected.notes}
+            <p class="note-body">{selected.notes}</p>
+          {:else}
+            <p class="muted small">Nothing written yet — Edit to start.</p>
+          {/if}
+        </section>
+      {:else if selected}
         <section class="card">
           <button class="link" onclick={() => (selected = null)}>← All experiences</button>
           <div class="exp-head">
@@ -1324,10 +1394,11 @@
       {:else}
         <section class="card">
           <div class="exp-head">
-            <h2>Experiences</h2>
+            <h2>Journal</h2>
             <span class="row-actions">
               <button class="ghost small-btn" onclick={openImport}>Import from text</button>
-              <button class="primary small-btn" onclick={openNewExp}>+ New</button>
+              <button class="ghost small-btn" onclick={openNewNote}>+ Note</button>
+              <button class="primary small-btn" onclick={openNewExp}>+ Session</button>
             </span>
           </div>
 
@@ -1338,6 +1409,18 @@
               <input placeholder="Intention (optional)" bind:value={neIntention} />
               <input placeholder="Set & setting (optional)" bind:value={neSetting} />
               <button class="primary small-btn" onclick={submitNewExperience}>Start</button>
+            </div>
+          {/if}
+
+          {#if showNewNote}
+            <!-- A plain entry — not a session. Title, words, date. -->
+            <div class="new-note">
+              <input placeholder="Title (optional)" bind:value={nnTitle} />
+              <textarea rows="6" placeholder="Write anything." bind:value={nnBody}></textarea>
+              <div class="row-actions">
+                <input type="datetime-local" bind:value={nnDate} title="Date" />
+                <button class="primary small-btn" onclick={submitNewNote}>Save note</button>
+              </div>
             </div>
           {/if}
 
@@ -1396,20 +1479,30 @@
               {#each experiences as e}
                 <li>
                   <button class="exp-row" onclick={() => openExperience(e.id)}>
-                    <div>
-                      <strong>{e.title || "Untitled"}</strong>
-                      <span class="muted small">{fmtDate(e.started_at)}{e.ended_at ? "" : " · ongoing"}</span>
-                    </div>
-                    <div class="exp-meta">
-                      {#each e.substances as s}<span class="pill">{s}</span>{/each}
-                      <span class="muted small">{e.dose_count} dose{e.dose_count === 1 ? "" : "s"}</span>
-                    </div>
+                    {#if e.kind === "note"}
+                      <div>
+                        <strong>{e.title || "Untitled note"}</strong>
+                        <span class="muted small">{fmtDate(e.started_at)}</span>
+                      </div>
+                      <div class="exp-meta">
+                        <span class="pill note-pill">note</span>
+                      </div>
+                    {:else}
+                      <div>
+                        <strong>{e.title || "Untitled"}</strong>
+                        <span class="muted small">{fmtDate(e.started_at)}{e.ended_at ? "" : " · ongoing"}</span>
+                      </div>
+                      <div class="exp-meta">
+                        {#each e.substances as s}<span class="pill">{s}</span>{/each}
+                        <span class="muted small">{e.dose_count} dose{e.dose_count === 1 ? "" : "s"}</span>
+                      </div>
+                    {/if}
                   </button>
                 </li>
               {/each}
             </ul>
           {:else}
-            <p class="muted">No experiences yet. Start one to begin logging.</p>
+            <p class="muted">Nothing here yet. Start a session, or just write a note.</p>
           {/if}
         </section>
       {/if}
@@ -2083,6 +2176,10 @@
 
   .new-exp, .dose-form, .new-sub { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; align-items: center; }
   .new-exp input, .new-sub input { flex: 1; min-width: 8rem; }
+  .new-note { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
+  .new-note textarea { width: 100%; resize: vertical; }
+  .note-pill { font-style: italic; }
+  .note-body { white-space: pre-wrap; margin-top: 0.6rem; line-height: 1.55; }
   .dose-form input:first-child { flex: 1; min-width: 8rem; }
 
   .doses li, .timeline li { display: flex; gap: 0.7rem; padding: 0.4rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; align-items: baseline; }
