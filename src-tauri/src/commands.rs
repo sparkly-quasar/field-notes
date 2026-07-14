@@ -969,9 +969,12 @@ pub struct TailscaleStatus {
     pub installed: bool,
     /// The tailnet hostname to reach this machine on, if we could read one.
     pub host: Option<String>,
-    /// The exact command that publishes the portal to the tailnet. We show it
-    /// rather than silently running it — it is the step that makes the journal
-    /// reachable from another device, and the user should see it happen.
+    /// Tailscale is already proxying the tailnet to the portal's port.
+    pub serving: bool,
+    /// The tailnet URL the phone reaches, once we're serving.
+    pub url: Option<String>,
+    /// The equivalent command, for anyone who would rather run it themselves or
+    /// wants to see what the button does. `portal_serve` runs exactly this.
     pub serve_command: Option<String>,
 }
 
@@ -987,10 +990,31 @@ fn tailscale_bin() -> Option<String> {
     PATHS.iter().find(|p| Path::new(p).exists()).map(|p| p.to_string())
 }
 
+/// Run a `tailscale` subcommand, returning its stderr as the error. Tailscale's own
+/// messages are the useful ones here ("HTTPS must be enabled in the admin console",
+/// "not logged in"), and a generic "failed to publish" would throw them away.
+fn tailscale_run(bin: &str, args: &[&str]) -> Result<String, String> {
+    let out = std::process::Command::new(bin)
+        .args(args)
+        .output()
+        .map_err(|e| format!("Couldn't run Tailscale: {e}"))?;
+    if out.status.success() {
+        return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+    }
+    let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    Err(if msg.is_empty() { "Tailscale refused, without saying why.".into() } else { msg })
+}
+
 #[tauri::command]
 pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
     let Some(bin) = tailscale_bin() else {
-        return TailscaleStatus { installed: false, host: None, serve_command: None };
+        return TailscaleStatus {
+            installed: false,
+            host: None,
+            serving: false,
+            url: None,
+            serve_command: None,
+        };
     };
 
     let host = std::process::Command::new(&bin)
@@ -1003,12 +1027,44 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
             (!dns.is_empty()).then_some(dns)
         });
 
-    let serve_command = portal
-        .status()
-        .port
-        .map(|p| format!("{bin} serve --bg {p}"));
+    let port = portal.status().port;
 
-    TailscaleStatus { installed: true, host, serve_command }
+    // Are we already proxying to *our* port? Tailscale may well be serving something
+    // else entirely; that isn't us, and turning it off isn't ours to do.
+    let serving = port.is_some_and(|p| {
+        tailscale_run(&bin, &["serve", "status", "--json"])
+            .map(|s| s.contains(&format!("127.0.0.1:{p}")))
+            .unwrap_or(false)
+    });
+
+    TailscaleStatus {
+        installed: true,
+        host: host.clone(),
+        serving,
+        url: (serving && host.is_some()).then(|| format!("https://{}/m", host.unwrap())),
+        serve_command: port.map(|p| format!("{bin} serve --bg {p}")),
+    }
+}
+
+/// Publish the portal to the tailnet: Tailscale terminates HTTPS on the tailnet and
+/// proxies to our loopback port. This is the one button that makes the journal
+/// reachable from another device, so it stays an explicit, reversible act — and it
+/// refuses if the portal isn't actually running, rather than serving a dead port.
+#[tauri::command]
+pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
+    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this Mac.")?;
+    let port = portal.status().port.ok_or("Turn on phone access first.")?;
+    tailscale_run(&bin, &["serve", "--bg", &port.to_string()])?;
+    Ok(portal_tailscale(portal))
+}
+
+/// Stop publishing. The portal itself keeps running on loopback — this only removes
+/// the tailnet's route to it.
+#[tauri::command]
+pub fn portal_unserve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
+    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this Mac.")?;
+    tailscale_run(&bin, &["serve", "--https=443", "off"])?;
+    Ok(portal_tailscale(portal))
 }
 
 // ---------- upstream contribution drafts ----------

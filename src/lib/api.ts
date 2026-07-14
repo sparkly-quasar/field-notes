@@ -372,6 +372,8 @@ export interface PortalStatus {
 export interface TailscaleStatus {
   installed: boolean;
   host: string | null;
+  serving: boolean;
+  url: string | null;
   serve_command: string | null;
 }
 export const portalStatus = () => invoke<PortalStatus>("portal_status");
@@ -379,6 +381,8 @@ export const portalEnable = () => invoke<PortalStatus>("portal_enable");
 export const portalDisable = () => invoke<PortalStatus>("portal_disable");
 export const portalQr = (url?: string) => invoke<string>("portal_qr", { url });
 export const portalTailscale = () => invoke<TailscaleStatus>("portal_tailscale");
+export const portalServe = () => invoke<TailscaleStatus>("portal_serve");
+export const portalUnserve = () => invoke<TailscaleStatus>("portal_unserve");
 
 // ---- erase all data / uninstall ----
 export const dataDir = () => invoke<string>("data_dir");
