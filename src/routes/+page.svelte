@@ -2072,7 +2072,10 @@
       </section>
     {/if}
 
-    <footer>“The greatest intention is to be open to learning.”</footer>
+    <footer>
+      “The greatest intention is to be open to learning.”
+      <div class="footer-sub">for mindful exploration and contemplation</div>
+    </footer>
   </main>
 
   <!-- ============ EMERGENCY / PANIC RESOURCES ============ -->
@@ -2343,6 +2346,7 @@
   .chat-input input { flex: 1; }
 
   footer { margin-top: 1.6rem; text-align: center; color: var(--muted); font-size: 0.8rem; }
+  .footer-sub { margin-top: 0.2rem; font-size: 0.72rem; opacity: 0.75; }
 
   /* ---- crisis banner + emergency resources ---- */
   .help-btn { background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 600; cursor: pointer; }
