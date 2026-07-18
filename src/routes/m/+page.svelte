@@ -31,6 +31,10 @@
     checkCombo,
     crisisScan,
     companionChat,
+    companionChatStart,
+    companionChatPoll,
+    type CompanionPoll,
+    type CompanionReply,
     aiStatus,
     aiStart,
     pwLookup,
@@ -356,6 +360,34 @@
     });
 
   // ---- companion ----
+  // A Companion turn on a slow local model can take minutes. One long request
+  // dies at mobile Safari's ~60s timeout — and instantly when the screen locks.
+  // So the phone starts the turn as a *job* on the desktop and polls for the
+  // result: every poll is a fresh, fast request, so a locked screen or a network
+  // blip mid-generation costs nothing but another poll.
+  async function awaitCompanionJob(job: number): Promise<Exclude<CompanionPoll, { status: "running" }>> {
+    let misses = 0;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000));
+      let poll: CompanionPoll;
+      try {
+        poll = await companionChatPoll(job);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // Not transient — stop polling: the phone was unpaired (401), or the
+        // desktop no longer knows the job (delivered elsewhere, or swept).
+        if (msg.includes("paired") || msg.includes("unknown or expired")) throw e;
+        // Anything else is likely a blip — Wi-Fi rejoining after the screen was
+        // locked, the desktop napping. The job is still running at the desk, so
+        // keep polling; give up only when the blips stop looking transient.
+        if (++misses >= 5) throw e;
+        continue;
+      }
+      misses = 0;
+      if (poll.status !== "running") return poll;
+    }
+  }
+
   const send = () =>
     run(async () => {
       if (!ask.trim() || !model) return;
@@ -371,7 +403,17 @@
         .then((r) => { if (r.level !== "none") chatCrisis = r; })
         .catch(() => {});
       try {
-        const reply = await companionChat(model, next, session?.id ?? null, null);
+        let reply: CompanionReply;
+        if (inTauri()) {
+          // Desktop IPC has no timeout to outrun, and the job commands are
+          // portal-only — call the Companion directly.
+          reply = await companionChat(model, next, session?.id ?? null, null);
+        } else {
+          const { job } = await companionChatStart(model, next, session?.id ?? null, null);
+          const done = await awaitCompanionJob(job);
+          if (done.status === "error") throw new Error(done.error);
+          reply = done.reply;
+        }
         chat = [...next, { role: "assistant", content: reply.reply }];
         // The Companion has tools: it may have logged something. Reflect that.
         if (reply.journal_changed) await refresh();
