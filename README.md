@@ -52,10 +52,15 @@ from your phone.
 - **Encryption & backups** — optional password encryption for the whole journal,
   plus one-file backup and restore.
 - **Obsidian sync** — export entries to an Obsidian vault as readable Markdown
-  notes and import them back; works both ways, fully offline.
+  notes and import them back; works both ways, fully offline. Any single entry
+  can also be exported on its own ("Export this entry" on the desktop, "Export"
+  on the phone) in the same format, so it drops straight into a vault.
 - **Phone access** (optional, off by default) — pair your phone and use the
-  journal, combo checker, reference, and Companion from bed at 3am. Private by
-  design: see [Architecture](#architecture) for how.
+  journal, combo checker, reference, and Companion from bed at 3am. Companion
+  replies run as a background job on the desktop, so a slow local model — or a
+  locked phone screen — no longer drops the answer. Rename a session or entry
+  right from the phone by tapping its title. Private by design: see
+  [Architecture](#architecture) for how.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.
 - **Contribute upstream** (consent-gated) — export substances you've catalogued

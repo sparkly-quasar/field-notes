@@ -115,6 +115,28 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.7.0
+
+- **Phone Companion chat survives long replies** — a slow local model can take
+  minutes per reply, and mobile Safari kills a silent request at ~60 s (a locked
+  screen kills it instantly), so the phone showed "Can't reach the desktop app"
+  while the desktop was fine. The portal now runs the reply as a **background
+  job** on the desktop and the phone **polls** every couple of seconds until it's
+  done — locking the phone mid-reply is fine. Test pins that a job outlives its
+  originating request and delivers exactly once
+  (`a_companion_job_outlives_its_request_and_delivers_once` in `portal.rs`).
+- **Export a single entry as Markdown** — an "Export this entry" button at the
+  end of an entry on the desktop (save dialog) and an "Export" button on the
+  phone (downloads the file). Same format and filename as the Obsidian vault
+  sync, so an exported note drops straight into a vault.
+- **Rename from the phone** — tap the live-session title in the header, or an
+  opened entry's title in the journal, to rename it.
+- **New footer** — the tagline is now the quote *"The greatest intention is to
+  be open to learning."* with the subline "for mindful exploration and
+  contemplation".
+
+---
+
 ## Roadmap (not yet built)
 
 > ✅ **Shipped in v0.3.0:** DoseWiki migration, encryption-at-rest + backup/restore,
