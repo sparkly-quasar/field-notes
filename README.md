@@ -24,15 +24,19 @@ from your phone.
 ## Features
 
 - **Journal** — log experiences with intention, set & setting, doses, and a
-  running timeline of how you feel. Edit, delete, or backdate anything.
+  running timeline of how you feel. Edit, delete, or backdate anything. Every
+  timestamp in a session also shows the time since your first dose
+  (`14:02 (t+1:23)`), so the timeline reads against the clock that matters.
 - **Plain notes** — not everything is a session. Write ordinary journal entries
   (a title, your words, a date) alongside them.
 - **Combination warnings** — every dose is checked against the others for
   well-documented dangerous combinations, and there's a standalone checker to
   consult *before* taking anything.
 - **Dose reference** — dose ranges, durations, and graded interaction data for
-  hundreds of substances, bundled with the app and available offline. Sourced
-  from [DoseWiki](https://dose.wiki) (public domain).
+  hundreds of substances, bundled with the app and available offline. Search the
+  reference prose, or read any of the 575 substance entries **in full** —
+  pharmacology, harm potential, tolerance, legality — with the exact dose figures
+  alongside. Sourced from [DoseWiki](https://dose.wiki) (public domain).
 - **Companion** — a calm, non-judgmental support chat that runs on a local AI
   model. It can be aware of your current session, look up references, and log
   things for you when you ask. Pick a support style ("just listen", "keep me
