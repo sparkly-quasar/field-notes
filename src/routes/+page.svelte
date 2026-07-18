@@ -2044,7 +2044,7 @@
       </section>
     {/if}
 
-    <footer>Offline · private · harm-reduction. Not medical advice.</footer>
+    <footer>“The greatest intention is to be open to learning.”</footer>
   </main>
 
   <!-- ============ EMERGENCY / PANIC RESOURCES ============ -->
