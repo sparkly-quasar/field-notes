@@ -373,6 +373,19 @@ export const obsidianExport = (folder: string) =>
 export const obsidianImport = (folder: string) =>
   invoke<ObsidianImportResult>("obsidian_import", { folder });
 
+// ---- single-entry Markdown export ----
+// Same rendering + filename convention as the Obsidian vault export.
+export interface ExportedNote {
+  filename: string;
+  markdown: string;
+}
+/** Pure render — returns the Markdown text. Portal-safe; the phone downloads it. */
+export const exportExperienceMarkdown = (id: number) =>
+  invoke<ExportedNote>("export_experience_markdown", { id });
+/** Desktop-only: writes the note to `dest`, a path from the save dialog. */
+export const exportExperienceFile = (id: number, dest: string) =>
+  invoke<void>("export_experience_file", { id, dest });
+
 // ---- phone portal (optional; off by default) ----
 // Desktop-only by construction: portal.rs does not allowlist these, so the portal
 // cannot be used to reconfigure or switch off the portal.

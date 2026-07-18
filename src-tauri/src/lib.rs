@@ -150,6 +150,8 @@ pub fn run() {
             commands::import_backup,
             commands::obsidian_export,
             commands::obsidian_import,
+            commands::export_experience_markdown,
+            commands::export_experience_file,
             commands::contribution_candidates,
             commands::contribution_draft,
             commands::contribution_save,
