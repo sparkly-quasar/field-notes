@@ -123,6 +123,7 @@ pub fn run() {
             commands::usage_by_substance,
             commands::update_experience,
             commands::update_dose,
+            commands::update_timeline_event,
             commands::delete_experience,
             commands::delete_dose,
             commands::delete_timeline_event,

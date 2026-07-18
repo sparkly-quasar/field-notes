@@ -300,6 +300,7 @@ pub const EXPOSED: &[&str] = &[
     "add_substance",
     "update_experience",
     "update_dose",
+    "update_timeline_event",
     "delete_experience",
     "delete_dose",
     "delete_timeline_event",
@@ -348,6 +349,9 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             done(commands::update_experience(db, arg(&args, "id")?, arg(&args, "update")?))
         }
         "update_dose" => done(commands::update_dose(db, arg(&args, "id")?, arg(&args, "update")?)),
+        "update_timeline_event" => {
+            done(commands::update_timeline_event(db, arg(&args, "id")?, arg(&args, "update")?))
+        }
         "delete_experience" => done(commands::delete_experience(db, arg(&args, "id")?)),
         "delete_dose" => done(commands::delete_dose(db, arg(&args, "id")?)),
         "delete_timeline_event" => done(commands::delete_timeline_event(db, arg(&args, "id")?)),

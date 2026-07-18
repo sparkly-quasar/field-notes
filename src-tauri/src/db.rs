@@ -637,6 +637,33 @@ pub fn update_experience(conn: &Connection, id: i64, u: &ExperienceUpdate) -> ru
     get_experience_row(conn, id)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TimelineUpdate {
+    pub at: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub mood: String,
+    pub intensity: Option<i64>,
+}
+
+pub fn update_timeline_event(conn: &Connection, id: i64, u: &TimelineUpdate) -> rusqlite::Result<TimelineEvent> {
+    conn.execute(
+        "UPDATE timeline_events SET at=?2, note=?3, mood=?4, intensity=?5 WHERE id=?1",
+        params![id, u.at, u.note, u.mood, u.intensity],
+    )?;
+    conn.query_row("SELECT * FROM timeline_events WHERE id = ?1", [id], |r| {
+        Ok(TimelineEvent {
+            id: r.get("id")?,
+            experience_id: r.get("experience_id")?,
+            at: r.get("at")?,
+            note: r.get("note")?,
+            mood: r.get("mood")?,
+            intensity: r.get("intensity")?,
+        })
+    })
+}
+
 pub fn update_dose(conn: &Connection, id: i64, u: &DoseUpdate) -> rusqlite::Result<Dose> {
     let substance_id: Option<i64> = conn
         .query_row(
@@ -858,6 +885,36 @@ mod tests {
 
         let detail = get_experience(&c, exp.id).unwrap();
         assert_eq!(detail.doses.len(), 2);
+    }
+
+    #[test]
+    fn timeline_events_can_be_edited_in_place() {
+        let c = mem();
+        let exp = create_experience(&c, &ExperienceInput {
+            kind: "session".into(),
+            title: "test".into(), intention: String::new(), setting: String::new(),
+            started_at: "2026-01-01T20:00:00Z".into(),
+        }).unwrap();
+        let ev = add_timeline_event(&c, &TimelineInput {
+            experience_id: exp.id, at: "2026-01-01T21:00:00Z".into(),
+            note: "coming up".into(), mood: "nervous".into(), intensity: Some(3),
+        }).unwrap();
+
+        let edited = update_timeline_event(&c, ev.id, &TimelineUpdate {
+            at: "2026-01-01T21:10:00Z".into(),
+            note: "coming up smoothly".into(), mood: "settled".into(), intensity: Some(4),
+        }).unwrap();
+        assert_eq!(edited.id, ev.id);
+        assert_eq!(edited.experience_id, exp.id, "editing never moves an event to another experience");
+        assert_eq!(edited.at, "2026-01-01T21:10:00Z");
+        assert_eq!(edited.note, "coming up smoothly");
+        assert_eq!(edited.mood, "settled");
+        assert_eq!(edited.intensity, Some(4));
+
+        // It's the stored row, not an echo.
+        let detail = get_experience(&c, exp.id).unwrap();
+        assert_eq!(detail.timeline.len(), 1);
+        assert_eq!(detail.timeline[0].note, "coming up smoothly");
     }
 
     #[test]

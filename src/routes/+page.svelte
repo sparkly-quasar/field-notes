@@ -14,6 +14,8 @@
     addSubstance,
     updateExperience,
     updateDose,
+    updateTimelineEvent,
+    type TimelineEvent,
     deleteExperience,
     deleteDose,
     deleteTimelineEvent,
@@ -209,6 +211,11 @@
   let tNote = $state("");
   let tMood = $state("");
   let tIntensity = $state("");
+  let editingTimelineId = $state<number | null>(null);
+  let etNote = $state("");
+  let etMood = $state("");
+  let etIntensity = $state("");
+  let etTime = $state("");
 
   // new-substance form
   let nsName = $state("");
@@ -734,6 +741,26 @@
   async function delTimeline(id: number) {
     if (!selected) return;
     await deleteTimelineEvent(id);
+    await openExperienceKeepWarnings(selected.id);
+  }
+
+  function startEditTimeline(t: TimelineEvent) {
+    editingTimelineId = t.id;
+    etNote = t.note;
+    etMood = t.mood;
+    etIntensity = t.intensity != null ? String(t.intensity) : "";
+    etTime = isoToLocalInput(t.at);
+  }
+
+  async function saveTimeline() {
+    if (!selected || editingTimelineId == null) return;
+    await updateTimelineEvent(editingTimelineId, {
+      at: localInputToIso(etTime),
+      note: etNote.trim(),
+      mood: etMood,
+      intensity: etIntensity ? parseInt(etIntensity) : null,
+    });
+    editingTimelineId = null;
     await openExperienceKeepWarnings(selected.id);
   }
 
@@ -1371,9 +1398,23 @@
             <ul class="timeline">
               {#each selected.timeline as t}
                 <li>
-                  <span class="dtime">{fmtTime(t.at)}</span>
-                  <span class="tl-note">{t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}{t.mood ? ` · ${t.mood}` : ""}</span>
-                  <button class="icon-btn" title="Delete" onclick={() => delTimeline(t.id)}>✕</button>
+                  {#if editingTimelineId === t.id}
+                    <div class="dose-form inline">
+                      <input bind:value={etNote} />
+                      <input bind:value={etMood} class="narrow" placeholder="mood" />
+                      <input type="number" min="0" max="10" bind:value={etIntensity} class="narrow" placeholder="0-10" />
+                      <input type="datetime-local" bind:value={etTime} />
+                      <button class="primary small-btn" onclick={saveTimeline}>Save</button>
+                      <button class="ghost small-btn" onclick={() => (editingTimelineId = null)}>Cancel</button>
+                    </div>
+                  {:else}
+                    <span class="dtime">{fmtTime(t.at)}</span>
+                    <span class="tl-note">{t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}{t.mood ? ` · ${t.mood}` : ""}</span>
+                    <span class="row-actions">
+                      <button class="icon-btn" title="Edit note" onclick={() => startEditTimeline(t)}>✎</button>
+                      <button class="icon-btn" title="Delete" onclick={() => delTimeline(t.id)}>✕</button>
+                    </span>
+                  {/if}
                 </li>
               {/each}
             </ul>
