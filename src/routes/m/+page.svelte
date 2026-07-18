@@ -83,6 +83,10 @@
   let evNote = $state("");
   let evIntensity = $state("");
 
+  // renaming an experience (live session or an opened journal entry)
+  let renamingId = $state<number | null>(null);
+  let renameText = $state("");
+
   // plain note (kind: "note") — no session required
   let plainTitle = $state("");
   let plainBody = $state("");
@@ -219,6 +223,32 @@
     run(async () => {
       if (!session || !confirm("End this session?")) return;
       await endExperience(session.id, new Date().toISOString(), null, "");
+      await refresh();
+    });
+
+  // ---- renaming ----
+  function startRename(e: ExperienceDetail) {
+    renamingId = e.id;
+    renameText = e.title;
+  }
+
+  const saveRename = () =>
+    run(async () => {
+      // update_experience replaces the whole row, so everything except the
+      // title is passed through from the loaded entry unchanged.
+      const target =
+        session?.id === renamingId ? session : open?.id === renamingId ? open : null;
+      if (!target) return;
+      await updateExperience(target.id, {
+        title: renameText.trim(),
+        intention: target.intention,
+        setting: target.setting,
+        notes: target.notes,
+        rating: target.rating,
+        started_at: target.started_at,
+        ended_at: target.ended_at,
+      });
+      renamingId = null;
       await refresh();
     });
 
@@ -411,11 +441,22 @@
     <header>
       <strong>Field Notes</strong>
       {#if session}
-        <span class="live">● {session.title || "Live session"}</span>
+        <button class="link live" title="Rename this session" onclick={() => startRename(session!)}>
+          ● {session.title || "Live session"} ✎
+        </button>
       {:else}
         <span class="muted">No live session</span>
       {/if}
     </header>
+
+    {#if renamingId != null}
+      <section class="pane">
+        <h2>Rename</h2>
+        <input placeholder="Title" bind:value={renameText} />
+        <button class="primary" disabled={busy} onclick={saveRename}>Save</button>
+        <button disabled={busy} onclick={() => (renamingId = null)}>Cancel</button>
+      </section>
+    {/if}
 
     {#if err}<p class="banner danger">{err}</p>{/if}
 
@@ -531,14 +572,14 @@
       {#if open && open.kind === "note"}
         <section class="pane">
           <button class="link" onclick={() => (open = null)}>‹ Back</button>
-          <h2>{open.title || "Untitled note"}</h2>
+          <h2>{open.title || "Untitled note"} <button class="link" onclick={() => startRename(open!)}>rename</button></h2>
           <p class="muted">{day(open.started_at)}</p>
           {#if open.notes}<p class="notes">{open.notes}</p>{/if}
         </section>
       {:else if open}
         <section class="pane">
           <button class="link" onclick={() => (open = null)}>‹ Back</button>
-          <h2>{open.title || "Untitled"}</h2>
+          <h2>{open.title || "Untitled"} <button class="link" onclick={() => startRename(open!)}>rename</button></h2>
           <p class="muted">
             {day(open.started_at)}
             {#if open.ended_at}→ {day(open.ended_at)}{:else}· still open{/if}
@@ -795,6 +836,7 @@
     display: inline; width: auto; min-height: 0; margin: 0; padding: 0 0 0 0.4rem;
     background: none; border: none; color: #9aa2ad; font-size: 0.85rem; font-weight: 400;
   }
+  button.link.live { color: #7ee787; padding-left: 0; }
 
   .banner { border-radius: 10px; padding: 0.7rem 0.8rem; margin: 0.6rem 0 0; border: 1px solid; font-size: 0.92rem; }
   .banner.danger { border-color: #ff6b6b; background: rgba(255, 107, 107, 0.14); }
