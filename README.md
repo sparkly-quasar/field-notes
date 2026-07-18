@@ -39,7 +39,8 @@ from your phone.
   grounded", …) and it honors it.
 - **Live session** — a quiet, altered-state-friendly screen for an ongoing
   experience: elapsed time, one-tap logging, the companion, and an always-visible
-  **Get help now** button.
+  **Get help now** button. Timeline notes can be edited after the fact — on the
+  desktop and from the phone.
 - **Crisis resources** — if a chat with the Companion shows signs of crisis, or a
   dangerous combination is logged, real emergency and peer-support contacts
   appear. This is driven by fixed rules, never by the AI — and your journal
