@@ -117,8 +117,17 @@ fn md_cell(s: &str) -> String {
     s.replace('|', "\\|").replace('\n', " ")
 }
 
+/// The canonical filename for an experience's Markdown note: date + title slug +
+/// id, so exports are stable and never collide. Used by the vault sync and by the
+/// single-entry export, so a note exported either way lands under the same name.
+pub(crate) fn note_filename(exp: &db::ExperienceDetail) -> String {
+    let e = &exp.experience;
+    let date = e.started_at.get(0..10).unwrap_or("");
+    format!("{date}-{}-{}.md", slugify(&e.title), e.id)
+}
+
 /// Render one experience as a full Markdown note.
-fn render_note(exp: &db::ExperienceDetail) -> Result<String, String> {
+pub(crate) fn render_note(exp: &db::ExperienceDetail) -> Result<String, String> {
     let e = &exp.experience;
     let date = e.started_at.get(0..10).unwrap_or(&e.started_at);
     let substances: Vec<String> = {
@@ -243,8 +252,7 @@ pub fn export_all(conn: &Connection, vault: &Path) -> Result<ExportResult, Strin
     let mut written = 0;
     for summ in &summaries {
         let detail = db::get_experience(conn, summ.experience.id).map_err(err)?;
-        let date = detail.experience.started_at.get(0..10).unwrap_or("").to_string();
-        let name = format!("{date}-{}-{}.md", slugify(&detail.experience.title), detail.experience.id);
+        let name = note_filename(&detail);
         let note = render_note(&detail)?;
         std::fs::write(vault.join(name), note).map_err(err)?;
         written += 1;

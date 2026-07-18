@@ -290,6 +290,10 @@ fn done<T: serde::Serialize>(r: Result<T, String>) -> Result<Value, DispatchErro
 pub const EXPOSED: &[&str] = &[
     "list_experiences",
     "get_experience",
+    // Renders one entry to Markdown text and *returns* it — the phone downloads it
+    // in the browser. Its sibling `export_experience_file` writes to the desktop's
+    // disk and must never appear here.
+    "export_experience_markdown",
     "usage_by_substance",
     "list_substances",
     "db_status",
@@ -329,6 +333,9 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         // --- reading the journal ---
         "list_experiences" => done(commands::list_experiences(db)),
         "get_experience" => done(commands::get_experience(db, arg(&args, "id")?)),
+        "export_experience_markdown" => {
+            done(commands::export_experience_markdown(db, arg(&args, "id")?))
+        }
         "usage_by_substance" => done(commands::usage_by_substance(db)),
         "list_substances" => done(commands::list_substances(db)),
         "db_status" => ok(commands::db_status(db)),
@@ -448,6 +455,9 @@ mod tests {
             "import_backup",
             "obsidian_export",
             "obsidian_import",
+            // (`export_experience_markdown` *is* exposed: it only returns Markdown
+            // text. This one writes it to a path on the desktop's disk.)
+            "export_experience_file",
             "contribution_save",
             "data_dir",
             "reveal_data_dir",
@@ -545,10 +555,82 @@ mod tests {
         assert_eq!(status, 200, "the paired phone can read: {body}");
     }
 
+    /// The single-entry export, end to end at the dispatch seam: the pure Markdown
+    /// renderer is reachable and carries the whole story (title, doses, timeline),
+    /// while its file-writing sibling stays desktop-only.
+    #[test]
+    fn a_single_entry_exports_as_markdown_but_never_as_a_file() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock app");
+
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        conn.execute_batch(crate::db::schema_for_tests()).unwrap();
+        let exp = crate::db::create_experience(
+            &conn,
+            &crate::db::ExperienceInput {
+                kind: "session".into(),
+                title: "River evening".into(),
+                intention: "unwind".into(),
+                setting: "home".into(),
+                started_at: "2026-07-10T20:00:00Z".into(),
+            },
+        )
+        .unwrap();
+        crate::db::log_dose(
+            &conn,
+            &crate::db::DoseInput {
+                experience_id: exp.id,
+                substance_name: "Caffeine".into(),
+                amount: Some(80.0),
+                unit: "mg".into(),
+                route: "oral".into(),
+                taken_at: "2026-07-10T20:05:00Z".into(),
+                note: "tea".into(),
+            },
+        )
+        .unwrap();
+        crate::db::add_timeline_event(
+            &conn,
+            &crate::db::TimelineInput {
+                experience_id: exp.id,
+                at: "2026-07-10T21:00:00Z".into(),
+                note: "calm and settled".into(),
+                mood: "easy".into(),
+                intensity: Some(3),
+            },
+        )
+        .unwrap();
+        app.manage(Db {
+            conn: StdMutex::new(Some(conn)),
+            path: std::env::temp_dir().join("fn-export-test-unused.db"),
+        });
+
+        let handle = app.handle().clone();
+        let v = dispatch(&handle, "export_experience_markdown", json!({ "id": exp.id }))
+            .unwrap_or_else(|_| panic!("`export_experience_markdown` must be reachable"));
+        let md = v["markdown"].as_str().expect("markdown text");
+        assert!(md.contains("River evening"), "the title must be in the note");
+        assert!(md.contains("Caffeine") && md.contains("80"), "the logged dose must be in the note");
+        assert!(md.contains("calm and settled"), "the timeline note must be in the note");
+        let name = v["filename"].as_str().expect("filename");
+        assert_eq!(name, format!("2026-07-10-river-evening-{}.md", exp.id));
+
+        // The file writer is a different animal — it touches the desktop's disk.
+        assert!(
+            matches!(
+                dispatch(&handle, "export_experience_file", json!({ "id": exp.id, "dest": "/tmp/nope.md" })),
+                Err(DispatchError::NotExposed)
+            ),
+            "`export_experience_file` must not be reachable through dispatch"
+        );
+    }
+
     #[test]
     fn the_phone_cannot_reach_a_desktop_only_command() {
         let (_app, port, token) = serving();
-        for cmd in ["wipe_all_data", "unlock_db", "export_backup", "portal_disable"] {
+        for cmd in ["wipe_all_data", "unlock_db", "export_backup", "export_experience_file", "portal_disable"] {
             let (status, body) = post(port, cmd, Some(&token), json!({ "passphrase": "x" }));
             assert_eq!(status, 403, "`{cmd}` must not be reachable from a phone, got: {body}");
         }
