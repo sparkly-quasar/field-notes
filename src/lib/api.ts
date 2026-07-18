@@ -325,6 +325,27 @@ export const companionChat = (
   supportStyle: string | null,
 ) => invoke<CompanionReply>("companion_chat", { model, history, experienceId, supportStyle });
 
+// ---- Companion as a background job (PHONE-PORTAL-ONLY) ----
+// A slow local model can take minutes per turn; mobile Safari kills a silent
+// request at ~60s, and a locked screen kills it instantly. So the phone starts
+// the turn as a job on the desktop and polls for the result with fast, cheap
+// requests. These two commands exist only in portal.rs's dispatch — they are
+// NOT Tauri commands, so calling them through desktop IPC will fail. On the
+// desktop, keep using companionChat.
+export const companionChatStart = (
+  model: string,
+  history: ChatMsg[],
+  experienceId: number | null,
+  supportStyle: string | null,
+) => invoke<{ job: number }>("companion_chat_start", { model, history, experienceId, supportStyle });
+
+export type CompanionPoll =
+  | { status: "running" }
+  | { status: "done"; reply: CompanionReply }
+  | { status: "error"; error: string };
+export const companionChatPoll = (id: number) =>
+  invoke<CompanionPoll>("companion_chat_poll", { id });
+
 // ---- deterministic crisis escalation ----
 export type CrisisLevel = "none" | "peer" | "psychiatric" | "medical";
 export interface CrisisResource {

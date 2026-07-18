@@ -107,6 +107,9 @@ pub fn run() {
             // The phone portal is **off**. It only ever starts because the user
             // asked it to, in Settings, on this machine. See `portal.rs`.
             app.manage(portal::Portal::default());
+            // Background Companion turns started from a phone (portal-only; the
+            // desktop calls `companion_chat` directly and never needs a job).
+            app.manage(portal::CompanionJobs::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

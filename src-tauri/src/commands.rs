@@ -628,6 +628,21 @@ pub fn companion_chat(
     experience_id: Option<i64>,
     support_style: Option<String>,
 ) -> Result<CompanionReply, String> {
+    companion_chat_inner(db.inner(), kb.inner(), model, history, experience_id, support_style)
+}
+
+/// The Companion's whole conversation turn, free of Tauri's `State` wrappers, so it
+/// can run on any thread that can borrow the managed state — the desktop command
+/// above, and the portal's background jobs (`portal.rs`), which must not hold an
+/// HTTP request open for the minutes a slow local model can take.
+pub fn companion_chat_inner(
+    db: &Db,
+    kb: &Knowledge,
+    model: String,
+    history: Vec<ChatMsg>,
+    experience_id: Option<i64>,
+    support_style: Option<String>,
+) -> Result<CompanionReply, String> {
     let mut messages: Vec<serde_json::Value> = vec![sys(ollama::SYSTEM_PROMPT)];
     if let Some(style) = support_style.as_deref().filter(|s| !s.is_empty()) {
         messages.push(sys(format!(
@@ -664,7 +679,7 @@ pub fn companion_chat(
             let name = call.pointer("/function/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
             let args = arg_obj(call);
             let (result, desc, did_change) =
-                run_companion_tool(db.inner(), kb.inner(), experience_id, &name, &args)?;
+                run_companion_tool(db, kb, experience_id, &name, &args)?;
             if let Some(d) = desc {
                 actions.push(d);
             }
