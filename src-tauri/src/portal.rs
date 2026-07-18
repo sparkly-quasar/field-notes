@@ -27,11 +27,13 @@
 //! second implementation of any rule, so the interaction checker and the crisis layer
 //! behave identically whichever screen you're on.
 
-use crate::{commands, Db};
+use crate::{commands, Db, Knowledge};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Runtime};
 use tiny_http::{Header, Request, Response, Server};
 
@@ -84,6 +86,65 @@ impl Portal {
         if let Some(r) = self.inner.lock().unwrap().take() {
             r.stopping.store(true, Ordering::SeqCst);
             r.server.unblock();
+        }
+    }
+}
+
+/// Background Companion turns started from a phone.
+///
+/// A Companion reply from a slow local model can take minutes, and mobile Safari
+/// kills any request that stays silent for ~60 seconds (a locked screen kills it
+/// instantly). So the phone doesn't wait: `companion_chat_start` moves the turn
+/// onto a thread and answers with a job id, and `companion_chat_poll` — a series
+/// of fast, cheap requests — collects the result whenever it's ready.
+///
+/// Results are delivered **once**: a successful poll removes the job. Jobs nobody
+/// comes back for (the phone died, the tab was closed) are swept after
+/// [`CompanionJobs::MAX_AGE`] so an abandoned reply doesn't sit in memory forever.
+#[derive(Default)]
+pub struct CompanionJobs {
+    next_id: AtomicU64,
+    jobs: Mutex<HashMap<u64, Job>>,
+}
+
+/// One in-flight (or finished but unclaimed) Companion turn.
+struct Job {
+    /// `None` while the worker thread is still running the turn.
+    result: Option<Result<commands::CompanionReply, String>>,
+    created: Instant,
+}
+
+impl CompanionJobs {
+    /// How long an unclaimed job may linger before the sweep drops it.
+    const MAX_AGE: Duration = Duration::from_secs(15 * 60);
+
+    /// Register a new running job, sweeping abandoned ones first.
+    fn begin(&self) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut jobs = self.jobs.lock().unwrap();
+        let now = Instant::now();
+        jobs.retain(|_, j| now.duration_since(j.created) < Self::MAX_AGE);
+        jobs.insert(id, Job { result: None, created: now });
+        id
+    }
+
+    /// Store a finished turn. If the job was swept meanwhile, the result is
+    /// dropped — nobody was coming back for it.
+    fn finish(&self, id: u64, result: Result<commands::CompanionReply, String>) {
+        if let Some(job) = self.jobs.lock().unwrap().get_mut(&id) {
+            job.result = Some(result);
+        }
+    }
+
+    /// `Err(())` — no such job (never started, already claimed, or swept).
+    /// `Ok(None)` — still running. `Ok(Some(..))` — finished; the job is removed,
+    /// so the result is delivered exactly once.
+    fn take(&self, id: u64) -> Result<Option<Result<commands::CompanionReply, String>>, ()> {
+        let mut jobs = self.jobs.lock().unwrap();
+        match jobs.get(&id) {
+            None => Err(()),
+            Some(j) if j.result.is_none() => Ok(None),
+            Some(_) => Ok(Some(jobs.remove(&id).expect("checked above").result.expect("checked above"))),
         }
     }
 }
@@ -318,6 +379,8 @@ pub const EXPOSED: &[&str] = &[
     "knowledge_search",
     "knowledge_status",
     "companion_chat",
+    "companion_chat_start",
+    "companion_chat_poll",
     "ai_status",
     "ollama_up",
     "ollama_models",
@@ -385,6 +448,8 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         "knowledge_status" => ok(commands::knowledge_status(app.state())),
 
         // --- Companion. It runs on the desktop's Ollama; the phone is a thin client. ---
+        // The blocking form stays for older phones; new ones use start/poll below so
+        // a slow model can't outlive mobile Safari's ~60s request timeout.
         "companion_chat" => done(commands::companion_chat(
             db,
             app.state(),
@@ -393,6 +458,36 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             arg(&args, "experienceId")?,
             arg(&args, "supportStyle")?,
         )),
+        // Same arguments, but the turn runs on a background thread and the phone
+        // gets a job id back immediately. See [`CompanionJobs`].
+        "companion_chat_start" => {
+            let model: String = arg(&args, "model")?;
+            let history: Vec<crate::ollama::ChatMsg> = arg(&args, "history")?;
+            let experience_id: Option<i64> = arg(&args, "experienceId")?;
+            let support_style: Option<String> = arg(&args, "supportStyle")?;
+            let id = app.state::<CompanionJobs>().begin();
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let db = app.state::<Db>();
+                let kb = app.state::<Knowledge>();
+                let result = commands::companion_chat_inner(
+                    db.inner(),
+                    kb.inner(),
+                    model,
+                    history,
+                    experience_id,
+                    support_style,
+                );
+                app.state::<CompanionJobs>().finish(id, result);
+            });
+            ok(json!({ "job": id }))
+        }
+        "companion_chat_poll" => match app.state::<CompanionJobs>().take(arg(&args, "id")?) {
+            Err(()) => Err(DispatchError::Failed("unknown or expired job".into())),
+            Ok(None) => ok(json!({ "status": "running" })),
+            Ok(Some(Ok(reply))) => ok(json!({ "status": "done", "reply": reply })),
+            Ok(Some(Err(e))) => ok(json!({ "status": "error", "error": e })),
+        },
         "ai_status" => ok(commands::ai_status()),
         "ollama_up" => ok(commands::ollama_up()),
         "ollama_models" => ok(commands::ollama_models()),
@@ -517,6 +612,7 @@ mod tests {
         app.manage(Db { conn: StdMutex::new(Some(conn)), path });
         app.manage(Knowledge(None));
         app.manage(Portal::default());
+        app.manage(CompanionJobs::default());
 
         let handle = app.handle().clone();
         let status = start(&handle).expect("portal starts");
@@ -708,5 +804,77 @@ mod tests {
 
         let (status, body) = post(port, "list_experiences", Some(&token), json!({}));
         assert_eq!(status, 503, "a locked journal must not be served: {body}");
+    }
+
+    // ---- Companion jobs ----
+    //
+    // No live Ollama in CI, so a started job finishes with an *error* — which is
+    // exactly what proves the lifecycle over the real socket: started, ran on its
+    // own thread, finished, result delivered (once) through polling. The path a
+    // successful reply takes is identical; only the `Result` inside differs.
+
+    #[test]
+    fn a_companion_job_outlives_its_request_and_delivers_once() {
+        let (_app, port, token) = serving();
+
+        let (status, body) = post(
+            port,
+            "companion_chat_start",
+            Some(&token),
+            json!({
+                "model": "fieldnotes-test-model-that-does-not-exist",
+                "history": [{ "role": "user", "content": "hi" }],
+                "experienceId": null,
+                "supportStyle": null
+            }),
+        );
+        assert_eq!(status, 200, "start must answer immediately: {body}");
+        let v: Value = serde_json::from_str(&body).unwrap();
+        let id = v["job"].as_u64().expect("a numeric job id");
+
+        // Poll the way a phone would: short, cheap requests in a bounded loop.
+        let mut finished = None;
+        for _ in 0..150 {
+            let (status, body) = post(port, "companion_chat_poll", Some(&token), json!({ "id": id }));
+            assert_eq!(status, 200, "polling a live job must succeed: {body}");
+            let v: Value = serde_json::from_str(&body).unwrap();
+            if v["status"] == "running" {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+            finished = Some(v);
+            break;
+        }
+        let v = finished.expect("the job should finish well within the polling window");
+        assert_eq!(
+            v["status"], "error",
+            "with no reachable model the turn must surface its error, got: {v}"
+        );
+        assert!(
+            !v["error"].as_str().unwrap_or("").is_empty(),
+            "the error must say something: {v}"
+        );
+
+        // Delivered once: the same id is now unknown.
+        let (status, body) = post(port, "companion_chat_poll", Some(&token), json!({ "id": id }));
+        assert_eq!(status, 400, "a delivered job must be gone: {body}");
+        assert!(body.contains("unknown or expired"), "{body}");
+    }
+
+    #[test]
+    fn polling_a_job_that_never_existed_fails_gracefully() {
+        let (_app, port, token) = serving();
+        let (status, body) = post(port, "companion_chat_poll", Some(&token), json!({ "id": 424242 }));
+        assert_eq!(status, 400, "{body}");
+        assert!(body.contains("unknown or expired"), "{body}");
+    }
+
+    /// Both halves of the job flow must be on the allowlist, and the blocking call
+    /// stays for phones running an older frontend.
+    #[test]
+    fn the_companion_job_commands_are_exposed() {
+        assert!(EXPOSED.contains(&"companion_chat_start"));
+        assert!(EXPOSED.contains(&"companion_chat_poll"));
+        assert!(EXPOSED.contains(&"companion_chat"));
     }
 }
