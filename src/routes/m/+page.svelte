@@ -35,6 +35,7 @@
     aiStart,
     pwLookup,
     knowledgeSearch,
+    exportExperienceMarkdown,
     type ExperienceSummary,
     type ExperienceDetail,
     type Substance,
@@ -94,6 +95,24 @@
 
   // journal browsing
   let open = $state<ExperienceDetail | null>(null);
+
+  /** Export the opened entry as a Markdown download. The phone never touches the
+   *  desktop's filesystem — the desktop renders the text, the browser saves it. */
+  async function exportOpen() {
+    if (!open) return;
+    err = null;
+    try {
+      const note = await exportExperienceMarkdown(open.id);
+      const url = URL.createObjectURL(new Blob([note.markdown], { type: "text/markdown" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = note.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      err = typeof e === "string" ? e : String(e);
+    }
+  }
   let usage = $state<SubstanceUsage[]>([]);
   let showUsage = $state(false);
 
@@ -575,6 +594,7 @@
           <h2>{open.title || "Untitled note"} <button class="link" onclick={() => startRename(open!)}>rename</button></h2>
           <p class="muted">{day(open.started_at)}</p>
           {#if open.notes}<p class="notes">{open.notes}</p>{/if}
+          <button disabled={busy} onclick={exportOpen}>Export</button>
         </section>
       {:else if open}
         <section class="pane">
@@ -598,6 +618,7 @@
             {/each}
           </ul>
           {#if open.notes}<p class="notes">{open.notes}</p>{/if}
+          <button disabled={busy} onclick={exportOpen}>Export</button>
         </section>
       {:else}
         <section class="pane">

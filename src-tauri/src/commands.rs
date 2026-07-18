@@ -934,6 +934,37 @@ pub fn obsidian_import(db: State<'_, Db>, folder: String) -> Result<crate::obsid
     db.with(|c| Ok(crate::obsidian::import_all(c, Path::new(&folder))))?
 }
 
+// ---------- single-entry export ----------
+
+/// One experience rendered as Markdown, plus the filename it should land under.
+#[derive(Serialize)]
+pub struct ExportedNote {
+    pub filename: String,
+    pub markdown: String,
+}
+
+/// Render a single experience as a Markdown note (same rendering and filename
+/// convention as the Obsidian vault export). Pure: touches no filesystem, so it
+/// is safe to expose to the phone, which downloads the text in the browser.
+#[tauri::command]
+pub fn export_experience_markdown(db: State<'_, Db>, id: i64) -> Result<ExportedNote, String> {
+    let detail = db.with(|c| db::get_experience(c, id))?;
+    Ok(ExportedNote {
+        filename: crate::obsidian::note_filename(&detail),
+        markdown: crate::obsidian::render_note(&detail)?,
+    })
+}
+
+/// Write a single experience's Markdown note to `dest` (a path the user chose in
+/// the frontend's save dialog). Desktop-only: it writes to the desktop's
+/// filesystem, so `portal.rs` must never allowlist it.
+#[tauri::command]
+pub fn export_experience_file(db: State<'_, Db>, id: i64, dest: String) -> Result<(), String> {
+    let detail = db.with(|c| db::get_experience(c, id))?;
+    let markdown = crate::obsidian::render_note(&detail)?;
+    std::fs::write(Path::new(&dest), markdown).map_err(err)
+}
+
 // ---------- the phone portal (optional; off by default) ----------
 //
 // These are desktop-only by construction: `portal.rs` does not put them on its
