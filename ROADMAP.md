@@ -99,6 +99,22 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.6.0
+
+- **Edit timeline notes** — in-session timeline entries could only be added or
+  deleted; now they can be edited end-to-end (`update_timeline_event`:
+  `TimelineUpdate` + db fn/test in `db.rs`, command in `commands.rs`, registered
+  in `lib.rs`, portal allowlist + dispatch in `portal.rs`, `updateTimelineEvent`
+  in `src/lib/api.ts`). Desktop: ✎ on each timeline entry opens inline edit
+  (note, mood, intensity, time). Phone: tap a timeline note to edit note +
+  intensity, with delete in the panel.
+- **Bug fix: phone portal showed times in UTC** — `hhmm`/`day` in
+  `src/routes/m/+page.svelte` sliced raw UTC ISO strings, so times were off by
+  the timezone offset and evening sessions showed the wrong date. Now converted
+  to local time; stored data was always correct, no migration needed.
+
+---
+
 ## Roadmap (not yet built)
 
 > ✅ **Shipped in v0.3.0:** DoseWiki migration, encryption-at-rest + backup/restore,
