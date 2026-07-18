@@ -479,6 +479,24 @@
     const d = new Date(iso);
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   };
+  /** T-zero for a session: its first dose. Same rule as the desktop timeline —
+   *  t+ is counted from ingestion, not from when the entry was opened. Null
+   *  until something is logged, and callers then show wall-clock only. */
+  const t0Of = (s: { doses: { taken_at: string }[] } | null | undefined) => {
+    const doses = s?.doses ?? [];
+    if (!doses.length) return null;
+    return doses.reduce(
+      (earliest, d) => (new Date(d.taken_at) < new Date(earliest) ? d.taken_at : earliest),
+      doses[0].taken_at,
+    );
+  };
+  /** `t+1:20` since the first dose; minus sign for anything logged before it. */
+  const rel = (iso: string, t0: string | null) => {
+    if (!t0) return "";
+    const ms = new Date(iso).getTime() - new Date(t0).getTime();
+    const mins = Math.floor(Math.abs(ms) / 60000);
+    return ` (t${ms < 0 ? "−" : "+"}${Math.floor(mins / 60)}:${pad2(mins % 60)})`;
+  };
   const day = (iso: string) => {
     const d = new Date(iso);
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -575,7 +593,7 @@
             {#each session.doses as d}
               <li>
                 <button class="line" onclick={() => startEdit(d)}>
-                  <span class="t">{hhmm(d.taken_at)}</span>
+                  <span class="t">{hhmm(d.taken_at)}<span class="rel">{rel(d.taken_at, t0Of(session))}</span></span>
                   <strong>{d.substance_name}</strong>
                   {d.amount ?? ""}{d.unit}
                   <span class="muted">{d.route}</span>
@@ -585,7 +603,7 @@
             {#each session.timeline as t}
               <li>
                 <button class="line" onclick={() => startEditEvent(t)}>
-                  <span class="t">{hhmm(t.at)}</span>
+                  <span class="t">{hhmm(t.at)}<span class="rel">{rel(t.at, t0Of(session))}</span></span>
                   {t.note}
                   {#if t.intensity != null}<span class="muted">· {t.intensity}/10</span>{/if}
                 </button>
@@ -650,13 +668,13 @@
           <ul class="tl">
             {#each open.doses as d}
               <li>
-                <span class="t">{hhmm(d.taken_at)}</span>
+                <span class="t">{hhmm(d.taken_at)}<span class="rel">{rel(d.taken_at, t0Of(open))}</span></span>
                 <strong>{d.substance_name}</strong> {d.amount ?? ""}{d.unit}
                 <span class="muted">{d.route}</span>
               </li>
             {/each}
             {#each open.timeline as t}
-              <li><span class="t">{hhmm(t.at)}</span> {t.note}</li>
+              <li><span class="t">{hhmm(t.at)}<span class="rel">{rel(t.at, t0Of(open))}</span></span> {t.note}</li>
             {/each}
           </ul>
           {#if open.notes}<p class="notes">{open.notes}</p>{/if}
@@ -910,7 +928,9 @@
 
   .tl { list-style: none; padding: 0; margin: 0; }
   .tl li { border-top: 1px solid #2a2f38; padding: 0.5rem 0; font-size: 0.92rem; }
-  .t { color: #9aa2ad; margin-right: 0.5rem; font-variant-numeric: tabular-nums; }
+  .t { color: #9aa2ad; margin-right: 0.5rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* t+ offset: readable in the dark, but subordinate to the wall-clock time */
+  .rel { opacity: 0.75; font-size: 0.9em; }
 
   .edit { border-top: 1px solid #2a2f38; margin-top: 0.8rem; padding-top: 0.8rem; }
   .notes { white-space: pre-wrap; font-size: 0.92rem; }

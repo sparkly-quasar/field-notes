@@ -604,6 +604,22 @@ pub fn knowledge_search(kb: State<'_, Knowledge>, query: String, limit: Option<u
     kb.search(&query, limit.unwrap_or(8).clamp(1, 25))
 }
 
+/// Read one substance's entry whole, by slug (from a hit or the browse list).
+///
+/// Search shows excerpts; this is how a reader gets from an excerpt to the page
+/// it came from. Same caveat as `knowledge_search`: prose only. Doses and combo
+/// verdicts come from `pw_lookup` / `check_interactions`, never from here.
+#[tauri::command]
+pub fn knowledge_entry(kb: State<'_, Knowledge>, slug: String) -> Vec<Hit> {
+    kb.entry(&slug)
+}
+
+/// Every substance in the corpus, alphabetical — for browsing without a query.
+#[tauri::command]
+pub fn knowledge_entries(kb: State<'_, Knowledge>) -> Vec<crate::knowledge::Entry> {
+    kb.entries()
+}
+
 #[derive(Serialize)]
 pub struct KnowledgeStatus {
     /// False if the bundled corpus failed to load — the UI should hide search.

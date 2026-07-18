@@ -64,6 +64,14 @@ impl Knowledge {
     pub fn search(&self, query: &str, limit: usize) -> Vec<knowledge::Hit> {
         self.0.as_ref().map(|i| i.search(query, limit)).unwrap_or_default()
     }
+
+    pub fn entry(&self, slug: &str) -> Vec<knowledge::Hit> {
+        self.0.as_ref().map(|i| i.entry(slug)).unwrap_or_default()
+    }
+
+    pub fn entries(&self) -> Vec<knowledge::Entry> {
+        self.0.as_ref().map(|i| i.entries()).unwrap_or_default()
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -167,6 +175,8 @@ pub fn run() {
             commands::portal_unserve,
             commands::crisis_scan,
             commands::knowledge_search,
+            commands::knowledge_entry,
+            commands::knowledge_entries,
             commands::knowledge_status,
             commands::emergency_resources,
             commands::data_dir,

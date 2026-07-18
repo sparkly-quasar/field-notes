@@ -36,8 +36,11 @@
     pwStatus,
     pwLookup,
     knowledgeSearch,
+    knowledgeEntry,
+    knowledgeEntries,
     knowledgeStatus,
     type KnowledgeHit,
+    type KnowledgeEntry,
     type KnowledgeStatus,
     contributionCandidates,
     contributionDraft,
@@ -164,6 +167,14 @@
   let kbQuery = $state("");
   let kbHits = $state<KnowledgeHit[] | null>(null);
   let kbBusy = $state(false);
+  // Reading one substance whole, rather than as excerpts. `kbOpen` is the entry
+  // on screen; `kbDose` is its deterministic dose data, shown alongside the prose
+  // so the exact numbers sit next to the discursive text instead of a tab away.
+  let kbEntries = $state<KnowledgeEntry[]>([]);
+  let kbOpen = $state<{ title: string; slug: string; sections: KnowledgeHit[] } | null>(null);
+  let kbDose = $state<PwInfo | null>(null);
+  let kbBrowse = $state("");
+  let kbShowAll = $state(false);
 
   // Upstream contribution drafts. The consent gate is the preview: a draft is only
   // ever built for the user to read, and only ever leaves the app as a file they
@@ -281,6 +292,31 @@
   const nowIso = () => new Date().toISOString();
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+  /** T-zero for the open experience: the *first dose*, not the session start.
+   *  Sessions often get opened well before anything is taken, and "t+" is only
+   *  meaningful counted from ingestion — that's the clock a comedown, a redose
+   *  window, or a peak is actually measured against. Null until a dose exists,
+   *  which is the honest answer: there is no t-zero yet. */
+  const sessionT0 = $derived.by(() => {
+    const doses = selected?.doses ?? [];
+    if (!doses.length) return null;
+    return doses.reduce(
+      (earliest, d) => (new Date(d.taken_at) < new Date(earliest) ? d.taken_at : earliest),
+      doses[0].taken_at,
+    );
+  });
+
+  /** `t+1:20` — hours and minutes since the first dose. Negative for anything
+   *  logged before it (backdated notes, a session opened early), shown with a
+   *  minus rather than clamped to zero, because "20 minutes before dosing" is
+   *  real information about a timeline. */
+  function relTime(iso: string, t0: string | null): string {
+    if (!t0) return "";
+    const ms = new Date(iso).getTime() - new Date(t0).getTime();
+    const mins = Math.floor(Math.abs(ms) / 60000);
+    return `t${ms < 0 ? "−" : "+"}${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`;
+  }
 
   // <input type="datetime-local"> <-> ISO helpers (local time)
   const localOffset = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000);
@@ -1035,7 +1071,31 @@
   // ---- Knowledge corpus ----
   async function loadKbStatus() {
     kbStat = await knowledgeStatus();
+    if (kbStat.available && !kbEntries.length) kbEntries = await knowledgeEntries();
   }
+
+  /** Open a substance's entry to read whole. Pulls its dose data alongside, so
+   *  the exact numbers travel with the prose — but they stay visibly separate,
+   *  because only the dose panel is authoritative (see knowledge.rs). */
+  async function openKbEntry(slug: string, title: string) {
+    kbOpen = { title, slug, sections: [] };
+    const [sections, dose] = await Promise.all([knowledgeEntry(slug), pwLookup(title)]);
+    // A second click while this was in flight wins; don't clobber it.
+    if (kbOpen?.slug !== slug) return;
+    kbOpen = { title, slug, sections };
+    kbDose = dose;
+  }
+  function closeKbEntry() {
+    kbOpen = null;
+    kbDose = null;
+  }
+
+  /** The browse list, filtered by the substance-name box. Substring match on the
+   *  name only — this is a name picker, not a second search over the prose. */
+  const kbBrowseHits = $derived.by(() => {
+    const q = kbBrowse.trim().toLowerCase();
+    return q ? kbEntries.filter((e) => e.title.toLowerCase().includes(q)) : kbEntries;
+  });
   // ---- Phone portal ----
   async function loadPortal() {
     portal = await portalStatus();
@@ -1373,7 +1433,7 @@
                       <button class="ghost small-btn" onclick={() => (editingDoseId = null)}>Cancel</button>
                     </div>
                   {:else}
-                    <span class="dtime">{fmtTime(d.taken_at)}</span>
+                    <span class="dtime">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span>
                     <span class="dname">{d.substance_name}</span>
                     <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
                     <span class="row-actions">
@@ -1433,7 +1493,7 @@
                       <button class="ghost small-btn" onclick={() => (editingTimelineId = null)}>Cancel</button>
                     </div>
                   {:else}
-                    <span class="dtime">{fmtTime(t.at)}</span>
+                    <span class="dtime">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span>
                     <span class="tl-note">{t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}{t.mood ? ` · ${t.mood}` : ""}</span>
                     <span class="row-actions">
                       <button class="icon-btn" title="Edit note" onclick={() => startEditTimeline(t)}>✎</button>
@@ -1699,32 +1759,102 @@
           <p class="muted small">The reference text isn't loaded, so search is unavailable.</p>
         {/if}
 
-        <form class="kb-search" onsubmit={(e) => { e.preventDefault(); runKbSearch(); }}>
-          <input placeholder="e.g. ketamine tolerance, MAOI interactions, 2C-B pharmacology" bind:value={kbQuery} />
-          <button class="primary small-btn" type="submit" disabled={kbBusy || !kbStat?.available}>
-            {kbBusy ? "Searching…" : "Search"}
-          </button>
-        </form>
+        {#if kbOpen}
+          <!-- Reading one substance whole. Its dose data rides along above the
+               prose, but stays in its own panel: that panel is authoritative,
+               the prose below it is background reading. -->
+          <div class="kb-entry">
+            <div class="kb-entry-head">
+              <h3>{kbOpen.title}</h3>
+              <button class="ghost small-btn" onclick={closeKbEntry}>← Back to search</button>
+            </div>
 
-        {#if kbHits}
-          {#if kbHits.length === 0}
-            <p class="muted">Nothing in the reference matches that. Better to have no answer than a made-up one — try a substance name, or check the dose reference.</p>
-          {:else}
-            <ul class="kb-hits">
-              {#each kbHits as h}
-                <li>
-                  <div class="kb-head">
-                    <span><strong>{h.title}</strong><span class="muted small"> · {h.section}</span></span>
-                    <span class="kb-flags">
-                      {#if h.thin}<span class="flag sparse" title="DoseWiki has very little written about this substance — treat it as a starting point, not a full picture.">sparse entry</span>{/if}
-                      {#if !h.reviewed}<span class="flag" title="DoseWiki's editors have not signed off on this entry. Almost none are — that's the state of the source, not a red flag about this one in particular.">unreviewed</span>{/if}
-                    </span>
-                  </div>
-                  <p class="kb-text">{h.text}</p>
-                </li>
-              {/each}
-            </ul>
-            <p class="muted attribution">Passages are quoted from DoseWiki as written. An <strong>unreviewed</strong> tag is the norm, not the exception; <strong>sparse entry</strong> means there's little written about that substance anywhere — which is exactly when it pays to be careful.</p>
+            {#if kbDose}
+              <div class="ref-inline">
+                <strong>{kbDose.name}</strong> — reference doses
+                {#each kbDose.roas as r}
+                  {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{durationSummary(r) ? ` · ${durationSummary(r)}` : ""}</div>{/if}
+                {/each}
+                {#if refInteractions(kbDose, "danger").length}
+                  <div class="small warn-text">⚠ dangerous with: {refInteractions(kbDose, "danger").map((i) => i.name).join(", ")}</div>
+                {/if}
+                {#if refInteractions(kbDose, "caution").length}
+                  <div class="small warn-text muted">unsafe with: {refInteractions(kbDose, "caution").map((i) => i.name).join(", ")}</div>
+                {/if}
+                <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
+              </div>
+            {/if}
+
+            {#if kbOpen.sections.length}
+              {#if kbOpen.sections[0].thin || !kbOpen.sections[0].reviewed}
+                <p class="kb-flags entry-flags">
+                  {#if kbOpen.sections[0].thin}<span class="flag sparse" title="DoseWiki has very little written about this substance — treat it as a starting point, not a full picture.">sparse entry</span>{/if}
+                  {#if !kbOpen.sections[0].reviewed}<span class="flag" title="DoseWiki's editors have not signed off on this entry. Almost none are — that's the state of the source, not a red flag about this one in particular.">unreviewed</span>{/if}
+                </p>
+              {/if}
+              <div class="kb-sections">
+                {#each kbOpen.sections as s}
+                  <section class="kb-section">
+                    <h4>{s.section}</h4>
+                    <p class="kb-text">{s.text}</p>
+                  </section>
+                {/each}
+              </div>
+              <p class="muted attribution">{kbOpen.sections.length} {kbOpen.sections.length === 1 ? "passage" : "passages"} quoted from DoseWiki as written — this is everything the corpus holds on {kbOpen.title}. Where it's silent, it's silent; that's not the same as safe.</p>
+            {:else}
+              <p class="muted">Loading…</p>
+            {/if}
+          </div>
+        {:else}
+          <form class="kb-search" onsubmit={(e) => { e.preventDefault(); runKbSearch(); }}>
+            <input placeholder="e.g. ketamine tolerance, MAOI interactions, 2C-B pharmacology" bind:value={kbQuery} />
+            <button class="primary small-btn" type="submit" disabled={kbBusy || !kbStat?.available}>
+              {kbBusy ? "Searching…" : "Search"}
+            </button>
+          </form>
+
+          {#if kbHits}
+            {#if kbHits.length === 0}
+              <p class="muted">Nothing in the reference matches that. Better to have no answer than a made-up one — try a substance name, or browse the list below.</p>
+            {:else}
+              <ul class="kb-hits">
+                {#each kbHits as h}
+                  <li>
+                    <div class="kb-head">
+                      <span><strong>{h.title}</strong><span class="muted small"> · {h.section}</span></span>
+                      <span class="kb-flags">
+                        {#if h.thin}<span class="flag sparse" title="DoseWiki has very little written about this substance — treat it as a starting point, not a full picture.">sparse entry</span>{/if}
+                        {#if !h.reviewed}<span class="flag" title="DoseWiki's editors have not signed off on this entry. Almost none are — that's the state of the source, not a red flag about this one in particular.">unreviewed</span>{/if}
+                      </span>
+                    </div>
+                    <p class="kb-text">{h.text}</p>
+                    <button class="link-btn" onclick={() => openKbEntry(h.slug, h.title)}>Read the full {h.title} entry →</button>
+                  </li>
+                {/each}
+              </ul>
+              <p class="muted attribution">Passages are quoted from DoseWiki as written. An <strong>unreviewed</strong> tag is the norm, not the exception; <strong>sparse entry</strong> means there's little written about that substance anywhere — which is exactly when it pays to be careful.</p>
+            {/if}
+          {/if}
+
+          {#if kbEntries.length}
+            <h3 class="browse-head">Or look up a substance</h3>
+            <p class="muted small">Every one of the {kbEntries.length} substances in the reference, readable in full — doses, pharmacology, harm potential, tolerance, legality.</p>
+            <input class="kb-browse" placeholder="Type a substance name" bind:value={kbBrowse} />
+            {#if kbBrowseHits.length === 0}
+              <p class="muted small">No substance by that name. The reference covers {kbEntries.length} of them, but it doesn't cover everything.</p>
+            {:else}
+              <ul class="kb-browse-list">
+                {#each (kbShowAll || kbBrowse.trim() ? kbBrowseHits : kbBrowseHits.slice(0, 24)) as e}
+                  <li>
+                    <button class="link-btn" onclick={() => openKbEntry(e.slug, e.title)}>{e.title}</button>
+                    {#if e.thin}<span class="flag sparse" title="Very little is written about this one upstream.">sparse</span>{/if}
+                  </li>
+                {/each}
+              </ul>
+              {#if !kbBrowse.trim() && !kbShowAll && kbBrowseHits.length > 24}
+                <button class="ghost small-btn" onclick={() => (kbShowAll = true)}>Show all {kbBrowseHits.length}</button>
+              {/if}
+            {/if}
           {/if}
         {/if}
       </section>
@@ -2108,7 +2238,12 @@
       <div class="live-bar">
         <div>
           <div class="live-title">{selected.title || "Live session"}</div>
-          <div class="muted">Started {fmtTime(selected.started_at)} · {elapsedSince(selected.started_at)} in</div>
+          <div class="muted">
+            Started {fmtTime(selected.started_at)} · {elapsedSince(selected.started_at)} in
+            <!-- Ticks with lsNow: the current t+ is the number a sitter actually
+                 wants at a glance, against which every row below is read. -->
+            {#if sessionT0}<span class="rel live-rel">· now {relTime(new Date(lsNow).toISOString(), sessionT0)}</span>{/if}
+          </div>
         </div>
         <div class="row-actions">
           <button class="help-btn" onclick={openHelp}>Get help now</button>
@@ -2122,7 +2257,7 @@
           {#if selected.doses.length}
             <ul class="live-doses">
               {#each selected.doses as d}
-                <li><span class="muted">{fmtTime(d.taken_at)}</span> — {d.substance_name} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
+                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {d.substance_name} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
               {/each}
             </ul>
           {:else}
@@ -2146,7 +2281,7 @@
           {#if selected.timeline.length}
             <ul class="live-events">
               {#each selected.timeline as t}
-                <li><span class="muted">{fmtTime(t.at)}</span> {t.note}</li>
+                <li><span class="muted">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span> {t.note}</li>
               {/each}
             </ul>
           {/if}
@@ -2256,7 +2391,8 @@
 
   .doses li, .timeline li { display: flex; gap: 0.7rem; padding: 0.4rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; align-items: baseline; }
   .doses li:last-child, .timeline li:last-child { border-bottom: none; }
-  .dtime { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 3.4rem; }
+  /* Wide enough for "14:02 (t+10:35)" so the notes beside it stay aligned. */
+  .dtime { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 3.4rem; flex-shrink: 0; white-space: nowrap; }
   .dname { font-weight: 600; }
   .damt { color: var(--muted); }
 
@@ -2295,6 +2431,24 @@
   .flag { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; border: 1px solid var(--line); border-radius: 999px; padding: 0.1rem 0.5rem; color: var(--muted); white-space: nowrap; cursor: help; }
   .flag.sparse { color: var(--caution); border-color: var(--caution); }
   .kb-text { font-size: 0.88rem; line-height: 1.5; margin: 0.45rem 0 0; white-space: pre-wrap; }
+  /* t+ offsets: present but subordinate to the wall-clock time they annotate */
+  .rel { font-variant-numeric: tabular-nums; opacity: 0.75; font-size: 0.9em; }
+  .live-rel { margin-left: 0.2rem; }
+  .link-btn { background: none; border: none; padding: 0; margin: 0.5rem 0 0; font: inherit; font-size: 0.85rem; color: var(--accent); cursor: pointer; text-align: left; }
+  .link-btn:hover { text-decoration: underline; }
+
+  /* reading one entry whole */
+  .kb-entry-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.7rem; }
+  .kb-entry-head h3 { margin: 0.4rem 0; }
+  .entry-flags { margin: 0.3rem 0 0; }
+  .kb-sections { margin-top: 0.8rem; }
+  .kb-section { border-top: 1px solid var(--line); padding-top: 0.7rem; margin-top: 0.7rem; }
+  .kb-section:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .kb-section h4 { margin: 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+  .browse-head { margin: 1.4rem 0 0.3rem; }
+  .kb-browse { width: 100%; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.6rem; margin: 0.5rem 0 0.2rem; }
+  .kb-browse-list { list-style: none; padding: 0; margin: 0.6rem 0 0.4rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.15rem 0.9rem; }
+  .kb-browse-list li { display: flex; align-items: baseline; gap: 0.35rem; padding: 0.15rem 0; }
 
   .off-badge { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 0.1rem 0.5rem; vertical-align: middle; margin-left: 0.4rem; }
   .off-badge.on { color: var(--note); border-color: var(--note); }

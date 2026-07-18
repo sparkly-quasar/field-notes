@@ -83,6 +83,19 @@ pub struct Hit {
     pub score: f64,
 }
 
+/// One substance in the corpus, for browsing the reference by name rather than
+/// by query. Carries the same coverage flags as a [`Hit`] so a sparse entry is
+/// marked as such in the browse list, before it is opened.
+#[derive(Serialize, Clone, Debug)]
+pub struct Entry {
+    pub title: String,
+    pub slug: String,
+    pub thin: bool,
+    pub reviewed: bool,
+    /// How many passages the substance has — the honest measure of coverage.
+    pub sections: usize,
+}
+
 /// In-memory BM25 index. Built once at launch (~7.8k chunks; a few ms).
 pub struct Index {
     chunks: Vec<Chunk>,
@@ -222,6 +235,52 @@ impl Index {
             .collect()
     }
 
+    /// Every passage of one substance's entry, in corpus order.
+    ///
+    /// Search returns fragments; this returns the whole thing, so a reader who
+    /// found a promising excerpt can go read what it was excerpted *from*. The
+    /// corpus stores a substance's chunks contiguously and already ordered
+    /// (Summary first, then harm potential, pharmacology, and so on), so corpus
+    /// order is the reading order — no re-sorting.
+    ///
+    /// `score` is meaningless here and is reported as 0.0: nothing was ranked.
+    pub fn entry(&self, slug: &str) -> Vec<Hit> {
+        self.chunks
+            .iter()
+            .filter(|c| c.slug == slug)
+            .map(|c| Hit {
+                title: c.title.clone(),
+                slug: c.slug.clone(),
+                section: c.section.clone(),
+                text: c.text.clone(),
+                thin: c.thin,
+                reviewed: c.reviewed,
+                score: 0.0,
+            })
+            .collect()
+    }
+
+    /// Every substance in the corpus, alphabetical — the browse list.
+    pub fn entries(&self) -> Vec<Entry> {
+        let mut out: Vec<Entry> = Vec::new();
+        for c in &self.chunks {
+            // Chunks of a substance are contiguous, so only the boundary needs a
+            // new record; everything else just increments the section count.
+            match out.last_mut() {
+                Some(e) if e.slug == c.slug => e.sections += 1,
+                _ => out.push(Entry {
+                    title: c.title.clone(),
+                    slug: c.slug.clone(),
+                    thin: c.thin,
+                    reviewed: c.reviewed,
+                    sections: 1,
+                }),
+            }
+        }
+        out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        out
+    }
+
     pub fn len(&self) -> usize {
         self.chunks.len()
     }
@@ -294,6 +353,45 @@ mod tests {
         let hits = idx.search("2-Chloroephenidine", 3);
         assert!(!hits.is_empty());
         assert!(hits[0].thin, "sparse DoseWiki entry should arrive flagged thin");
+    }
+
+    #[test]
+    fn an_entry_reads_whole_from_a_search_hit() {
+        // The point of the feature: a hit must be openable into the full entry
+        // it came from, and that entry must contain the hit.
+        let idx = index();
+        let hit = idx.search("LSD tolerance", 1).remove(0);
+        let entry = idx.entry(&hit.slug);
+        assert!(entry.len() > 1, "a real entry has several sections");
+        assert!(entry.iter().all(|c| c.title == hit.title));
+        assert!(
+            entry.iter().any(|c| c.section == hit.section && c.text == hit.text),
+            "the excerpt must appear in the entry it was excerpted from"
+        );
+    }
+
+    #[test]
+    fn unknown_slug_reads_empty_rather_than_panicking() {
+        assert!(index().entry("not-a-substance").is_empty());
+    }
+
+    #[test]
+    fn every_substance_is_browsable() {
+        let idx = index();
+        let entries = idx.entries();
+        assert!(entries.len() > 500, "got {} substances", entries.len());
+        // Alphabetical, and each one actually opens.
+        let titles: Vec<String> = entries.iter().map(|e| e.title.to_lowercase()).collect();
+        let mut sorted = titles.clone();
+        sorted.sort();
+        assert_eq!(titles, sorted, "browse list should be alphabetical");
+        assert_eq!(
+            entries.iter().map(|e| e.sections).sum::<usize>(),
+            idx.len(),
+            "section counts must account for every chunk (slugs are contiguous)"
+        );
+        let lsd = entries.iter().find(|e| e.title == "LSD").expect("LSD is in the corpus");
+        assert_eq!(idx.entry(&lsd.slug).len(), lsd.sections);
     }
 
     #[test]

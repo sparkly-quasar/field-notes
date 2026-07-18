@@ -78,6 +78,14 @@ installer).
 tab. The index is held in `Knowledge` state **independent of `Db`**, so it works
 while the journal is locked — it's public CC0 data, not user data.
 
+Search returns *excerpts*, which is the wrong unit when you want to understand a
+substance rather than answer one question. So the same corpus is also readable
+**whole**: `knowledge_entry(slug)` returns every passage of one substance in
+corpus order, `knowledge_entries()` lists all 575 alphabetically for browsing
+without a query, and the Substances tab pairs the opened entry with its
+`pw_lookup` dose panel. The panel and the prose stay visually separate on
+purpose — rule 1 below still holds, the prose never supplies a number.
+
 The rules below are **load-bearing**. They are why this is safe to ship; read
 them before touching any of it.
 
@@ -114,6 +122,25 @@ non-negotiables, each with a test:
   to local time; stored data was always correct, no migration needed.
 
 ---
+
+## Shipped in v0.8.0
+
+- **`t+` offsets on session timestamps** — every dose and timeline note now
+  carries the time since the **first dose** alongside its wall-clock time
+  (`14:02 (t+1:23)`), on the desktop detail view, the live session, and the
+  phone portal. T-zero is deliberately the first dose rather than the session
+  start: sessions get opened well before anything is taken, and a peak, a redose
+  window, or a comedown is measured from ingestion. No dose logged means no
+  t-zero and no offset shown, rather than a number counted from nothing. Notes
+  backdated before the first dose read `t−0:20`, not a clamped zero. The live
+  header also carries a ticking `now t+2:41`.
+- **Read reference entries in full** — the DoseWiki corpus was only reachable as
+  ranked excerpts, which is the wrong unit when you want to understand a
+  substance rather than answer one question. Every search hit now opens into the
+  whole entry (`knowledge_entry`), and all 575 substances are browsable by name
+  without a query (`knowledge_entries`). An opened entry pairs the prose with
+  its `pw_lookup` dose panel — kept in a visually separate box, because rule 1
+  above still holds: the prose never supplies a number or a combo verdict.
 
 ## Shipped in v0.7.0
 

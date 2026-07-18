@@ -223,8 +223,21 @@ export interface KnowledgeStatus {
   available: boolean;
   chunks: number;
 }
+/** A substance in the corpus, for browsing by name instead of by query. */
+export interface KnowledgeEntry {
+  title: string;
+  slug: string;
+  thin: boolean;
+  reviewed: boolean;
+  /** Number of passages — the honest measure of how much is actually written. */
+  sections: number;
+}
 export const knowledgeSearch = (query: string, limit?: number) =>
   invoke<KnowledgeHit[]>("knowledge_search", { query, limit });
+/** Every passage of one substance's entry, in reading order. */
+export const knowledgeEntry = (slug: string) =>
+  invoke<KnowledgeHit[]>("knowledge_entry", { slug });
+export const knowledgeEntries = () => invoke<KnowledgeEntry[]>("knowledge_entries");
 export const knowledgeStatus = () => invoke<KnowledgeStatus>("knowledge_status");
 
 // ---- Upstream contribution drafts (DoseWiki is CC0) ----
