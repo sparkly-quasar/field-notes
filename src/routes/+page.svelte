@@ -62,6 +62,8 @@
     importBackup,
     obsidianExport,
     obsidianImport,
+    exportExperienceMarkdown,
+    exportExperienceFile,
     dataDir,
     revealDataDir,
     wipeAllData,
@@ -583,6 +585,7 @@
     editExp = false;
     editingDoseId = null;
     dRef = null;
+    exportErr = exportMsg = null;
     selected = await getExperience(id);
     dTime = nowLocalInput();
   }
@@ -718,6 +721,28 @@
     editExp = false;
     await openExperienceKeepWarnings(selected.id);
     await loadJournal();
+  }
+
+  // single-entry markdown export
+  let exportErr = $state<string | null>(null);
+  let exportMsg = $state<string | null>(null);
+
+  async function exportEntry() {
+    if (!selected) return;
+    exportErr = exportMsg = null;
+    try {
+      const note = await exportExperienceMarkdown(selected.id);
+      const path = await save({
+        title: "Export this entry",
+        defaultPath: note.filename,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (!path) return;
+      await exportExperienceFile(selected.id, path);
+      exportMsg = "Entry exported as Markdown.";
+    } catch (e) {
+      exportErr = typeof e === "string" ? e : String(e);
+    }
   }
 
   async function delExp() {
@@ -1431,6 +1456,9 @@
           {#if !selected.ended_at}
             <button class="ghost" onclick={finishExperience}>End experience</button>
           {/if}
+          <button class="ghost" onclick={exportEntry}>Export this entry</button>
+          {#if exportErr}<p class="notice bad-notice">{exportErr}</p>{/if}
+          {#if exportMsg}<p class="notice good-notice">{exportMsg}</p>{/if}
         </section>
       {:else}
         <section class="card">
