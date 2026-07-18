@@ -23,6 +23,7 @@
     updateDose,
     deleteDose,
     addTimelineEvent,
+    updateTimelineEvent,
     deleteTimelineEvent,
     listSubstances,
     addSubstance,
@@ -39,6 +40,7 @@
     type Substance,
     type SubstanceUsage,
     type Dose,
+    type TimelineEvent,
     type Warning,
     type CrisisResult,
     type ChatMsg,
@@ -75,6 +77,11 @@
   // timeline note
   let note = $state("");
   let intensity = $state("");
+
+  // editing a timeline note already written
+  let editingEvent = $state<TimelineEvent | null>(null);
+  let evNote = $state("");
+  let evIntensity = $state("");
 
   // plain note (kind: "note") — no session required
   let plainTitle = $state("");
@@ -235,6 +242,7 @@
 
   function startEdit(d: Dose) {
     editing = d;
+    editingEvent = null;
     eAmt = d.amount?.toString() ?? "";
     eUnit = d.unit ?? "mg";
     eRoute = d.route ?? "oral";
@@ -264,10 +272,31 @@
       await refresh();
     });
 
+  function startEditEvent(t: TimelineEvent) {
+    editingEvent = t;
+    editing = null;
+    evNote = t.note;
+    evIntensity = t.intensity != null ? String(t.intensity) : "";
+  }
+
+  const saveEventEdit = () =>
+    run(async () => {
+      if (!editingEvent) return;
+      await updateTimelineEvent(editingEvent.id, {
+        at: editingEvent.at,
+        note: evNote.trim(),
+        mood: editingEvent.mood,
+        intensity: evIntensity.trim() ? Number(evIntensity) : null,
+      });
+      editingEvent = null;
+      await refresh();
+    });
+
   const removeEvent = (id: number) =>
     run(async () => {
       if (!confirm("Delete this note?")) return;
       await deleteTimelineEvent(id);
+      editingEvent = null;
       await refresh();
     });
 
@@ -351,8 +380,18 @@
       }
     });
 
-  const hhmm = (iso: string) => iso.slice(11, 16);
-  const day = (iso: string) => iso.slice(0, 10);
+  // Timestamps are stored as UTC ISO; convert to the phone's local time for
+  // display. Slicing the raw string shows UTC — hours off from the clock on
+  // the wall, and the wrong *date* for any evening session.
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const hhmm = (iso: string) => {
+    const d = new Date(iso);
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  };
+  const day = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  };
   const range = (r: { min: number | null; max: number | null }) =>
     r.min == null && r.max == null ? "—" : `${r.min ?? "?"}–${r.max ?? "?"}`;
 </script>
@@ -443,13 +482,25 @@
             {/each}
             {#each session.timeline as t}
               <li>
-                <span class="t">{hhmm(t.at)}</span>
-                {t.note}
-                {#if t.intensity != null}<span class="muted">· {t.intensity}/10</span>{/if}
-                <button class="link" onclick={() => removeEvent(t.id)}>delete</button>
+                <button class="line" onclick={() => startEditEvent(t)}>
+                  <span class="t">{hhmm(t.at)}</span>
+                  {t.note}
+                  {#if t.intensity != null}<span class="muted">· {t.intensity}/10</span>{/if}
+                </button>
               </li>
             {/each}
           </ul>
+
+          {#if editingEvent}
+            <div class="edit">
+              <h3>Edit note</h3>
+              <textarea rows="3" bind:value={evNote}></textarea>
+              <input placeholder="Intensity 0–10 (optional)" inputmode="numeric" bind:value={evIntensity} />
+              <button class="primary" disabled={busy || !evNote.trim()} onclick={saveEventEdit}>Save</button>
+              <button disabled={busy} onclick={() => (editingEvent = null)}>Cancel</button>
+              <button class="danger-btn" disabled={busy} onclick={() => removeEvent(editingEvent!.id)}>Delete note</button>
+            </div>
+          {/if}
 
           {#if editing}
             <div class="edit">

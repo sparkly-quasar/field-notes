@@ -108,6 +108,11 @@ pub fn update_dose(db: State<'_, Db>, id: i64, update: DoseUpdate) -> Result<Dos
 }
 
 #[tauri::command]
+pub fn update_timeline_event(db: State<'_, Db>, id: i64, update: TimelineUpdate) -> Result<TimelineEvent, String> {
+    db.with(|c| db::update_timeline_event(c, id, &update))
+}
+
+#[tauri::command]
 pub fn delete_experience(db: State<'_, Db>, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_experience(c, id))
 }

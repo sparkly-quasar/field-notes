@@ -137,6 +137,13 @@ export interface ExperienceUpdate {
   ended_at: string | null;
 }
 
+export interface TimelineUpdate {
+  at: string;
+  note?: string;
+  mood?: string;
+  intensity: number | null;
+}
+
 export interface DoseUpdate {
   substance_name: string;
   amount: number | null;
@@ -149,6 +156,8 @@ export interface DoseUpdate {
 export const updateExperience = (id: number, update: ExperienceUpdate) =>
   invoke<Experience>("update_experience", { id, update });
 export const updateDose = (id: number, update: DoseUpdate) => invoke<Dose>("update_dose", { id, update });
+export const updateTimelineEvent = (id: number, update: TimelineUpdate) =>
+  invoke<TimelineEvent>("update_timeline_event", { id, update });
 export const deleteExperience = (id: number) => invoke<void>("delete_experience", { id });
 export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
