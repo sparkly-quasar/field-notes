@@ -2138,9 +2138,16 @@
 
         {#if portalErr}<p class="notice bad-notice">{portalErr}</p>{/if}
 
-        <button class="primary small-btn" onclick={togglePortal}>
+        <button
+          class="primary small-btn"
+          onclick={togglePortal}
+          disabled={!portal.running && ts != null && !ts.installed}
+        >
           {portal.running ? "Turn off phone access" : "Turn on phone access"}
         </button>
+        {#if !portal.running && ts != null && !ts.installed}
+          <p class="muted small">Install and sign into Tailscale first — there's no point serving this where only this machine can reach it.</p>
+        {/if}
 
         {#if portal.running}
           <div class="sec-block">
