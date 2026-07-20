@@ -123,6 +123,41 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.9.1
+
+A round of Companion and Settings polish on top of v0.9.0, mostly driven by
+using the model switch and reading the screens as a first-timer would.
+
+- **Companion explains itself and shows a warm-up hint.** The empty-state text
+  now says what the Companion is for (planning, an experience in progress, or
+  integration) and that sharing a session lets it see doses and log for you. A
+  hint appears only while the first reply is loading — the model loads into
+  memory then, and that reply is slow — and disappears once it's warm.
+- **Pick which session to share.** The share checkbox now reveals a dropdown:
+  the current (newest) session by default, or any past session by name and date,
+  so an experience can be attached for integration, not just live support. The
+  backend frames an ended session as past ("wants to talk it through") rather
+  than current, so the model doesn't offer stay-hydrated advice for doses long
+  worn off — decided from the session's own `ended_at`, no new parameter.
+- **Dropped the "Gentle periodic check-ins" support style.** It promised
+  proactive outreach the Companion can't do; it only replies when spoken to.
+- **Substances tab clarified.** Removed the standalone "Dose reference" box (its
+  provenance line moved under "Search the reference"), and renamed the last
+  section to "Substances you track" with copy that makes clear it's a personal
+  roster feeding the interaction checker, not a notes feature.
+- **Phone access requires Tailscale, up front.** A prerequisite panel with a link
+  and a live installed/signed-in/ready status now sits in the intro, and the
+  "Turn on" button is disabled until Tailscale is detected — serving on plain
+  localhost had no real use. Removed the raw `tailscale serve …` command line
+  under the Publish button.
+- **Crisis resources de-duplicated and reordered.** The panic screen listed
+  Emergency services twice (the physical and psychiatric categories both carry
+  it); every resource now has a single definition and a dedup pass covers the
+  composed banners too. Order is gentlest-first: someone you trust, a sober
+  person present, Fireside, emergency services, the crisis lifeline, poison
+  control. The "calling is always okay" note moved below the in-person options,
+  above the phone lines it describes.
+
 ## Shipped in v0.9.0
 
 - **Companion evaluation harness** (`src-tauri/examples/companion_eval.rs`,
