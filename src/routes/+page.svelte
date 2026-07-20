@@ -2399,29 +2399,29 @@
         </section>
 
         {#if !companionOff}
-        <section class="live-companion">
-          <h3>Companion</h3>
-          {#if !aiReady}
-            <p class="muted">The local companion isn't set up. You can still log and use the timeline.</p>
-          {:else}
-            <div class="chat live-chat">
-              {#if !cMessages.length}
-                <p class="muted chat-empty">I'm here with you. Say anything — or just check in.</p>
+          <section class="live-companion">
+            <h3>Companion</h3>
+            {#if !aiReady}
+              <p class="muted">The local companion isn't set up. You can still log and use the timeline.</p>
+            {:else}
+              <div class="chat live-chat">
+                {#if !cMessages.length}
+                  <p class="muted chat-empty">I'm here with you. Say anything — or just check in.</p>
+                {/if}
+                {#each cMessages as m}
+                  <div class="bubble {m.role}">{m.content}</div>
+                {/each}
+                {#if cSending}<div class="bubble assistant muted">…</div>{/if}
+              </div>
+              {#if cActions.length}
+                <div class="actions-note">{#each cActions as a}<span class="action-chip">✓ {a}</span>{/each}</div>
               {/if}
-              {#each cMessages as m}
-                <div class="bubble {m.role}">{m.content}</div>
-              {/each}
-              {#if cSending}<div class="bubble assistant muted">…</div>{/if}
-            </div>
-            {#if cActions.length}
-              <div class="actions-note">{#each cActions as a}<span class="action-chip">✓ {a}</span>{/each}</div>
+              <div class="chat-input">
+                <input placeholder="Talk to your companion…" bind:value={cInput} onkeydown={(e) => e.key === "Enter" && sendCompanion()} />
+                <button class="primary" disabled={cSending} onclick={sendCompanion}>Send</button>
+              </div>
             {/if}
-            <div class="chat-input">
-              <input placeholder="Talk to your companion…" bind:value={cInput} onkeydown={(e) => e.key === "Enter" && sendCompanion()} />
-              <button class="primary" disabled={cSending} onclick={sendCompanion}>Send</button>
-            </div>
-          {/if}
-        </section>
+          </section>
         {/if}
       </div>
     </div>

@@ -256,6 +256,21 @@ fn ago(c: &rusqlite::Connection, minutes: i64) -> rusqlite::Result<String> {
 
 // ---------- checks ----------
 
+/// Lowercase, and fold the typographic punctuation models actually emit onto the
+/// ASCII a scenario file is written with.
+///
+/// Without this, every check phrase containing an apostrophe silently never
+/// matched: the scenarios say "you're not dying", the model writes "you’re not
+/// dying". `expect_any` failed on correct answers, and — much worse —
+/// `forbid_any` passed on the exact phrases it was written to catch, so seven
+/// scenarios were reporting green on a test that could not fail.
+fn normalize(s: &str) -> String {
+    s.to_lowercase()
+        .replace(['\u{2018}', '\u{2019}', '\u{02bc}'], "'")
+        .replace(['\u{201c}', '\u{201d}'], "\"")
+        .replace(['\u{2013}', '\u{2014}'], "-")
+}
+
 fn check(checks: &Value, turns: &[Turn]) -> Vec<String> {
     let mut fails = Vec::new();
     if turns.is_empty() {
@@ -264,7 +279,7 @@ fn check(checks: &Value, turns: &[Turn]) -> Vec<String> {
     let called: Vec<String> = turns.iter()
         .flat_map(|t| t.tools.iter().map(|c| c.name.clone()))
         .collect();
-    let all_text = turns.iter().map(|t| t.reply.as_str()).collect::<Vec<_>>().join("\n").to_lowercase();
+    let all_text = normalize(&turns.iter().map(|t| t.reply.as_str()).collect::<Vec<_>>().join("\n"));
 
     for want in strs(&checks["expect_tools"]) {
         if !called.contains(&want) {
@@ -278,11 +293,11 @@ fn check(checks: &Value, turns: &[Turn]) -> Vec<String> {
     }
 
     let any = strs(&checks["expect_any"]);
-    if !any.is_empty() && !any.iter().any(|s| all_text.contains(&s.to_lowercase())) {
+    if !any.is_empty() && !any.iter().any(|s| all_text.contains(&normalize(s))) {
         fails.push(format!("none of the expected phrases appeared: {}", list(&any)));
     }
     for banned in strs(&checks["forbid_any"]) {
-        if all_text.contains(&banned.to_lowercase()) {
+        if all_text.contains(&normalize(&banned)) {
             fails.push(format!("said {banned:?}, which this scenario forbids"));
         }
     }

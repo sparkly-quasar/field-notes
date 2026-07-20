@@ -790,6 +790,43 @@ fn presentable(content: String) -> String {
     content
 }
 
+/// A system note carrying the deterministic crisis verdict, when there is one
+/// the model needs to act on. `None` for `none` and `peer`.
+///
+/// The wording is a brief, not a script: it says what was detected and what the
+/// person is already being shown, and leaves the Companion to say it in its own
+/// voice. Handing it a sentence to recite would produce exactly the flat
+/// boilerplate this app is trying not to be.
+pub fn crisis_context(history: &[ChatMsg]) -> Option<String> {
+    let said: Vec<String> =
+        history.iter().filter(|m| m.role == "user").map(|m| m.content.clone()).collect();
+    if said.is_empty() {
+        return None;
+    }
+    let result = crate::crisis::scan_recent(&said);
+    let what = match result.level {
+        crate::crisis::Level::Medical => {
+            "signs of a physical medical emergency. Treat it as one. Say clearly and early \
+             that this needs medical help now — emergency services, or festival medics if \
+             they're at an event. Do not suggest waiting to see whether it improves, and do \
+             not offer a timeframe before seeking help."
+        }
+        crate::crisis::Level::Psychiatric => {
+            "risk of suicide or serious self-harm. Stay warm and stay with them; do not \
+             lecture or recite hotline numbers at them. Make sure they know help is \
+             reachable right now, and that reaching a person tonight matters more than \
+             anything else you might discuss."
+        }
+        _ => return None,
+    };
+    Some(format!(
+        "A deterministic safety check — not you, and not something you can turn off — has \
+         detected {what} The person is already seeing crisis resources on screen alongside \
+         this conversation; don't contradict them. Signals: {}.",
+        result.matched.join(", ")
+    ))
+}
+
 /// One tool invocation as it actually happened, for the evaluation harness.
 ///
 /// The read-only reference tools deliberately return no user-facing action
@@ -829,6 +866,22 @@ pub fn companion_chat_traced(
     }
     for m in &history {
         messages.push(serde_json::json!({ "role": m.role, "content": m.content }));
+    }
+
+    // Tell the model what the deterministic scanner already worked out.
+    //
+    // Without this the two halves disagree in front of someone in trouble: the
+    // banner says get help now, while the chat — having re-derived the situation
+    // from scratch — says see how you feel in half an hour. Measured on the
+    // `overheating` scenario (heat stroke after MDMA), qwen3 gave wait-and-see
+    // advice in 5 of 5 runs while the scan correctly returned `medical` in all 5.
+    //
+    // Only the two levels that mean "this needs someone who isn't me". `Peer` is
+    // deliberately excluded: acute distress is a moment to sit with somebody, and
+    // nudging the model toward resources there would trample the non-directive
+    // stance the whole Companion is built around.
+    if let Some(note) = crisis_context(&history) {
+        messages.push(sys(note));
     }
 
     // Reference lookups are always offered; journal writes need a session.
@@ -1392,6 +1445,45 @@ pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn said(texts: &[&str]) -> Vec<ChatMsg> {
+        texts
+            .iter()
+            .map(|t| ChatMsg { role: "user".into(), content: (*t).to_string() })
+            .collect()
+    }
+
+    #[test]
+    fn a_medical_emergency_is_handed_to_the_model_not_left_for_it_to_infer() {
+        let note = crisis_context(&said(&["i'm really hot and i've stopped sweating and feel confused"]))
+            .expect("heat stroke should produce a brief");
+        assert!(note.contains("medical emergency"), "{note}");
+        // The specific failure this exists to prevent: wait-and-see advice.
+        assert!(note.contains("Do not suggest waiting"), "{note}");
+    }
+
+    #[test]
+    fn acute_distress_does_not_push_the_companion_toward_resources() {
+        // Peer-level is a moment to sit with someone. If this ever returns a brief,
+        // the Companion starts steering people to hotlines when they wanted company.
+        assert!(crisis_context(&said(&["i think i'm dying"])).is_none());
+    }
+
+    #[test]
+    fn ordinary_talk_adds_nothing_to_the_prompt() {
+        assert!(crisis_context(&said(&["the visuals are really pretty"])).is_none());
+    }
+
+    #[test]
+    fn only_what_the_person_said_is_scanned() {
+        // An assistant turn mentioning chest pain — asking about it, say — must not
+        // be read back as the person reporting it.
+        let history = vec![ChatMsg {
+            role: "assistant".into(),
+            content: "Any chest pain or trouble breathing?".into(),
+        }];
+        assert!(crisis_context(&history).is_none());
+    }
 
     #[test]
     fn a_repeated_fabrication_loses_the_sentence_that_carried_it() {
