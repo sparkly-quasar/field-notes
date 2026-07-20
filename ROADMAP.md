@@ -182,6 +182,22 @@ non-negotiables, each with a test:
   like a completely untrained person" complaint — remain the largest untouched
   lever, and are only now worth pulling: they were never going to land on a model
   that refused the subject matter. Measure against the harness before and after.
+- **The crisis verdict now reaches the Companion.** The scan ran in the frontend
+  and `companion_chat` never saw its result, so the two halves could disagree in
+  front of someone in trouble: the banner said get help now while the chat, having
+  re-derived the situation from scratch, said see how you feel in half an hour.
+  Measured on `overheating` (heat stroke after MDMA) the scan returned `medical`
+  in 5 of 5 runs and the model gave wait-and-see advice in 5 of 5. Passing the
+  verdict into the prompt took it to 4 of 5. Only `medical` and `psychiatric`
+  produce a brief — `peer` is excluded deliberately, because acute distress is a
+  moment to sit with someone, not to steer them toward resources.
+- **Seven eval checks were silently vacuous.** Scenarios are written with ASCII
+  apostrophes ("you're not dying"); models emit typographic ones ("you’re not
+  dying"). `expect_any` failed on correct answers and, far worse, `forbid_any`
+  passed on the exact phrases it was written to catch — including
+  `fear-of-dying`'s Zendo guard. Matching now folds the punctuation. Worth
+  remembering when reading any green in a report: a check that cannot fail looks
+  exactly like a check that passed.
 - **Safety no longer depends on model capability.** The crisis scan and
   interaction checker are deterministic Rust that run regardless of which model
   is loaded, or whether one is loaded at all — which is what makes the low-spec
