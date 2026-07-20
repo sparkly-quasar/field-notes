@@ -290,6 +290,11 @@
   let crisisResourcesShown = $state(false);
   let showHelp = $state(false); // emergency-resources / panic screen
   let helpResources = $state<CrisisResource[]>([]);
+  // Split the panic list: the people you can reach in person (no phone number)
+  // come first, then the reassurance-about-calling note, then the phone lines it
+  // actually refers to.
+  const helpInPerson = $derived(helpResources.filter((r) => !r.contact));
+  const helpCallable = $derived(helpResources.filter((r) => r.contact));
 
   // live session mode
   let liveSession = $state(false);
@@ -2177,9 +2182,6 @@
               <button class="primary small-btn" disabled={serving} onclick={toggleServe}>
                 {serving ? "Publishing…" : "Publish to my tailnet"}
               </button>
-              <p class="muted small">
-                That runs <code>{ts.serve_command}</code>, if you'd rather do it yourself.
-              </p>
             {/if}
 
             {#if showQr && portalQrSvg}
@@ -2370,12 +2372,20 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div class="help-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
         <h2>Get help now</h2>
+        <ul class="crisis-res">
+          {#each helpInPerson as r}
+            <li>
+              <strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}
+              <br /><span class="muted small">{r.detail}</span>
+            </li>
+          {/each}
+        </ul>
         <p class="muted small">
           You're not alone. These lines are staffed by people who want to help, and calling is always okay.
           Field Notes is not an emergency service.
         </p>
         <ul class="crisis-res">
-          {#each helpResources as r}
+          {#each helpCallable as r}
             <li>
               <strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}
               <br /><span class="muted small">{r.detail}</span>
