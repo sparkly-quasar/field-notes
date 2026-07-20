@@ -412,6 +412,43 @@ mod tests {
     }
 
     #[test]
+    fn an_exported_note_is_named_as_markdown() {
+        // The phone's export hands this straight to the browser as the download
+        // filename, so the `.md` here is the only thing putting an extension on
+        // the saved file. Dropping it looks harmless in the vault sync (which
+        // joins it to a path) and silently ships a file nobody's editor opens.
+        let c = mem();
+        let exp = db::create_experience(
+            &c,
+            &ExperienceInput {
+                kind: "session".into(),
+                title: "Evening walk".into(),
+                intention: String::new(),
+                setting: String::new(),
+                started_at: "2026-07-01T20:00:00Z".into(),
+            },
+        )
+        .unwrap();
+        let name = note_filename(&db::get_experience(&c, exp.id).unwrap());
+        assert!(name.ends_with(".md"), "got {name:?}");
+        assert!(name.starts_with("2026-07-01-"), "date-prefixed: {name:?}");
+        // An untitled entry still has to produce a usable name, not a bare id.
+        let blank = db::create_experience(
+            &c,
+            &ExperienceInput {
+                kind: "note".into(),
+                title: String::new(),
+                intention: String::new(),
+                setting: String::new(),
+                started_at: "2026-07-02T09:00:00Z".into(),
+            },
+        )
+        .unwrap();
+        let blank_name = note_filename(&db::get_experience(&c, blank.id).unwrap());
+        assert!(blank_name.ends_with(".md"), "got {blank_name:?}");
+    }
+
+    #[test]
     fn round_trips_an_experience_through_the_vault() {
         let dir = std::env::temp_dir().join(format!("fn-obsidian-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

@@ -26,6 +26,8 @@
     aiInstall,
     aiStart,
     aiPull,
+    aiPreferredModel,
+    aiSwitchModel,
     companionChat,
     crisisScan,
     emergencyResources,
@@ -126,6 +128,7 @@
 
   // Obsidian vault sync
   const VAULT_KEY = "fieldnotes.vaultFolder";
+  const COMPANION_OFF_KEY = "fieldnotes.companionOff";
   let vaultFolder = $state("");
   let obsBusy = $state(false);
   let obsErr = $state<string | null>(null);
@@ -242,6 +245,16 @@
   let aiModel = $state("");
   let aiRecommended = $state<[string, string][]>([]);
   let aiPullTag = $state("");
+  let aiPreferred = $state("");
+  /**
+   * Companion turned off by choice — for machines where a local model is more
+   * frustration than help. Nothing safety-critical depends on it: the interaction
+   * checker, crisis scan and dose reference are all deterministic and keep working.
+   * The switch lives in Settings, not in the Companion tab it hides.
+   */
+  let companionOff = $state(false);
+  /** Dismissed for this session only — no localStorage, so it returns next launch. */
+  let upgradeDismissed = $state(false);
   let aiLog = $state<string[]>([]);
   let aiBusy = $state(false);
   let aiErr = $state<string | null>(null);
@@ -274,6 +287,8 @@
 
   // deterministic crisis layer (independent of the model)
   let crisis = $state<CrisisResult | null>(null);
+  // Set when the person accepts an `offer`-mode banner's invitation to see options.
+  let crisisResourcesShown = $state(false);
   let showHelp = $state(false); // emergency-resources / panic screen
   let helpResources = $state<CrisisResource[]>([]);
 
@@ -328,6 +343,7 @@
     interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
+    companionOff = localStorage.getItem(COMPANION_OFF_KEY) === "1";
     vaultFolder = localStorage.getItem(VAULT_KEY) ?? "";
     loadDbStatus();
     const un = listen<string>("ai-progress", (e) => {
@@ -583,6 +599,7 @@
       localStorage.removeItem(HIDE_DISCLAIMER_KEY);
       localStorage.removeItem(VAULT_KEY);
       localStorage.removeItem("fn.model");
+      localStorage.removeItem(COMPANION_OFF_KEY);
       // Reset in-memory state to a fresh journal.
       selected = null;
       experiences = [];
@@ -902,6 +919,7 @@
   async function loadAi() {
     ai = await aiStatus();
     if (!aiRecommended.length) aiRecommended = await aiRecommendedModels();
+    if (!aiPreferred) aiPreferred = await aiPreferredModel();
     if (!aiPullTag && aiRecommended.length) aiPullTag = aiRecommended[0][0];
     if (ai.running && ai.models.length) {
       const saved = localStorage.getItem("fn.model");
@@ -913,6 +931,11 @@
   }
   $effect(() => {
     if (aiModel) localStorage.setItem("fn.model", aiModel);
+  });
+  $effect(() => {
+    localStorage.setItem(COMPANION_OFF_KEY, companionOff ? "1" : "0");
+    // Don't strand someone on a tab that just disappeared from the nav.
+    if (companionOff && tab === "companion") tab = "journal";
   });
 
   async function doInstall() {
@@ -940,6 +963,36 @@
       aiBusy = false;
     }
   }
+  /**
+   * Show the upgrade offer only when it is actionable: Ollama is up, we know the
+   * recommended tag, the person is on something else, and they don't already have
+   * the new model sitting there (in which case switching is just picking it).
+   */
+  const upgradeAvailable = $derived(
+    !upgradeDismissed &&
+      !!ai?.running &&
+      !!aiPreferred &&
+      !!aiModel &&
+      aiModel !== aiPreferred &&
+      !(ai?.models ?? []).includes(aiPreferred),
+  );
+
+  async function doSwitchModel() {
+    const old = aiModel;
+    aiBusy = true;
+    aiErr = null;
+    aiLog = [];
+    try {
+      aiModel = await aiSwitchModel(old);
+      upgradeDismissed = true;
+      await loadAi();
+    } catch (e) {
+      aiErr = typeof e === "string" ? e : String(e);
+    } finally {
+      aiBusy = false;
+    }
+  }
+
   async function doPull() {
     if (!aiPullTag) return;
     aiBusy = true;
@@ -979,8 +1032,10 @@
     cSending = true;
     cActions = [];
     // The deterministic crisis layer runs independently of the model's reply.
-    crisisScan(text, companionExpId)
-      .then((r) => { if (r.level !== "none") crisis = r; })
+    // `history` already ends with `text`, and the backend appends it — so pass the
+    // messages *before* it, or one message would count as a repeat of itself.
+    crisisScan(text, companionExpId, history.slice(0, -1).filter((m) => m.role === "user").map((m) => m.content))
+      .then((r) => { if (r.level !== "none") { crisis = r; crisisResourcesShown = false; } })
       .catch(() => {});
     try {
       const res = await companionChat(aiModel, history, companionExpId, supportStyle || null);
@@ -1040,7 +1095,7 @@
     await loadJournal();
     // A newly dangerous combination should raise the crisis banner deterministically.
     const c = await crisisScan("", selected.id);
-    if (c.level !== "none") crisis = c;
+    if (c.level !== "none") { crisis = c; crisisResourcesShown = false; }
   }
 
   async function quickNote() {
@@ -1321,12 +1376,20 @@
           <strong>{crisis.headline}</strong>
           <button class="icon-btn" title="Dismiss" onclick={() => (crisis = null)}>✕</button>
         </div>
-        <ul class="crisis-res">
-          {#each crisis.resources as r}
-            <li><strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}<br /><span class="muted small">{r.detail}</span></li>
-          {/each}
-        </ul>
-        <p class="muted small">This is an automatic safety prompt, not a diagnosis. You know your situation best — reaching out for help is always okay.</p>
+        {#if crisis.presentation === "offer" && !crisisResourcesShown}
+          <!-- A hard moment is not an emergency. Offer, and let it be declined. -->
+          <div class="crisis-offer">
+            <button class="primary" onclick={() => (crisisResourcesShown = true)}>Show me some options</button>
+            <button class="ghost" onclick={() => (crisis = null)}>No thanks</button>
+          </div>
+        {:else}
+          <ul class="crisis-res">
+            {#each crisis.resources as r}
+              <li><strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}<br /><span class="muted small">{r.detail}</span></li>
+            {/each}
+          </ul>
+          <p class="muted small">This is an automatic safety prompt, not a diagnosis. You know your situation best — reaching out for help is always okay.</p>
+        {/if}
       </div>
     {/if}
 
@@ -1334,7 +1397,9 @@
       <h1>Field Notes</h1>
       <nav>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
-        <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
+        {#if !companionOff}
+          <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
+        {/if}
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
@@ -1666,6 +1731,30 @@
             contact emergency services or poison control.
           </p>
 
+          {#if upgradeAvailable}
+            <div class="upgrade-notice">
+              <p>
+                <strong>A better model is available.</strong> <code>{aiModel}</code> often declines to
+                discuss substances, including in an emergency. <code>{aiPreferred}</code> handles those
+                moments properly.
+              </p>
+              <div class="upgrade-actions">
+                <button class="primary small-btn" disabled={aiBusy} onclick={doSwitchModel}>
+                  {aiBusy ? "Switching…" : `Switch to ${aiPreferred}`}
+                </button>
+                <button class="small-btn" disabled={aiBusy} onclick={() => (upgradeDismissed = true)}>
+                  Not now
+                </button>
+              </div>
+              <p class="muted small">
+                Downloads {aiPreferred} (~5 GB) first, then removes {aiModel} to free the space.
+                Your journal isn't touched.
+              </p>
+              {#if aiErr}<p class="notice bad-notice">{aiErr}</p>{/if}
+              {#if aiLog.length}<pre class="ai-log">{aiLog.slice(-14).join("\n")}</pre>{/if}
+            </div>
+          {/if}
+
           {#if showModels}
             <div class="models-panel">
               <p class="muted small">
@@ -1673,7 +1762,7 @@
                 the Companion and text-import. Download another to switch between them — everything runs locally.
               </p>
               <div class="pull-row">
-                <input placeholder="Model tag to download, e.g. llama3.1:8b" bind:value={aiPullTag} list="rec-models" />
+                <input placeholder="Model tag to download, e.g. qwen3:8b" bind:value={aiPullTag} list="rec-models" />
                 <datalist id="rec-models">
                   {#each aiRecommended as [tag, label]}<option value={tag}>{label}</option>{/each}
                 </datalist>
@@ -1686,6 +1775,11 @@
                   <button type="button" class="chip" class:on={aiPullTag === tag} onclick={() => (aiPullTag = tag)}>{label}</button>
                 {/each}
               </div>
+              <p class="muted small">
+                These models run on this computer, so your hardware sets the ceiling. On an older or
+                lower-memory machine the Companion will be slower and less capable. You can turn it
+                off in Settings.
+              </p>
               {#if aiErr}<p class="notice bad-notice">{aiErr}</p>{/if}
               {#if aiLog.length}<pre class="ai-log">{aiLog.slice(-14).join("\n")}</pre>{/if}
             </div>
@@ -1973,6 +2067,19 @@
     {#if tab === "data"}
       {#if secErr}<p class="notice bad-notice">{secErr}</p>{/if}
       {#if secMsg}<p class="notice good-notice">{secMsg}</p>{/if}
+
+      <section class="card">
+        <h2>Companion <span class="off-badge" class:on={!companionOff}>{companionOff ? "off" : "on"}</span></h2>
+        <label class="share">
+          <input type="checkbox" bind:checked={companionOff} />
+          Use Field Notes without a Companion
+        </label>
+        <p class="muted small">
+          Hides the Companion tab and stops any local model from loading. The journal, timeline, dose
+          reference, interaction checker and crisis resources don't use a model and are unaffected.
+        </p>
+      </section>
+
 
       <section class="card">
         <h2>Phone access <span class="off-badge" class:on={portal.running}>{portal.running ? "on" : "off"}</span></h2>
@@ -2287,6 +2394,7 @@
           {/if}
         </section>
 
+        {#if !companionOff}
         <section class="live-companion">
           <h3>Companion</h3>
           {#if !aiReady}
@@ -2310,6 +2418,7 @@
             </div>
           {/if}
         </section>
+        {/if}
       </div>
     </div>
   {/if}
@@ -2510,6 +2619,8 @@
   .danger-btn:hover:not(:disabled) { filter: brightness(1.08); }
   .danger-btn:disabled { opacity: 0.55; cursor: default; }
   .crisis-banner { border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1rem; border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 14%, var(--card)); }
+  .crisis-offer { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+  .crisis-offer button { margin-top: 0.4rem; }
   .crisis-banner.psychiatric, .crisis-banner.medical { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--card)); }
   .crisis-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   .crisis-res { list-style: none; padding: 0; margin: 0.7rem 0; display: flex; flex-direction: column; gap: 0.6rem; }
@@ -2522,6 +2633,10 @@
 
   /* ---- support style intake ---- */
   .models-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .upgrade-notice { border: 1px solid var(--note); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .upgrade-notice p { margin: 0; }
+  .upgrade-notice code { font-size: 0.9em; }
+  .upgrade-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .pull-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .pull-row input { flex: 1; min-width: 14rem; padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
   .support-style { margin: 0.8rem 0; display: flex; flex-direction: column; gap: 0.5rem; }

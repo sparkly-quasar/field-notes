@@ -123,6 +123,63 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.9.0
+
+- **Companion evaluation harness** (`src-tauri/examples/companion_eval.rs`,
+  `eval/scenarios.json`) — 30 scenarios replayed through the real tool loop
+  against a real seeded journal and the real bundled reference data, emitting a
+  markdown report with full transcripts. `eval/scenarios.json` doubles as the
+  written behavioural spec: what the Companion should do about facts, Zendo
+  register, redosing, crises, boundaries and journal tools. Reports land in
+  `eval/runs/` and are **git-ignored** — they quote journal prose.
+  A green run means "no hard failure", never "this was good": the checks are
+  substring and word-count matches, and a bad answer containing the right word
+  still passes. Read the transcripts.
+- **Default model is now `qwen3:8b`.** Measured against the harness,
+  `llama3.1:8b` declined to engage with six safety scenarios — including a
+  witnessed seizure, and an alcohol + diazepam stack where the interaction
+  checker had *already* returned a `[danger]` flag naming respiratory
+  depression, to which it replied "I'm so sorry to hear that." Qwen3 answered
+  both correctly. A model that refuses this app's subject matter cannot sit with
+  someone having a hard time. An in-app **switch button** (`ai_switch_model`)
+  downloads the new model before removing the old one — never the reverse, which
+  would strand someone mid-session if the download failed.
+- **Companion-free mode** — the Companion can be turned off entirely in
+  Settings, for slower machines or by preference. Deliberately switched from
+  Settings rather than the Companion tab, so turning it off doesn't hide the
+  control that turns it back on.
+- **`lookup_dose` now reports durations.** It formatted only light/common/strong
+  ranges and silently dropped the onset/peak/total that `pw.rs` already parses
+  and `db.rs` already stores — so the Companion guessed, and said things like
+  "LSD lasts about 3 hours." When a substance has no duration data the tool now
+  says so explicitly rather than leaving room to estimate.
+- **Fabricated-citation guard** — a reply claiming "the dose reference says…"
+  without having called the tool gets one corrective round trip; if it fabricates
+  again, the sentences carrying the claim are stripped deterministically.
+  Sentence-level, not phrase-level: removing just the attribution leaves the
+  assertion standing as the Companion's own knowledge. The first version of the
+  correction offered "call the tool now and report what it returns" and small
+  models took that as a *template* — asserting the call and inventing the result.
+  Removing the option removed the failure.
+- **Crisis detection matches how people actually write** (`crisis.rs`) — literal
+  substring matching missed "my chest really hurts", "i don't want to be here
+  anymore", "ending it tonight", "i think i'm dying". Replaced with stem and
+  proximity matching plus four two-half medical clusters (heat stroke, serotonin
+  toxicity, cardiac, respiratory depression), with a per-signal negator list.
+  Negation is handled per signal rather than globally on purpose: a blanket rule
+  would swallow the true positive "i don't want to be here anymore".
+- **Expressive distress no longer alarms on first utterance.** "This is horrible,
+  I want it all to stop" is often someone logging how they feel, not a crisis.
+  Said once it is expression; repeated across messages it becomes a pattern worth
+  offering help for (`scan_recent`, `repeats >= 2`). Peer-level results are now
+  presented as an **offer** ("Would it help to have someone to talk to?") that
+  leads with a trusted person rather than a hotline; medical and psychiatric
+  levels stay direct.
+- **Safety no longer depends on model capability.** The crisis scan and
+  interaction checker are deterministic Rust that run regardless of which model
+  is loaded, or whether one is loaded at all — which is what makes the low-spec
+  tier and companion-free mode viable rather than quietly less safe.
+
 ## Shipped in v0.8.0
 
 - **`t+` offsets on session timestamps** — every dose and timeline note now

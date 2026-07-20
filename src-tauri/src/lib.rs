@@ -3,16 +3,19 @@
 //! All data stays on-device in a local SQLite database, optionally encrypted at
 //! rest with a passphrase (SQLCipher).
 
-mod commands;
+// These are `pub` so the offline evaluation harness (`examples/companion_eval.rs`)
+// can drive the Companion exactly as the app does, without a Tauri runtime. The
+// crate is `publish = false`; this is an internal seam, not a supported API.
+pub mod commands;
 mod contribute;
-mod crisis;
-mod db;
+pub mod crisis;
+pub mod db;
 mod interactions;
-mod knowledge;
+pub mod knowledge;
 mod obsidian;
-mod ollama;
+pub mod ollama;
 mod portal;
-mod pw;
+pub mod pw;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -144,6 +147,9 @@ pub fn run() {
             commands::ai_install,
             commands::ai_start,
             commands::ai_pull,
+            commands::ai_remove,
+            commands::ai_switch_model,
+            commands::ai_preferred_model,
             commands::ollama_up,
             commands::ollama_models,
             commands::companion_chat,

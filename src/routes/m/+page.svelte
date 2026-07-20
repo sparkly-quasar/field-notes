@@ -101,18 +101,38 @@
   let open = $state<ExperienceDetail | null>(null);
 
   /** Export the opened entry as a Markdown download. The phone never touches the
-   *  desktop's filesystem — the desktop renders the text, the browser saves it. */
+   *  desktop's filesystem — the desktop renders the text, the browser saves it.
+   *
+   *  Three details here are all working around mobile-browser download quirks;
+   *  the desktop tolerates any of them being wrong, which is why they were.
+   *
+   *  1. **`application/octet-stream`, not `text/markdown`.** Given a MIME type it
+   *     recognises, mobile Safari names the saved file from *that* rather than
+   *     from `download`, and it has no extension mapped for `text/markdown` — so
+   *     the file arrived correctly named but with no `.md` on the end. An opaque
+   *     type leaves the `download` filename alone. (`note.filename` already ends
+   *     in `.md`; see `note_filename` in obsidian.rs, pinned by a test.)
+   *  2. **The anchor goes into the document before it is clicked.** A detached
+   *     anchor's synthetic click is ignored by some mobile browsers.
+   *  3. **The object URL is revoked on a later tick.** Revoking synchronously
+   *     after `click()` can pull the blob out from under a download that hasn't
+   *     started reading it yet. */
   async function exportOpen() {
     if (!open) return;
     err = null;
     try {
       const note = await exportExperienceMarkdown(open.id);
-      const url = URL.createObjectURL(new Blob([note.markdown], { type: "text/markdown" }));
+      const url = URL.createObjectURL(
+        new Blob([note.markdown], { type: "application/octet-stream" }),
+      );
       const a = document.createElement("a");
       a.href = url;
       a.download = note.filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (e) {
       err = typeof e === "string" ? e : String(e);
     }
@@ -141,6 +161,7 @@
   let thinking = $state(false);
   let waking = $state(false);
   let chatCrisis = $state<CrisisResult | null>(null);
+  let chatCrisisShown = $state(false);
 
   onMount(async () => {
     captureToken();
@@ -448,8 +469,9 @@
       // The deterministic crisis layer runs on what's *said to* the Companion,
       // independent of the model's reply — same as the desktop. It never reads
       // the journal itself.
-      crisisScan(text, session?.id ?? null)
-        .then((r) => { if (r.level !== "none") chatCrisis = r; })
+      // `next` already ends with `text`, which the backend appends itself.
+      crisisScan(text, session?.id ?? null, next.slice(0, -1).filter((m) => m.role === "user").map((m) => m.content))
+        .then((r) => { if (r.level !== "none") { chatCrisis = r; chatCrisisShown = false; } })
         .catch(() => {});
       try {
         let reply: CompanionReply;
@@ -840,12 +862,18 @@
           {#if chatCrisis && chatCrisis.level !== "none"}
             <div class="banner danger">
               <strong>{chatCrisis.headline}</strong>
-              <ul>
-                {#each chatCrisis.resources as r}
-                  <li>{r.label}{r.contact ? " — " : ""}{#if r.contact}<a href="tel:{r.contact}">{r.contact}</a>{/if}</li>
-                {/each}
-              </ul>
-              <button onclick={() => (chatCrisis = null)}>Dismiss</button>
+              {#if chatCrisis.presentation === "offer" && !chatCrisisShown}
+                <!-- Same reasoning as the desktop: a hard moment gets an offer. -->
+                <button onclick={() => (chatCrisisShown = true)}>Show me some options</button>
+                <button onclick={() => (chatCrisis = null)}>No thanks</button>
+              {:else}
+                <ul>
+                  {#each chatCrisis.resources as r}
+                    <li>{r.label}{r.contact ? " — " : ""}{#if r.contact}<a href="tel:{r.contact}">{r.contact}</a>{/if}</li>
+                  {/each}
+                </ul>
+                <button onclick={() => (chatCrisis = null)}>Dismiss</button>
+              {/if}
             </div>
           {/if}
           <div class="chat">

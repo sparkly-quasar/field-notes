@@ -322,6 +322,10 @@ export const aiRecommendedModels = () => invoke<[string, string][]>("ai_recommen
 export const aiInstall = () => invoke<void>("ai_install");
 export const aiStart = () => invoke<void>("ai_start");
 export const aiPull = (tag: string) => invoke<void>("ai_pull", { tag });
+export const aiRemove = (tag: string) => invoke<void>("ai_remove", { tag });
+export const aiPreferredModel = () => invoke<string>("ai_preferred_model");
+/** Downloads the recommended model, then removes `from`. Resolves to the new tag. */
+export const aiSwitchModel = (from: string) => invoke<string>("ai_switch_model", { from });
 
 export const ollamaUp = () => invoke<boolean>("ollama_up");
 export const ollamaModels = () => invoke<string[]>("ollama_models");
@@ -366,14 +370,27 @@ export interface CrisisResource {
   contact: string;
   detail: string;
 }
+/**
+ * Whether to ask before showing resources. `offer` is used for ordinary hard
+ * moments, where flashing hotlines pathologises a difficult experience; `direct`
+ * for psychiatric and medical signals, where asking someone to triage themselves
+ * is the wrong thing to ask of them.
+ */
+export type CrisisPresentation = "offer" | "direct";
 export interface CrisisResult {
   level: CrisisLevel;
   headline: string;
   matched: string[];
   resources: CrisisResource[];
+  presentation: CrisisPresentation;
 }
-export const crisisScan = (text: string, experienceId: number | null) =>
-  invoke<CrisisResult>("crisis_scan", { text, experienceId });
+/**
+ * `recent` is the person's earlier messages this conversation, oldest first.
+ * Expressive distress ("I want it to stop") is judged on repetition, so without
+ * it a hard moment named once is correctly treated as just that.
+ */
+export const crisisScan = (text: string, experienceId: number | null, recent: string[] = []) =>
+  invoke<CrisisResult>("crisis_scan", { text, experienceId, recent });
 export const emergencyResources = () => invoke<CrisisResource[]>("emergency_resources");
 
 // ---- encryption at rest & backups ----
