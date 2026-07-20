@@ -253,7 +253,20 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
     } else {
         detail.experience.title.clone()
     };
-    let mut s = format!("CURRENT SESSION CONTEXT (from the user's private journal).\nExperience: \"{title}\".\nDoses logged so far:\n");
+    // A session the person attached for integration is over, not happening now.
+    // Without this distinction the model reads a weeks-old experience as live and
+    // offers stay-hydrated advice for doses long since worn off. An ended session
+    // (has an `ended_at`) is framed as past; an open one stays current.
+    let (header, doses_label) = if detail.experience.ended_at.is_some() {
+        (
+            "A PAST SESSION the person wants to talk through — for reflection or integration, \
+             not happening now. Do not treat these doses as still active.",
+            "Doses that were logged",
+        )
+    } else {
+        ("CURRENT SESSION CONTEXT (from the user's private journal).", "Doses logged so far")
+    };
+    let mut s = format!("{header}\nExperience: \"{title}\".\n{doses_label}:\n");
     for d in &detail.doses {
         let amt = d.amount.map(|a| a.to_string()).unwrap_or_else(|| "?".into());
         let route = if d.route.is_empty() { String::new() } else { format!(" {}", d.route) };
