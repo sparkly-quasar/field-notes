@@ -71,7 +71,7 @@ fn res(label: &str, contact: &str, detail: &str) -> Resource {
 // just orderings over these — which is what stops "Emergency services" from
 // turning up twice when a list concatenates two categories that both include it.
 fn r_trusted_person() -> Resource {
-    res("Someone you trust", "", "Is there a friend you could call, or who could sit with you? That's often the best first move.")
+    res("Someone you trust", "", "Is there a friend you could call, or who could sit with you?")
 }
 fn r_sober_present() -> Resource {
     res("Get a trusted sober person present", "", "Ask a sober friend to be with you, in person if you can.")
