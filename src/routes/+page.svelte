@@ -2116,6 +2116,26 @@
           third party.
         </p>
 
+        <div class="prereq" class:missing={ts != null && !ts.installed}>
+          <p class="small">
+            <strong>Before this is useful, you need <button class="link-inline" onclick={() => openUrl("https://tailscale.com/download")}>Tailscale</button></strong>
+            — a free app that privately links your own devices — installed and signed into the same
+            account on <em>both</em> this computer and your phone. It's what carries the connection.
+            Without it the portal still turns on, but only this machine can reach it.
+          </p>
+          {#if ts != null}
+            <p class="small prereq-status">
+              {#if !ts.installed}
+                Not detected on this computer yet — <button class="link-inline" onclick={() => openUrl("https://tailscale.com/download")}>install Tailscale</button>, then reopen this tab.
+              {:else if !tailscaleUrl}
+                Installed here, but not signed in yet — sign in, then reopen this tab.
+              {:else}
+                ✓ Tailscale is ready on this computer. Set it up on your phone too if you haven't.
+              {/if}
+            </p>
+          {/if}
+        </div>
+
         {#if portalErr}<p class="notice bad-notice">{portalErr}</p>{/if}
 
         <button class="primary small-btn" onclick={togglePortal}>
@@ -2499,6 +2519,11 @@
   .ghost { background: transparent; color: var(--muted); border-color: var(--line); padding: 0.7rem 1rem; margin-top: 0.8rem; }
   .small-btn { padding: 0.5rem 0.85rem; margin: 0; }
   .link { background: none; border: none; color: var(--accent); padding: 0; font-weight: 600; cursor: pointer; margin-bottom: 0.6rem; }
+  .link-inline { background: none; border: none; color: var(--accent); padding: 0; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+  .prereq { border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem 0.8rem; margin: 0.2rem 0 0.9rem; }
+  .prereq.missing { border-color: var(--caution); }
+  .prereq p { color: var(--muted); margin: 0.3rem 0; }
+  .prereq-status { font-weight: 600; }
 
   input { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem; }
   input.narrow { width: 5.5rem; }
