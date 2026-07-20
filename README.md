@@ -40,7 +40,9 @@ from your phone.
 - **Companion** — a calm, non-judgmental support chat that runs on a local AI
   model. It can be aware of your current session, look up references, and log
   things for you when you ask. Pick a support style ("just listen", "keep me
-  grounded", …) and it honors it.
+  grounded", …) and it honors it. It's improving but still rough in places —
+  see [Companion quality](#companion-quality). You can also turn it off
+  entirely and use everything else.
 - **Live session** — a quiet, altered-state-friendly screen for an ongoing
   experience: elapsed time, one-tap logging, the companion, and an always-visible
   **Get help now** button. Timeline notes can be edited after the fact — on the
@@ -136,8 +138,30 @@ so updating never touches it.
   [Ollama](https://ollama.com) instance on `127.0.0.1` — the app can install it
   and download a model for you on first use.
 
+## Companion quality
+
+The Companion is the least finished part of this app, and it's worth being
+straight about that. v0.9.0 made real improvements — it no longer invents
+durations or cites references it never read, and the default model was changed
+to one that will actually engage when things get hard. There's an evaluation
+harness (`src-tauri/eval/scenarios.json`, 30 scenarios) so changes are measured
+rather than guessed at.
+
+It still has rough edges. It runs long when it should be brief, occasionally
+misses a tool call it should have made, and its register drifts from the calm,
+non-directive tone it's aiming for. Prompt work to address that is the next
+step. Quality also depends on your hardware — a small model on an older machine
+will be noticeably worse.
+
+None of this touches the safety-critical layers. The interaction checker, crisis
+detection and dose reference are deterministic Rust that run regardless of which
+model is loaded, or whether one is loaded at all. If the Companion isn't earning
+its keep on your machine, turn it off in Settings; everything else is unaffected.
+
 ## Roadmap
 
+- **Companion register** — prompt restructuring and worked examples, so it stays
+  brief and non-directive. Measured against the eval harness.
 - **Offline capture on the phone** — log while the desktop is asleep or you're off
   the tailnet, with an outbox that syncs when it's reachable again. Gated on
   porting the deterministic safety checks to run phone-side: an offline phone

@@ -322,6 +322,10 @@ export const aiRecommendedModels = () => invoke<[string, string][]>("ai_recommen
 export const aiInstall = () => invoke<void>("ai_install");
 export const aiStart = () => invoke<void>("ai_start");
 export const aiPull = (tag: string) => invoke<void>("ai_pull", { tag });
+/** Read the desktop's companion-off preference. Exposed over the portal. */
+export const companionEnabled = () => invoke<boolean>("companion_enabled");
+export const setCompanionEnabled = (enabled: boolean) =>
+  invoke<void>("set_companion_enabled", { enabled });
 export const aiRemove = (tag: string) => invoke<void>("ai_remove", { tag });
 export const aiPreferredModel = () => invoke<string>("ai_preferred_model");
 /** Downloads the recommended model, then removes `from`. Resolves to the new tag. */

@@ -9,7 +9,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 const BASE: &str = "http://127.0.0.1:11434";
 
@@ -139,7 +139,7 @@ pub fn status() -> AiStatus {
 }
 
 /// Stream a child process's stdout+stderr to a Tauri event, line by line.
-fn run_streamed(app: &AppHandle, event: &str, mut cmd: Command) -> Result<(), String> {
+fn run_streamed<R: Runtime>(app: &AppHandle<R>, event: &str, mut cmd: Command) -> Result<(), String> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("failed to start: {e}"))?;
     let mut handles = Vec::new();
@@ -171,7 +171,7 @@ fn run_streamed(app: &AppHandle, event: &str, mut cmd: Command) -> Result<(), St
 
 /// Install Ollama (macOS: Homebrew; Linux: official script; Windows: WinGet),
 /// streaming progress.
-pub fn install(app: &AppHandle) -> Result<(), String> {
+pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let _ = app.emit("ai-progress", "Installing Ollama…".to_string());
 
     #[cfg(target_os = "macos")]
@@ -233,7 +233,7 @@ pub fn ensure_serving() -> Result<(), String> {
 }
 
 /// Pull a model, streaming download progress.
-pub fn pull(app: &AppHandle, tag: &str) -> Result<(), String> {
+pub fn pull<R: Runtime>(app: &AppHandle<R>, tag: &str) -> Result<(), String> {
     ensure_serving()?;
     let _ = app.emit("ai-progress", format!("Downloading {tag}…"));
     let mut cmd = command("ollama");
@@ -242,7 +242,7 @@ pub fn pull(app: &AppHandle, tag: &str) -> Result<(), String> {
 }
 
 /// Delete a model's weights from this machine. Frees the disk; nothing else.
-pub fn remove(app: &AppHandle, tag: &str) -> Result<(), String> {
+pub fn remove<R: Runtime>(app: &AppHandle<R>, tag: &str) -> Result<(), String> {
     ensure_serving()?;
     let _ = app.emit("ai-progress", format!("Removing {tag}…"));
     let mut cmd = command("ollama");
@@ -257,7 +257,7 @@ pub fn remove(app: &AppHandle, tag: &str) -> Result<(), String> {
 /// Companion if the download failed — possibly mid-session, which is exactly
 /// when they need it. Removal failure is deliberately not fatal: by then the
 /// new model works, and stale weights are a disk-space problem, not a broken app.
-pub fn switch_model(app: &AppHandle, from: &str) -> Result<(), String> {
+pub fn switch_model<R: Runtime>(app: &AppHandle<R>, from: &str) -> Result<(), String> {
     pull(app, PREFERRED_MODEL)?;
     if !list_models().iter().any(|m| m == PREFERRED_MODEL) {
         return Err(format!(

@@ -175,6 +175,13 @@ non-negotiables, each with a test:
   presented as an **offer** ("Would it help to have someone to talk to?") that
   leads with a trusted person rather than a hotline; medical and psychiatric
   levels stay direct.
+- **Still unfinished.** v0.9.0 fixed correctness and honesty, not register. The
+  Companion still runs long when it should be brief, sometimes misses a tool call
+  it should have made, and drifts out of the calm non-directive voice it's aiming
+  for. The prompt restructure and worked Zendo examples — the original "it reads
+  like a completely untrained person" complaint — remain the largest untouched
+  lever, and are only now worth pulling: they were never going to land on a model
+  that refused the subject matter. Measure against the harness before and after.
 - **Safety no longer depends on model capability.** The crisis scan and
   interaction checker are deterministic Rust that run regardless of which model
   is loaded, or whether one is loaded at all — which is what makes the low-spec

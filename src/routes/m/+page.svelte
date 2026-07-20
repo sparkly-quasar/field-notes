@@ -30,6 +30,7 @@
     usageBySubstance,
     checkCombo,
     crisisScan,
+    companionEnabled as companionEnabledPref,
     companionChat,
     companionChatStart,
     companionChatPoll,
@@ -153,6 +154,8 @@
   let newSub = $state("");
 
   // companion
+  /** Mirrors the desktop's companion-off switch; the phone can't read its localStorage. */
+  let companionEnabled = $state(true);
   let ai = $state<AiStatus | null>(null);
   let models = $state<string[]>([]);
   let model = $state("");
@@ -180,6 +183,7 @@
    *  rather than one vague "not reachable". */
   async function loadAi() {
     try {
+      companionEnabled = await companionEnabledPref();
       ai = await aiStatus();
       models = ai.models;
       if (!models.includes(model)) model = models[0] ?? "";
@@ -832,7 +836,12 @@
     {#if view === "companion"}
       <section class="pane">
         <h2>Companion</h2>
-        {#if !ai}
+        {#if !companionEnabled}
+          <p class="muted">
+            Companion disabled. It's turned off in Settings on the desktop. Everything else on this
+            screen still works.
+          </p>
+        {:else if !ai}
           <p class="muted">Couldn't ask the desktop about its local model.</p>
           <button disabled={busy} onclick={loadAi}>Try again</button>
         {:else if !ai.installed}
@@ -893,7 +902,9 @@
       <button class:on={view === "journal"} onclick={() => goTo("journal")}>Journal</button>
       <button class:on={view === "combo"} onclick={() => goTo("combo")}>Combo</button>
       <button class:on={view === "reference"} onclick={() => goTo("reference")}>Look up</button>
-      <button class:on={view === "companion"} onclick={() => goTo("companion")}>Talk</button>
+      {#if companionEnabled}
+        <button class:on={view === "companion"} onclick={() => goTo("companion")}>Talk</button>
+      {/if}
     </nav>
   {/if}
 </main>

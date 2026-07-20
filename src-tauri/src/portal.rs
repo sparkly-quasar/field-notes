@@ -45,6 +45,11 @@ const PORT_RANGE: std::ops::Range<u16> = 8787..8807;
 
 pub struct Portal {
     inner: Mutex<Option<Running>>,
+    /// Mirrors the desktop's "use Field Notes without a Companion" switch, which
+    /// lives in browser storage the phone cannot see. The desktop pushes it here
+    /// on load and whenever it changes, so the phone can hide a Companion the
+    /// user has turned off instead of offering a chat that shouldn't be there.
+    companion_enabled: AtomicBool,
 }
 
 struct Running {
@@ -64,11 +69,19 @@ pub struct PortalStatus {
 
 impl Default for Portal {
     fn default() -> Self {
-        Portal { inner: Mutex::new(None) }
+        Portal { inner: Mutex::new(None), companion_enabled: AtomicBool::new(true) }
     }
 }
 
 impl Portal {
+    pub fn set_companion_enabled(&self, on: bool) {
+        self.companion_enabled.store(on, Ordering::Relaxed);
+    }
+
+    pub fn companion_enabled(&self) -> bool {
+        self.companion_enabled.load(Ordering::Relaxed)
+    }
+
     pub fn status(&self) -> PortalStatus {
         let guard = self.inner.lock().unwrap();
         match guard.as_ref() {
@@ -358,6 +371,7 @@ pub const EXPOSED: &[&str] = &[
     "usage_by_substance",
     "list_substances",
     "db_status",
+    "companion_enabled",
     "create_experience",
     "end_experience",
     "log_dose",
@@ -402,6 +416,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         "usage_by_substance" => done(commands::usage_by_substance(db)),
         "list_substances" => done(commands::list_substances(db)),
         "db_status" => ok(commands::db_status(db)),
+        "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
 
         // --- writing to the journal: the whole point of the portal ---
         "create_experience" => done(commands::create_experience(db, arg(&args, "input")?)),
@@ -868,6 +883,16 @@ mod tests {
         let (status, body) = post(port, "companion_chat_poll", Some(&token), json!({ "id": 424242 }));
         assert_eq!(status, 400, "{body}");
         assert!(body.contains("unknown or expired"), "{body}");
+    }
+
+    /// The phone may *read* whether the Companion is switched on, so it can say so
+    /// instead of offering a chat that shouldn't be there — but it must never be
+    /// able to switch it back on. That would be the phone reconfiguring the
+    /// desktop, which rule 4 exists to prevent.
+    #[test]
+    fn the_phone_can_read_the_companion_switch_but_not_flip_it() {
+        assert!(EXPOSED.contains(&"companion_enabled"));
+        assert!(!EXPOSED.contains(&"set_companion_enabled"));
     }
 
     /// Both halves of the job flow must be on the allowlist, and the blocking call

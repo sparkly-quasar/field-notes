@@ -1209,6 +1209,15 @@ pub fn portal_status(portal: State<'_, Portal>) -> portal::PortalStatus {
     portal.status()
 }
 
+/// Mirror the desktop's companion-off preference so the phone can see it. Set
+/// from the desktop only — `companion_enabled` is readable over the portal but
+/// this setter is not exposed, per the rule above that the phone cannot
+/// reconfigure the desktop.
+#[tauri::command]
+pub fn set_companion_enabled(portal: State<'_, Portal>, enabled: bool) {
+    portal.set_companion_enabled(enabled);
+}
+
 /// Turn on phone access. Requires an unlocked journal; binds `127.0.0.1` only.
 #[tauri::command]
 pub fn portal_enable(app: AppHandle) -> Result<portal::PortalStatus, String> {
