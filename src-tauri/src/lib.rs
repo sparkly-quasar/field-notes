@@ -173,6 +173,7 @@ pub fn run() {
             commands::contribution_draft,
             commands::contribution_save,
             commands::portal_status,
+            commands::set_companion_enabled,
             commands::portal_enable,
             commands::portal_disable,
             commands::portal_qr,

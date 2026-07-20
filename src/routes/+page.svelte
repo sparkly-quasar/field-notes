@@ -27,6 +27,7 @@
     aiStart,
     aiPull,
     aiPreferredModel,
+    setCompanionEnabled,
     aiSwitchModel,
     companionChat,
     crisisScan,
@@ -934,6 +935,9 @@
   });
   $effect(() => {
     localStorage.setItem(COMPANION_OFF_KEY, companionOff ? "1" : "0");
+    // Push it to the backend so the phone portal sees it too — the phone has its
+    // own browser storage and cannot read this preference.
+    setCompanionEnabled(!companionOff).catch(() => {});
     // Don't strand someone on a tab that just disappeared from the nav.
     if (companionOff && tab === "companion") tab = "journal";
   });
