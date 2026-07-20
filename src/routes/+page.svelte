@@ -36,7 +36,6 @@
     type CrisisResource,
     parseExperience,
     importExperience,
-    pwStatus,
     pwLookup,
     knowledgeSearch,
     knowledgeEntry,
@@ -76,7 +75,6 @@
     type DbStatus,
     type ParsedExperience,
     type PwInfo,
-    type PwStatus,
     type PwRoa,
     type ExperienceSummary,
     type ExperienceDetail,
@@ -162,7 +160,6 @@
   let dTime = $state("");
 
   // DoseWiki reference data
-  let pwStat = $state<PwStatus | null>(null);
   let dRef = $state<PwInfo | null>(null); // reference for the dose being logged
 
   // Knowledge corpus — DoseWiki prose, searched offline. Reference reading only:
@@ -1113,16 +1110,13 @@
     tab = t;
     selected = null;
     if (t === "bysub") await loadUsage();
-    if (t === "substances") { await loadSubstances(); await loadPwStatus(); await loadKbStatus(); await loadContrib(); }
+    if (t === "substances") { await loadSubstances(); await loadKbStatus(); await loadContrib(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadAi();
     if (t === "data") { secReset(); db = await dbStatus(); dataDirPath = await dataDir(); await loadPortal(); }
   }
 
   // ---- DoseWiki reference ----
-  async function loadPwStatus() {
-    pwStat = await pwStatus();
-  }
   async function lookupRef(name: string) {
     dRef = name.trim() ? await pwLookup(name.trim()) : null;
   }
@@ -1811,12 +1805,17 @@
 
           <div class="chat">
             {#if !cMessages.length}
-              <p class="muted small chat-empty">Say hello, or ask about how you're feeling. If a session is shared it can see your doses — and, at your request, log doses or notes for you.</p>
+              <p class="muted small chat-empty">Start chatting about an experience you're planning, having currently, or want to discuss for integration. If you share a session with me, I can see what doses you've taken and, at your request, I can log doses or take notes for you while we chat.</p>
             {/if}
             {#each cMessages as m}
               <div class="bubble {m.role}">{m.content}</div>
             {/each}
-            {#if cSending}<div class="bubble assistant muted">…</div>{/if}
+            {#if cSending}
+              <div class="bubble assistant muted">…</div>
+              {#if !cMessages.some((m) => m.role === "assistant")}
+                <p class="muted small warm-hint">The model is loading into memory — the first reply can take a little longer. It's quicker after that.</p>
+              {/if}
+            {/if}
           </div>
 
           {#if cActions.length}
@@ -1839,23 +1838,14 @@
 
     <!-- ============ SUBSTANCES ============ -->
     {#if tab === "substances"}
-      <section class="card ref-card">
-        <h2>Dose reference</h2>
-        {#if pwStat && pwStat.count > 0}
-          <p class="muted small">{pwStat.count} substances bundled offline{pwStat.snapshot ? ` · snapshot ${pwStat.snapshot}` : ""}. Dose ranges, durations &amp; graded interactions show while you log.</p>
-        {:else}
-          <p class="muted small">Dose ranges, durations, and graded interaction data for hundreds of substances, bundled with the app — fully offline. Nothing is ever sent when you look things up.</p>
-        {/if}
-        <p class="muted attribution">Dose data from <strong>DoseWiki</strong> (dose.wiki), dedicated to the public domain under CC0. Reference only — not a prescription. Updates ship with new versions of the app.</p>
-      </section>
-
       <section class="card">
         <h2>Search the reference</h2>
         {#if kbStat && kbStat.available}
-          <p class="muted small">{kbStat.chunks.toLocaleString()} passages of DoseWiki prose — pharmacology, harm potential, tolerance, legality — searchable offline. Background reading, not dose advice: doses and combo warnings come from the checker above, which is exact.</p>
+          <p class="muted small">{kbStat.chunks.toLocaleString()} passages of DoseWiki prose — pharmacology, harm potential, tolerance, legality — searchable offline. Background reading, not dose advice: dose ranges and combo warnings appear while you log, and those are exact.</p>
         {:else}
           <p class="muted small">The reference text isn't loaded, so search is unavailable.</p>
         {/if}
+        <p class="muted attribution">Dose and reference data from <strong>DoseWiki</strong> (dose.wiki), dedicated to the public domain under CC0. Reference only — not a prescription. Updates ship with new versions of the app.</p>
 
         {#if kbOpen}
           <!-- Reading one substance whole. Its dose data rides along above the
@@ -1958,8 +1948,8 @@
       </section>
 
       <section class="card">
-        <h2>Substances</h2>
-        <p class="muted small">Catalogue substances you track. Assign classes so the safety checker can flag interactions — or leave them blank and common ones are auto-classified.</p>
+        <h2>Substances you track</h2>
+        <p class="muted small">Your own list, separate from the reference above. Add a substance — especially one DoseWiki doesn't cover — so the interaction checker recognises it when you log. Assign classes and it can flag combinations; leave them blank and common ones are auto-classified. The optional dose note is just your own reminder.</p>
 
         <div class="new-sub">
           <input placeholder="Name" bind:value={nsName} />
@@ -2571,7 +2561,6 @@
   .draft { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0.7rem 0.8rem; margin: 0.6rem 0 0; max-height: 20rem; overflow: auto; font-size: 0.78rem; line-height: 1.45; white-space: pre; }
   .draft-actions { margin-top: 0.5rem; justify-content: flex-end; width: 100%; }
 
-  .ref-card { margin-bottom: 1rem; }
   .ref-inline { border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.8rem; margin-top: 0.5rem; background: color-mix(in srgb, var(--accent) 6%, transparent); }
   .ref-inline > strong { font-size: 0.95rem; }
   .attribution { font-size: 0.75rem; margin: 0.4rem 0 0; }
@@ -2605,7 +2594,8 @@
   .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }
   .share input { width: auto; }
   .chat { display: flex; flex-direction: column; gap: 0.5rem; min-height: 220px; max-height: 46vh; overflow-y: auto; padding: 0.4rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
-  .chat-empty { margin: auto; text-align: center; max-width: 26ch; }
+  .chat-empty { margin: auto; text-align: center; max-width: 40ch; }
+  .warm-hint { text-align: center; margin: 0.3rem auto 0; max-width: 34ch; opacity: 0.75; }
   .bubble { padding: 0.55rem 0.8rem; border-radius: 12px; max-width: 82%; line-height: 1.45; font-size: 0.92rem; white-space: pre-wrap; word-break: break-word; }
   .bubble.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
   .bubble.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
