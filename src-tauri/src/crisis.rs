@@ -66,56 +66,84 @@ fn res(label: &str, contact: &str, detail: &str) -> Resource {
     Resource { label: label.into(), contact: contact.into(), detail: detail.into() }
 }
 
+// Each resource has one definition, so the same wording and number appear
+// wherever it's shown. The level lists and the full panic-screen list are then
+// just orderings over these — which is what stops "Emergency services" from
+// turning up twice when a list concatenates two categories that both include it.
+fn r_trusted_person() -> Resource {
+    res("Someone you trust", "", "Is there a friend you could call, or who could sit with you? That's often the best first move.")
+}
+fn r_sober_present() -> Resource {
+    res("Get a trusted sober person present", "", "Ask a sober friend to be with you, in person if you can.")
+}
+fn r_emergency() -> Resource {
+    res("Emergency services", "911 (US) · 112 (EU) · your local number", "If someone is in physical danger, call now — don't wait.")
+}
+fn r_lifeline() -> Resource {
+    res("Suicide & Crisis Lifeline (US)", "988 (call or text)", "24/7 support for suicidal thoughts, self-harm, or crisis.")
+}
+fn r_poison() -> Resource {
+    res("US Poison Control", "1-800-222-1222", "Free, confidential, 24/7 — for overdoses, bad reactions, and interactions.")
+}
+fn r_fireside() -> Resource {
+    res("Fireside Project", "62-FIRESIDE (623-473-7433) — call or text", "Free psychedelic peer-support line (US), 11am–11pm PT.")
+}
+
+/// Drop later entries that repeat an earlier label, keeping order. A composed
+/// level list can name the same resource from two categories (Emergency services
+/// is both physical and psychiatric); the person should see it once.
+fn dedup_by_label(mut v: Vec<Resource>) -> Vec<Resource> {
+    let mut seen = std::collections::BTreeSet::new();
+    v.retain(|r| seen.insert(r.label.clone()));
+    v
+}
+
 /// Physical-emergency resources.
 fn medical_resources() -> Vec<Resource> {
-    vec![
-        res("Emergency services", "911 (US) · 112 (EU) · your local number", "If someone is in physical danger, call now — don't wait."),
-        res("US Poison Control", "1-800-222-1222", "Free, confidential, 24/7 — for overdoses, bad reactions, and interactions."),
-    ]
+    vec![r_emergency(), r_poison()]
 }
 
 /// Psychiatric-emergency resources.
 fn psychiatric_resources() -> Vec<Resource> {
-    vec![
-        res("Suicide & Crisis Lifeline (US)", "988 (call or text)", "24/7 support for suicidal thoughts, self-harm, or crisis."),
-        res("Emergency services", "911 (US) · 112 (EU) · your local number", "If there's immediate danger to yourself or others, call now."),
-        res("Get a trusted person present", "", "Ask a sober friend to be with you, in person if you can."),
-    ]
+    vec![r_lifeline(), r_emergency(), r_sober_present()]
 }
 
 /// Non-emergency peer-support resources. A trusted person comes first deliberately:
 /// for most hard moments someone in the room beats a phone number, and naming it as
 /// an option is often what makes it thinkable.
 fn peer_resources() -> Vec<Resource> {
-    vec![
-        res("Someone you trust", "", "Is there a friend you could call, or who could sit with you? That's often the best first move."),
-        res("Fireside Project", "62-FIRESIDE (623-473-7433) — call or text", "Free psychedelic peer-support line (US), 11am–11pm PT."),
-    ]
+    vec![r_trusted_person(), r_fireside()]
 }
 
-/// The full resource list, most urgent first — used by the always-available
-/// panic / "Get help now" screen.
+/// The full panic-screen list, for the always-available "Get help now" screen.
+/// Ordered gentlest-first — the people who could already be in the room, then
+/// the phone lines — so the most reachable help is what someone reads first when
+/// they're in no state to read far.
 pub fn all_resources() -> Vec<Resource> {
-    let mut v = medical_resources();
-    v.extend(psychiatric_resources());
-    v.extend(peer_resources());
-    v
+    vec![
+        r_trusted_person(),
+        r_sober_present(),
+        r_emergency(),
+        r_lifeline(),
+        r_poison(),
+        r_fireside(),
+    ]
 }
 
 fn resources_for(level: Level) -> Vec<Resource> {
     match level {
         Level::None => Vec::new(),
         Level::Peer => peer_resources(),
-        Level::Psychiatric => {
+        Level::Psychiatric => dedup_by_label({
             let mut v = psychiatric_resources();
             v.extend(peer_resources());
             v
-        }
-        Level::Medical => {
+        }),
+        Level::Medical => dedup_by_label({
             let mut v = medical_resources();
             v.extend(psychiatric_resources());
             v
-        }
+        }),
     }
 }
 
@@ -542,6 +570,28 @@ mod tests {
     fn a_trusted_person_is_offered_before_a_hotline() {
         let r = scan("i'm freaking out and i can't calm down");
         assert!(r.resources[0].detail.contains("friend"), "trusted person should come first");
+    }
+
+    #[test]
+    fn the_panic_screen_lists_each_resource_once_people_first() {
+        let all = all_resources();
+        let labels: Vec<&str> = all.iter().map(|r| r.label.as_str()).collect();
+        // The duplicate that prompted this: Emergency services appeared twice
+        // when the list concatenated the physical and psychiatric categories.
+        let mut seen = std::collections::BTreeSet::new();
+        for l in &labels {
+            assert!(seen.insert(*l), "resource listed twice: {l}");
+        }
+        assert_eq!(labels[0], "Someone you trust", "reachable, in-the-room help first");
+        assert_eq!(labels[1], "Get a trusted sober person present");
+        assert_eq!(labels[2], "Emergency services");
+    }
+
+    #[test]
+    fn a_medical_banner_does_not_repeat_emergency_services() {
+        let r = scan("i'm burning up and i've stopped sweating and i'm confused");
+        let n = r.resources.iter().filter(|x| x.label == "Emergency services").count();
+        assert_eq!(n, 1, "emergency services should appear once");
     }
 
     #[test]
