@@ -206,6 +206,29 @@ pub async fn ai_pull(app: AppHandle, tag: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn ai_remove(app: AppHandle, tag: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ollama::remove(&app, &tag))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// One-button move to the recommended model: download it, then drop the old one.
+#[tauri::command]
+pub async fn ai_switch_model(app: AppHandle, from: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ollama::switch_model(&app, &from))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(ollama::PREFERRED_MODEL.to_string())
+}
+
+/// Which model the app recommends, so the UI can spot an outdated choice without
+/// hardcoding a tag of its own.
+#[tauri::command]
+pub fn ai_preferred_model() -> &'static str {
+    ollama::PREFERRED_MODEL
+}
+
 // ---------- companion (local LLM) ----------
 
 #[tauri::command]
@@ -515,6 +538,7 @@ fn run_companion_tool(
             match info {
                 Some(pi) => {
                     let mut out = format!("Dose reference for {}:", pi.name);
+                    let mut any_duration = false;
                     for roa in &pi.roas {
                         let rng = |r: &pw::Range| match (r.min, r.max) {
                             (Some(a), Some(b)) => format!("{a}-{b}"),
@@ -525,6 +549,32 @@ fn run_companion_tool(
                             " [{}] {} light {}, common {}, strong {}.",
                             roa.name, roa.units.clone().unwrap_or_default(), rng(&roa.light), rng(&roa.common), rng(&roa.strong)
                         ));
+                        // Timing matters as much as amount — "how much longer is
+                        // this going to last" is one of the most common things
+                        // asked mid-experience, and the answer is right here.
+                        let timings: Vec<String> = [
+                            ("onset", &roa.onset),
+                            ("come-up", &roa.come_up),
+                            ("peak", &roa.peak),
+                            ("offset", &roa.offset),
+                            ("total", &roa.total),
+                            ("after-effects", &roa.after_effects),
+                        ]
+                        .iter()
+                        .filter_map(|(label, v)| v.as_ref().map(|t| format!("{label} {t}")))
+                        .collect();
+                        if !timings.is_empty() {
+                            any_duration = true;
+                            out.push_str(&format!(" Duration — {}.", timings.join(", ")));
+                        }
+                    }
+                    if !any_duration {
+                        // Say the gap out loud. An unexplained silence about
+                        // duration is exactly what the model fills from memory.
+                        out.push_str(
+                            " The reference has no duration data for this substance — say so \
+                             plainly rather than estimating how long it lasts.",
+                        );
                     }
                     out.push_str(" Reference only, not a prescription.");
                     Ok((out, None, false))
@@ -659,6 +709,112 @@ pub fn companion_chat_inner(
     experience_id: Option<i64>,
     support_style: Option<String>,
 ) -> Result<CompanionReply, String> {
+    companion_chat_traced(db, kb, model, history, experience_id, support_style, &mut Vec::new())
+}
+
+/// Phrases that claim a source, and the tools that license them. Saying "the dose
+/// reference says..." is a promise about where a fact came from; making that promise
+/// without having called the tool is worse than a plain mistake, because the app's
+/// own honesty vocabulary is what makes the invention sound checked.
+///
+/// Observed in the wild from an 8B model: it cited "the dose reference" *and* the
+/// prompt's own "thin and unreviewed, so hold it loosely" hedge, having called
+/// neither `lookup_dose` nor `search_knowledge`.
+const CITATION_CLAIMS: &[(&str, &[&str])] = &[
+    ("dose reference", &["lookup_dose"]),
+    ("dosewiki", &["search_knowledge"]),
+    ("interaction checker", &["check_interactions"]),
+    ("the checker", &["check_interactions"]),
+];
+
+/// Source claims in `reply` that none of the `called` tools back up.
+pub fn fabricated_citations(reply: &str, called: &[String]) -> Vec<String> {
+    let lower = reply.to_lowercase();
+    CITATION_CLAIMS
+        .iter()
+        .filter(|(phrase, licensed_by)| {
+            lower.contains(phrase) && !licensed_by.iter().any(|t| called.iter().any(|c| c == t))
+        })
+        .map(|(phrase, _)| (*phrase).to_string())
+        .collect()
+}
+
+/// Did the model emit a tool call as ordinary message text instead of through the
+/// tool-calling channel? Small models do this under pressure, and the result is raw
+/// JSON delivered to someone who may be mid-experience — observed verbatim from an
+/// 8B during a heat-stroke scenario, where the entire reply was
+/// `assistant {"name": "check_interactions", ...}`.
+pub fn looks_like_leaked_tool_call(reply: &str) -> bool {
+    let compact: String = reply.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.contains("{\"name\":")
+        && (compact.contains("\"parameters\":") || compact.contains("\"arguments\":"))
+}
+
+/// Remove whole sentences carrying a source claim the model never earned.
+///
+/// Sentence-level rather than phrase-level on purpose: excising "the dose
+/// reference" from "the dose reference says 8-12 hours" leaves a sentence that
+/// still asserts the fact, just with the attribution filed off. The claim and
+/// its scaffolding go together or not at all.
+pub fn strip_sourced_sentences(reply: &str, faked: &[String]) -> String {
+    let kept: Vec<&str> = reply
+        .split_inclusive(['.', '!', '?', '\n'])
+        .filter(|s| {
+            let lower = s.to_lowercase();
+            !faked.iter().any(|f| lower.contains(f.as_str()))
+        })
+        .collect();
+    kept.join("").trim().to_string()
+}
+
+/// Small models sometimes echo the chat template's role header into the message
+/// body. It is meaningless to the reader and makes the Companion look broken.
+fn strip_role_artifact(content: &str) -> &str {
+    content
+        .trim_start()
+        .strip_prefix("assistant")
+        // Only a bare header counts. "assistants can help" is prose, not an artifact.
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+        .map(|rest| rest.trim_start())
+        .filter(|rest| !rest.is_empty())
+        .unwrap_or_else(|| content.trim())
+}
+
+/// Last line of defence on the way out: an empty reply, or one the model refused to
+/// stop putting JSON in, becomes something a person can actually receive.
+fn presentable(content: String) -> String {
+    let content = strip_role_artifact(&content).to_string();
+    if content.trim().is_empty() || looks_like_leaked_tool_call(&content) {
+        return "I'm here with you. How are you feeling right now?".to_string();
+    }
+    content
+}
+
+/// One tool invocation as it actually happened, for the evaluation harness.
+///
+/// The read-only reference tools deliberately return no user-facing action
+/// description (they aren't journal changes, so the UI has nothing to show), which
+/// means `CompanionReply.actions` cannot answer the question the harness most needs
+/// to ask: *did the model look this up, or did it answer from memory?* This trace
+/// does.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolTrace {
+    pub name: String,
+    pub args: serde_json::Value,
+    pub result: String,
+}
+
+/// [`companion_chat_inner`], recording every tool call into `trace`. The two share
+/// one body so the harness can never drift from what the app really runs.
+pub fn companion_chat_traced(
+    db: &Db,
+    kb: &Knowledge,
+    model: String,
+    history: Vec<ChatMsg>,
+    experience_id: Option<i64>,
+    support_style: Option<String>,
+    trace: &mut Vec<ToolTrace>,
+) -> Result<CompanionReply, String> {
     let mut messages: Vec<serde_json::Value> = vec![sys(ollama::SYSTEM_PROMPT)];
     if let Some(style) = support_style.as_deref().filter(|s| !s.is_empty()) {
         messages.push(sys(format!(
@@ -682,12 +838,54 @@ pub fn companion_chat_inner(
     let mut last_content = String::new();
 
     // Bounded tool loop: the model may call tools, we run them, feed results back.
+    let mut citations_corrected = false;
+    let mut leak_corrected = false;
     for _ in 0..5 {
         let msg = ollama::chat_tools(&model, &messages, &tools)?;
         last_content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
         let calls = msg.get("tool_calls").and_then(|t| t.as_array()).cloned().unwrap_or_default();
         if calls.is_empty() {
-            return Ok(CompanionReply { reply: last_content, actions, journal_changed: changed });
+            // Before this answer reaches someone who may be in no state to
+            // audit it: did it claim a source it never consulted? Give it one
+            // chance to either look the thing up or drop the claim. Costs a
+            // round trip, and only when a false claim was actually detected.
+            // A leaked tool call is unreadable to the person and can look alarming.
+            // Give one chance to answer properly; never pass the JSON through.
+            if looks_like_leaked_tool_call(&last_content) && !leak_corrected {
+                leak_corrected = true;
+                messages.push(sys(
+                    "Your last reply contained a raw tool call in the message text. Call the \
+                     tool through the tool-calling mechanism, or just reply in plain words. \
+                     Never put JSON in a message the person reads.",
+                ));
+                continue;
+            }
+
+            let called: Vec<String> = trace.iter().map(|t| t.name.clone()).collect();
+            let faked = fabricated_citations(&last_content, &called);
+            if !faked.is_empty() {
+                if !citations_corrected {
+                    citations_corrected = true;
+                    messages.push(msg.clone());
+                    // Deliberately a single instruction. An earlier version also
+                    // offered "or call the tool now and report what it returns",
+                    // and small models took that as a template: they asserted the
+                    // call and invented the result. Removing the option removed
+                    // the failure. Rewriting is the only way out.
+                    messages.push(sys(format!(
+                        "Your last reply mentioned {}. You did not read it, so you cannot \
+                         say anything about what it contains. Rewrite the reply with that \
+                         claim removed entirely. Do not say you looked anything up.",
+                        faked.join(" and ")
+                    )));
+                    continue;
+                }
+                // It fabricated again after being told not to. Do not ship a
+                // false claim to someone who may be in no state to question it:
+                // drop the sentences carrying it and send what survives.
+                last_content = strip_sourced_sentences(&last_content, &faked);
+            }
+            return Ok(CompanionReply { reply: presentable(last_content), actions, journal_changed: changed });
         }
         // Record the assistant's tool-call turn, then answer each call.
         messages.push(msg.clone());
@@ -696,6 +894,7 @@ pub fn companion_chat_inner(
             let args = arg_obj(call);
             let (result, desc, did_change) =
                 run_companion_tool(db, kb, experience_id, &name, &args)?;
+            trace.push(ToolTrace { name: name.clone(), args: args.clone(), result: result.clone() });
             if let Some(d) = desc {
                 actions.push(d);
             }
@@ -705,12 +904,7 @@ pub fn companion_chat_inner(
     }
 
     // Ran the loop out — return whatever text we have (or a gentle fallback).
-    let reply = if last_content.is_empty() {
-        "I've done what I can with that — how are you feeling now?".to_string()
-    } else {
-        last_content
-    };
-    Ok(CompanionReply { reply, actions, journal_changed: changed })
+    Ok(CompanionReply { reply: presentable(last_content), actions, journal_changed: changed })
 }
 
 // ---------- crisis escalation (deterministic) ----------
@@ -718,8 +912,17 @@ pub fn companion_chat_inner(
 /// Scan a message for crisis signals, independent of the language model. If a
 /// session is active and its combination is flagged dangerous, elevate to medical.
 #[tauri::command]
-pub fn crisis_scan(db: State<'_, Db>, text: String, experience_id: Option<i64>) -> crate::crisis::CrisisResult {
-    let mut result = crate::crisis::scan(&text);
+pub fn crisis_scan(
+    db: State<'_, Db>,
+    text: String,
+    experience_id: Option<i64>,
+    // Earlier messages from the person this conversation, oldest first. Lets
+    // expressive distress be judged on repetition rather than on one sentence.
+    recent: Option<Vec<String>>,
+) -> crate::crisis::CrisisResult {
+    let mut run = recent.unwrap_or_default();
+    run.push(text);
+    let mut result = crate::crisis::scan_recent(&run);
     if let Some(id) = experience_id {
         let has_danger = db
             .with(|c| {
@@ -1175,4 +1378,48 @@ pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(),
     let draft = contribution_draft(db.clone(), id)?;
     std::fs::write(Path::new(&path), draft.json).map_err(err)?;
     db.with(|c| contribute::mark_contributed(c, id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_repeated_fabrication_loses_the_sentence_that_carried_it() {
+        let reply = "I called the dose reference and it says 8-12 hours. \
+                     How are you feeling right now?";
+        let cleaned = strip_sourced_sentences(reply, &["dose reference".to_string()]);
+        assert_eq!(cleaned, "How are you feeling right now?");
+    }
+
+    #[test]
+    fn stripping_a_claim_never_leaves_the_fact_standing_alone() {
+        // The danger is a half-excision that keeps the assertion and drops only
+        // the attribution, which reads as the Companion's own knowledge.
+        let cleaned = strip_sourced_sentences(
+            "The dose reference says LSD lasts 3 hours.",
+            &["dose reference".to_string()],
+        );
+        assert!(!cleaned.contains("3 hours"), "left the claim behind: {cleaned:?}");
+    }
+
+    #[test]
+    fn a_reply_that_was_only_a_fabrication_falls_back_to_presence() {
+        let cleaned = strip_sourced_sentences(
+            "The dose reference says you'll be fine.",
+            &["dose reference".to_string()],
+        );
+        assert_eq!(presentable(cleaned), "I'm here with you. How are you feeling right now?");
+    }
+
+    #[test]
+    fn a_leaked_role_header_does_not_reach_the_person() {
+        assert_eq!(presentable("assistant\n\nI'm here.".into()), "I'm here.");
+    }
+
+    #[test]
+    fn prose_beginning_with_assistants_is_left_alone() {
+        let reply = "assistants like me can't diagnose that.";
+        assert_eq!(presentable(reply.into()), reply);
+    }
 }

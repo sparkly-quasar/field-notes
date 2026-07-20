@@ -434,6 +434,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             db,
             arg(&args, "text")?,
             arg(&args, "experienceId")?,
+            arg(&args, "recent")?,
         )),
         "emergency_resources" => ok(commands::emergency_resources()),
 

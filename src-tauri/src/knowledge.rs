@@ -298,6 +298,12 @@ pub fn load_bundled(app: &tauri::AppHandle) -> Result<Index, String> {
     parse(&raw)
 }
 
+/// Index a corpus held in memory, with no Tauri resource dir in play — used by
+/// the evaluation harness, which runs outside the app bundle.
+pub fn load_str(raw: &str) -> Result<Index, String> {
+    parse(raw)
+}
+
 fn parse(raw: &str) -> Result<Index, String> {
     let corpus: Corpus =
         serde_json::from_str(raw).map_err(|e| format!("malformed knowledge corpus: {e}"))?;

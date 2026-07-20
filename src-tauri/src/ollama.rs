@@ -93,12 +93,22 @@ fn command(name: &str) -> Command {
     cmd
 }
 
-/// Models offered in the guided setup picker (tag, human label).
+/// Models offered in the guided setup picker (tag, human label). First entry is
+/// the default the picker starts on.
+///
+/// Qwen3 leads on evidence, not vibes: run against `eval/scenarios.json`, Llama
+/// 3.1 declined to engage with six safety scenarios — including a seizure and an
+/// alcohol/benzodiazepine stack where the interaction checker had already flagged
+/// respiratory depression. Qwen3 answered both. A model that refuses this app's
+/// subject matter cannot sit with someone who is having a hard time.
 pub const RECOMMENDED_MODELS: &[(&str, &str)] = &[
-    ("llama3.1:8b", "Llama 3.1 8B — well-rounded, ~4.7 GB"),
-    ("qwen3:8b", "Qwen3 8B — strong reasoning, ~5 GB"),
-    ("llama3.2:3b", "Llama 3.2 3B — small & fast, ~2 GB"),
+    ("qwen3:8b", "Qwen3 8B — recommended, handles hard moments well, ~5 GB"),
+    ("llama3.1:8b", "Llama 3.1 8B — often declines to discuss substances, ~4.7 GB"),
+    ("llama3.2:3b", "Llama 3.2 3B — small & fast, for older machines, ~2 GB"),
 ];
+
+/// The model the app steers people toward, and the target of `switch_model`.
+pub const PREFERRED_MODEL: &str = "qwen3:8b";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AiStatus {
@@ -229,6 +239,41 @@ pub fn pull(app: &AppHandle, tag: &str) -> Result<(), String> {
     let mut cmd = command("ollama");
     cmd.args(["pull", tag]);
     run_streamed(app, "ai-progress", cmd)
+}
+
+/// Delete a model's weights from this machine. Frees the disk; nothing else.
+pub fn remove(app: &AppHandle, tag: &str) -> Result<(), String> {
+    ensure_serving()?;
+    let _ = app.emit("ai-progress", format!("Removing {tag}…"));
+    let mut cmd = command("ollama");
+    cmd.args(["rm", tag]);
+    run_streamed(app, "ai-progress", cmd)
+}
+
+/// Move someone from an old model to [`PREFERRED_MODEL`] in one step.
+///
+/// Downloads first and only removes the old weights once the new model is
+/// actually on disk. The reverse order would leave someone with no working
+/// Companion if the download failed — possibly mid-session, which is exactly
+/// when they need it. Removal failure is deliberately not fatal: by then the
+/// new model works, and stale weights are a disk-space problem, not a broken app.
+pub fn switch_model(app: &AppHandle, from: &str) -> Result<(), String> {
+    pull(app, PREFERRED_MODEL)?;
+    if !list_models().iter().any(|m| m == PREFERRED_MODEL) {
+        return Err(format!(
+            "{PREFERRED_MODEL} didn't finish downloading, so nothing was removed. \
+             Check your connection and try again."
+        ));
+    }
+    if from != PREFERRED_MODEL {
+        if let Err(e) = remove(app, from) {
+            let _ = app.emit(
+                "ai-progress",
+                format!("{PREFERRED_MODEL} is ready. Couldn't remove {from}: {e}"),
+            );
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
