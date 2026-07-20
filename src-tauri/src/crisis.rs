@@ -123,10 +123,10 @@ pub fn all_resources() -> Vec<Resource> {
     vec![
         r_trusted_person(),
         r_sober_present(),
+        r_fireside(),
         r_emergency(),
         r_lifeline(),
         r_poison(),
-        r_fireside(),
     ]
 }
 
@@ -584,7 +584,8 @@ mod tests {
         }
         assert_eq!(labels[0], "Someone you trust", "reachable, in-the-room help first");
         assert_eq!(labels[1], "Get a trusted sober person present");
-        assert_eq!(labels[2], "Emergency services");
+        assert_eq!(labels[2], "Fireside Project", "peer support sits with the trusted-people options");
+        assert_eq!(labels[3], "Emergency services");
     }
 
     #[test]
