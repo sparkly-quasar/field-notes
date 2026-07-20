@@ -270,6 +270,8 @@
   let cInput = $state("");
   let cSending = $state(false);
   let cShareSession = $state(true);
+  // null = the current (newest) session; a number = a specific past session.
+  let cSessionChoice = $state<number | null>(null);
   let cActions = $state<string[]>([]); // journal actions the companion took this reply
 
   // support style (session intake) — honored by the companion
@@ -278,7 +280,6 @@
     "Help me stay grounded",
     "Talk me through the hard parts",
     "Stay quiet unless I reach out",
-    "Gentle periodic check-ins",
     "Practical reminders (water, rest, breathing)",
   ];
   let supportStyle = $state("");
@@ -1010,11 +1011,25 @@
     }
   }
 
-  // the experience the companion is aware of — the live-session one if active,
-  // otherwise the most recent session (when sharing is on). Plain notes are never
-  // attached: session context is about doses, and notes are private writing.
+  // Sessions the companion could be pointed at, newest first. Plain notes are
+  // never offered: session context is about doses, and notes are private writing.
+  const shareableSessions = $derived(
+    experiences
+      .filter((e) => e.kind === "session")
+      .slice()
+      .sort((a, b) => b.started_at.localeCompare(a.started_at)),
+  );
+  // Which session the companion is aware of. `null` choice means "the current
+  // one" — the newest session — so a fresh session is picked up automatically
+  // without re-selecting. A specific id lets someone attach a past session, e.g.
+  // to talk it through for integration. A dangling id (session deleted) falls
+  // back to nothing attached rather than the wrong one.
   const attachedExp = $derived(
-    cShareSession ? (experiences.find((e) => e.kind === "session") ?? null) : null,
+    !cShareSession
+      ? null
+      : cSessionChoice != null
+        ? (shareableSessions.find((e) => e.id === cSessionChoice) ?? null)
+        : (shareableSessions[0] ?? null),
   );
   const companionExpId = $derived(
     liveSession && selected ? selected.id : attachedExp ? attachedExp.id : null,
@@ -1785,9 +1800,21 @@
 
           <label class="share">
             <input type="checkbox" bind:checked={cShareSession} />
-            Share current session with the companion
-            {#if attachedExp}<span class="muted small"> · aware of “{attachedExp.title || "Untitled"}”</span>{/if}
+            Share a session with the companion
           </label>
+          {#if cShareSession}
+            <div class="share-pick">
+              <select bind:value={cSessionChoice} class="model-sel" aria-label="Which session to share">
+                <option value={null}>Current session (most recent)</option>
+                {#each shareableSessions as s}
+                  <option value={s.id}>{s.title || "Untitled"} · {fmtDate(s.started_at)}</option>
+                {/each}
+              </select>
+              <span class="muted small">
+                {#if attachedExp}Sharing “{attachedExp.title || "Untitled"}”{:else}No sessions yet — nothing to share.{/if}
+              </span>
+            </div>
+          {/if}
 
           <div class="support-style">
             <span class="muted small">What kind of support do you want?</span>
@@ -2591,7 +2618,8 @@
   .vault-pick input { flex: 1; min-width: 14rem; padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); }
   .model-sel { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.6rem; max-width: 55%; }
   .disclaimer { margin-top: 0; }
-  .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }
+  .share { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 0.3rem; }
+  .share-pick { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 0.8rem 1.5rem; }
   .share input { width: auto; }
   .chat { display: flex; flex-direction: column; gap: 0.5rem; min-height: 220px; max-height: 46vh; overflow-y: auto; padding: 0.4rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
   .chat-empty { margin: auto; text-align: center; max-width: 40ch; }
