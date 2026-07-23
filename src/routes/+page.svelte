@@ -30,6 +30,7 @@
     setCompanionEnabled,
     aiSwitchModel,
     companionChat,
+    companionWarm,
     crisisScan,
     emergencyResources,
     type CrisisResult,
@@ -84,6 +85,7 @@
     type ChatMsg,
     type AiStatus,
   } from "$lib/api";
+  import { getVersion } from "@tauri-apps/api/app";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -128,6 +130,9 @@
   // Obsidian vault sync
   const VAULT_KEY = "fieldnotes.vaultFolder";
   const COMPANION_OFF_KEY = "fieldnotes.companionOff";
+  // Set once the first-run Companion opt-in has been answered, so the question is
+  // asked exactly once (on the disclaimer splash of a fresh install).
+  const COMPANION_CHOICE_KEY = "fieldnotes.companionChoiceMade";
   let vaultFolder = $state("");
   let obsBusy = $state(false);
   let obsErr = $state<string | null>(null);
@@ -251,6 +256,9 @@
    * The switch lives in Settings, not in the Companion tab it hides.
    */
   let companionOff = $state(false);
+  /** Whether the first-run Companion opt-in has been answered. Defaults true so a
+   * returning user is never re-asked; onMount sets it false for a fresh install. */
+  let companionChoiceMade = $state(true);
   /** Dismissed for this session only — no localStorage, so it returns next launch. */
   let upgradeDismissed = $state(false);
   let aiLog = $state<string[]>([]);
@@ -348,6 +356,7 @@
     checkForUpdate();
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
     companionOff = localStorage.getItem(COMPANION_OFF_KEY) === "1";
+    companionChoiceMade = localStorage.getItem(COMPANION_CHOICE_KEY) === "1";
     vaultFolder = localStorage.getItem(VAULT_KEY) ?? "";
     loadDbStatus();
     const un = listen<string>("ai-progress", (e) => {
@@ -403,6 +412,13 @@
       localStorage.setItem(HIDE_DISCLAIMER_KEY, "1");
     } else {
       localStorage.removeItem(HIDE_DISCLAIMER_KEY);
+    }
+    // Record that the first-run Companion opt-in has now been answered. The
+    // `companionOff` value it set is already persisted by its own effect; this
+    // just stops the question from being asked again.
+    if (!companionChoiceMade) {
+      companionChoiceMade = true;
+      localStorage.setItem(COMPANION_CHOICE_KEY, "1");
     }
     acknowledged = true;
     await Promise.all([loadJournal(), loadSubstances()]);
@@ -930,8 +946,50 @@
       if (!aiModel || !ai.models.includes(aiModel)) {
         aiModel = saved && ai.models.includes(saved) ? saved : ai.models[0];
       }
+      // Pre-load the model now, while they're still reading the intro, so the
+      // first message lands at warm speed instead of a cold multi-second load.
+      // Once per model per session; best-effort, so a failure changes nothing.
+      if (!companionOff && aiModel && aiModel !== warmedModel) {
+        warmedModel = aiModel;
+        companionWarm(aiModel).catch(() => {});
+      }
     }
     if (!experiences.length) await loadJournal();
+  }
+  // The model warm-up already fired for, so we don't re-request it each tab visit.
+  let warmedModel = "";
+
+  // ---- feedback (open a prefilled GitHub issue) ----
+  // The repo is public, so "report a bug / request a feature" is a link to a
+  // prefilled new-issue page — no server, no telemetry, nothing leaves the
+  // journal. GitHub handles identity, and issues collect in one place to work
+  // through in batches.
+  const FEEDBACK_REPO = "https://github.com/sparkly-quasar/field-notes";
+  let fbKind = $state<"bug" | "feature">("bug");
+  let fbSummary = $state("");
+  let fbDetail = $state("");
+
+  async function openFeedback() {
+    const isBug = fbKind === "bug";
+    let version = "";
+    try {
+      version = await getVersion();
+    } catch {
+      // Version is a nicety for triage, not required — send without it.
+    }
+    const platform = isMac ? "macOS" : isWindows ? "Windows" : "Linux";
+    const template = isBug
+      ? "**What happened?**\n\n\n**What did you expect instead?**\n\n\n**Steps to reproduce, if you can:**\n1. \n"
+      : "**What would you like Field Notes to do?**\n\n\n**When would you reach for it?**\n";
+    const detail = fbDetail.trim() || template;
+    const body = `${detail}\n\n---\n_Field Notes${version ? ` v${version}` : ""} · ${platform}_`;
+    const url =
+      `${FEEDBACK_REPO}/issues/new?labels=${isBug ? "bug" : "enhancement"}` +
+      `&title=${encodeURIComponent(`${isBug ? "[Bug] " : "[Feature] "}${fbSummary.trim()}`)}` +
+      `&body=${encodeURIComponent(body)}`;
+    await openUrl(url);
+    fbSummary = "";
+    fbDetail = "";
   }
   $effect(() => {
     if (aiModel) localStorage.setItem("fn.model", aiModel);
@@ -1345,6 +1403,21 @@
           <li>Your data stays on this computer. Keep it secure.</li>
         </ul>
       </div>
+      {#if !companionChoiceMade}
+        <label class="companion-optin">
+          <input
+            type="checkbox"
+            checked={!companionOff}
+            onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
+          />
+          <span>
+            <strong>Enable the Companion</strong> — an optional AI trip-sitter you can chat with
+            before, during, or after an experience. It runs entirely on this device, offline. The
+            interaction checker, crisis scan, and dose reference all work either way. You can change
+            this anytime in Settings.
+          </span>
+        </label>
+      {/if}
       <label class="dont-show">
         <input type="checkbox" bind:checked={dontShowDisclaimer} />
         Don't show this again on startup
@@ -2311,6 +2384,31 @@
         </label>
       </section>
 
+      <section class="card">
+        <h2>Feedback</h2>
+        <p class="muted small">
+          Hit a bug, or wish it did something it doesn't? Open an issue on GitHub. It opens
+          prefilled in your browser — nothing leaves your journal, and you write and send it
+          there. Reports are worked through in batches.
+        </p>
+        <div class="fb-kind">
+          <label><input type="radio" bind:group={fbKind} value="bug" /> Report a bug</label>
+          <label><input type="radio" bind:group={fbKind} value="feature" /> Request a feature</label>
+        </div>
+        <input
+          class="fb-field"
+          placeholder={fbKind === "bug" ? "What went wrong? (short summary)" : "What would you like? (short summary)"}
+          bind:value={fbSummary}
+        />
+        <textarea
+          class="fb-field"
+          rows="3"
+          placeholder="Any detail you want to include (optional — you can also write it on GitHub)"
+          bind:value={fbDetail}
+        ></textarea>
+        <button class="small-btn" onclick={openFeedback}>Continue on GitHub →</button>
+      </section>
+
       <section class="card danger-card">
         <h2>Erase &amp; uninstall</h2>
         <p class="muted small">
@@ -2360,8 +2458,8 @@
     {/if}
 
     <footer>
-      “The greatest intention is to be open to learning.”
-      <div class="footer-sub">for mindful exploration and contemplation</div>
+      “There are no casual experiments.”
+      <div class="footer-sub">— Sasha Shulgin</div>
     </footer>
   </main>
 
@@ -2653,6 +2751,10 @@
   .unlock-form input { padding: 0.6rem 0.7rem; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 1rem; }
   .dont-show { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.9rem; margin: 1rem 0; cursor: pointer; }
   .dont-show input { width: auto; }
+  .companion-optin { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.9rem; margin: 1rem 0 0; cursor: pointer; text-align: left; }
+  .companion-optin input { width: auto; margin-top: 0.2rem; flex: none; }
+  .companion-optin span { color: var(--muted); }
+  .companion-optin strong { color: var(--fg, inherit); }
   .sec-block { border-top: 1px solid var(--line); margin-top: 1.1rem; padding-top: 1.1rem; display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
   .sec-block h3 { margin: 0; font-size: 0.98rem; }
   .sec-block input { padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 16rem; max-width: 24rem; }
@@ -2671,6 +2773,11 @@
   .bubble.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
   .chat-input { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
   .chat-input input { flex: 1; }
+
+  .fb-kind { display: flex; gap: 1.2rem; margin: 0.4rem 0 0.7rem; flex-wrap: wrap; }
+  .fb-kind label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; cursor: pointer; }
+  .fb-field { display: block; width: 100%; margin-bottom: 0.55rem; }
+  textarea.fb-field { resize: vertical; }
 
   footer { margin-top: 1.6rem; text-align: center; color: var(--muted); font-size: 0.8rem; }
   .footer-sub { margin-top: 0.2rem; font-size: 0.72rem; opacity: 0.75; }

@@ -13,7 +13,7 @@ use crate::{Db, Knowledge};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::Path;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -698,16 +698,42 @@ pub fn knowledge_status(kb: State<'_, Knowledge>) -> KnowledgeStatus {
     }
 }
 
+/// Pre-load the model into memory so the *first* message isn't slow.
+///
+/// Fired best-effort when the Companion comes into view, well before anyone types.
+/// The cold load of an 8B model takes tens of seconds; paying it here, off the
+/// main thread, means the first real reply arrives at warm speed. Any error is the
+/// caller's to ignore — a failed warm-up just means the first message loads the
+/// model the old, slow way.
 #[tauri::command]
-pub fn companion_chat(
-    db: State<'_, Db>,
-    kb: State<'_, Knowledge>,
+pub async fn companion_warm(model: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ollama::warm(&model))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn companion_chat(
+    app: AppHandle,
     model: String,
     history: Vec<ChatMsg>,
     experience_id: Option<i64>,
     support_style: Option<String>,
 ) -> Result<CompanionReply, String> {
-    companion_chat_inner(db.inner(), kb.inner(), model, history, experience_id, support_style)
+    // A turn is a chain of blocking HTTP calls to the local model — and, on the
+    // first message, a cold load of tens of seconds. As a *synchronous* command
+    // this ran on Tauri's main thread and froze the whole window until it
+    // returned, which reads as a crash. Run it on a blocking-safe thread instead
+    // so the UI stays responsive; the phone portal already does this via
+    // `companion_chat_start`. State is fetched inside the closure because `State`
+    // borrows can't cross the `spawn_blocking` boundary.
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<Db>();
+        let kb = app.state::<Knowledge>();
+        companion_chat_inner(db.inner(), kb.inner(), model, history, experience_id, support_style)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The Companion's whole conversation turn, free of Tauri's `State` wrappers, so it

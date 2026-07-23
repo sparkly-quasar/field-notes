@@ -309,6 +309,24 @@ pub fn list_models() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Load a model into memory without generating anything, so the first real
+/// message doesn't pay the cold-load cost (tens of seconds for an 8B model on
+/// the machine).
+///
+/// Ollama treats a `/api/generate` request with no `prompt` as a pure load: it
+/// resides the weights and returns `done_reason: "load"` immediately. Called
+/// best-effort when the Companion comes into view — a failure here just means the
+/// first message loads the model the slow way, exactly as before.
+pub fn warm(model: &str) -> Result<(), String> {
+    if !api_up() {
+        return Err("Ollama isn't running on this computer.".into());
+    }
+    ureq::post(&format!("{BASE}/api/generate"))
+        .send_json(serde_json::json!({ "model": model }))
+        .map_err(|e| format!("warm-up request failed: {e}"))?;
+    Ok(())
+}
+
 // ---------- free-text experience import ----------
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

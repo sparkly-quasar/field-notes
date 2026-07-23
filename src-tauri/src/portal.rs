@@ -466,14 +466,20 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         // --- Companion. It runs on the desktop's Ollama; the phone is a thin client. ---
         // The blocking form stays for older phones; new ones use start/poll below so
         // a slow model can't outlive mobile Safari's ~60s request timeout.
-        "companion_chat" => done(commands::companion_chat(
-            db,
-            app.state(),
-            arg(&args, "model")?,
-            arg(&args, "history")?,
-            arg(&args, "experienceId")?,
-            arg(&args, "supportStyle")?,
-        )),
+        "companion_chat" => {
+            // The desktop command is now async (it runs off the UI thread); the
+            // portal is already on a worker thread, so call the shared inner
+            // function directly and keep this path blocking.
+            let kb = app.state::<Knowledge>();
+            done(commands::companion_chat_inner(
+                db.inner(),
+                kb.inner(),
+                arg(&args, "model")?,
+                arg(&args, "history")?,
+                arg(&args, "experienceId")?,
+                arg(&args, "supportStyle")?,
+            ))
+        }
         // Same arguments, but the turn runs on a background thread and the phone
         // gets a job id back immediately. See [`CompanionJobs`].
         "companion_chat_start" => {
