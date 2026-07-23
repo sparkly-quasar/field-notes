@@ -338,6 +338,8 @@ export interface CompanionReply {
   reply: string;
   actions: string[];
   journal_changed: boolean;
+  /** Measured generation speed of this reply, tokens/sec; absent for a tool-only turn. */
+  tokens_per_sec?: number | null;
 }
 export const companionChat = (
   model: string,
@@ -365,11 +367,14 @@ export interface ComputeStatus {
   arch: string;
   os: string;
   loaded: LoadedModel | null;
+  tokens_per_sec: number | null;
   message: string;
 }
-/** Does this machine have the memory to run `model` comfortably? A read-only
- * preflight — advisory, never a gate. */
-export const computeStatus = (model: string) => invoke<ComputeStatus>("compute_status", { model });
+/** Does this machine have the memory (and, once a reply lands, the speed) to run
+ * `model` comfortably? A read-only preflight — advisory, never a gate.
+ * `measuredTps` is the last reply's tokens/sec, or null before the first message. */
+export const computeStatus = (model: string, measuredTps: number | null = null) =>
+  invoke<ComputeStatus>("compute_status", { model, measuredTps });
 
 // ---- Companion as a background job (PHONE-PORTAL-ONLY) ----
 // A slow local model can take minutes per turn; mobile Safari kills a silent

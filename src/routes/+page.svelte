@@ -967,17 +967,53 @@
   // Re-checked when the Companion opens, after the model loads, and after each
   // reply, since free memory (and whether the model spilled to CPU) shifts.
   let compute = $state<ComputeStatus | null>(null);
+  // Generation speed of the last reply (tokens/sec), fed back into the watcher so
+  // it can flag a machine that fits the model in memory but runs it too slowly.
+  let lastTps = $state<number | null>(null);
   async function checkCompute() {
     if (companionOff || !aiModel || !ai?.running) {
       compute = null;
       return;
     }
     try {
-      compute = await computeStatus(aiModel);
+      compute = await computeStatus(aiModel, lastTps);
     } catch {
       compute = null; // Never let a failed check get in the person's way.
     }
   }
+  // A speed reading belongs to the model that produced it; forget it the moment
+  // the active model changes (select, download, or upgrade), so a fast old model
+  // can't vouch for a slow new one.
+  let tpsModel: string | null = null;
+  $effect(() => {
+    if (aiModel !== tpsModel) {
+      tpsModel = aiModel;
+      lastTps = null;
+    }
+  });
+
+  // Preflight the model someone is *about* to download against this machine, so a
+  // too-big pick is caught before the multi-GB download rather than after. Estimate
+  // only (it isn't installed yet), which is exactly what a preflight needs.
+  let pullCompute = $state<ComputeStatus | null>(null);
+  $effect(() => {
+    const tag = aiPullTag?.trim();
+    if (!tag) {
+      pullCompute = null;
+      return;
+    }
+    let cancelled = false;
+    computeStatus(tag, null)
+      .then((s) => {
+        if (!cancelled) pullCompute = s;
+      })
+      .catch(() => {
+        if (!cancelled) pullCompute = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // ---- feedback (open a prefilled GitHub issue) ----
   // The repo is public, so "report a bug / request a feature" is a link to a
@@ -1140,6 +1176,7 @@
       const res = await companionChat(aiModel, history, companionExpId, supportStyle || null);
       cMessages = [...cMessages, { role: "assistant", content: res.reply || "…" }];
       cActions = res.actions;
+      if (res.tokens_per_sec != null) lastTps = res.tokens_per_sec;
       if (res.journal_changed) {
         await loadJournal();
         await refreshSelected();
@@ -1462,10 +1499,21 @@
       <select bind:value={aiPullTag} class="model-sel">
         {#each aiRecommended as [tag, label]}<option value={tag}>{label}</option>{/each}
       </select>
+      {@render pullPreflight()}
       <button class="primary small-btn" disabled={aiBusy} onclick={doPull}>{aiBusy ? "Downloading…" : "Download model"}</button>
     {/if}
     {#if aiErr}<p class="notice bad-notice">{aiErr}</p>{/if}
     {#if aiLog.length}<pre class="ai-log">{aiLog.slice(-14).join("\n")}</pre>{/if}
+  {/snippet}
+
+  <!-- Advisory shown before a download: will the picked model fit this machine? -->
+  {#snippet pullPreflight()}
+    {#if pullCompute && (pullCompute.verdict === "insufficient" || pullCompute.verdict === "tight")}
+      <div class="compute-notice {pullCompute.verdict}">
+        <span class="compute-icon" aria-hidden="true">{pullCompute.verdict === "insufficient" ? "⚠️" : "⚡"}</span>
+        <span>{pullCompute.message}</span>
+      </div>
+    {/if}
   {/snippet}
 
   <main>
@@ -1897,6 +1945,7 @@
                   <button type="button" class="chip" class:on={aiPullTag === tag} onclick={() => (aiPullTag = tag)}>{label}</button>
                 {/each}
               </div>
+              {@render pullPreflight()}
               <p class="muted small">
                 These models run on this computer, so your hardware sets the ceiling. On an older or
                 lower-memory machine the Companion will be slower and less capable. You can turn it

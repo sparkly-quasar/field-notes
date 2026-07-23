@@ -508,10 +508,36 @@ they're sober, preparing, or reflecting, and they ask a real question about a \
 substance, give them a genuine answer with the detail the reference supports. \
 Brevity is for their benefit, not a rule for its own sake.";
 
+/// Generation-speed stats Ollama reports on a non-streamed reply. `eval_*` cover
+/// the token-generation phase (not prompt ingestion), which is what a person feels
+/// as "how fast is it typing back". Zeroed when the response omits them.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct ChatPerf {
+    pub eval_count: u64,
+    pub eval_duration_ns: u64,
+}
+
+impl ChatPerf {
+    fn from_response(v: &serde_json::Value) -> Self {
+        ChatPerf {
+            eval_count: v.get("eval_count").and_then(|n| n.as_u64()).unwrap_or(0),
+            eval_duration_ns: v.get("eval_duration").and_then(|n| n.as_u64()).unwrap_or(0),
+        }
+    }
+
+    /// Tokens generated per second, or `None` when Ollama didn't report enough to
+    /// compute it (e.g. a pure tool-call turn that generated no text).
+    pub fn tokens_per_sec(&self) -> Option<f64> {
+        (self.eval_count > 0 && self.eval_duration_ns > 0)
+            .then(|| self.eval_count as f64 / (self.eval_duration_ns as f64 / 1_000_000_000.0))
+    }
+}
+
 /// Send a chat request that may include tool definitions, returning the raw
-/// assistant `message` object (which may carry `tool_calls`). Messages are raw
-/// JSON so tool-result turns can be included.
-pub fn chat_tools(model: &str, messages: &[serde_json::Value], tools: &serde_json::Value) -> Result<serde_json::Value, String> {
+/// assistant `message` object (which may carry `tool_calls`) plus the reply's
+/// generation-speed stats. Messages are raw JSON so tool-result turns can be
+/// included.
+pub fn chat_tools(model: &str, messages: &[serde_json::Value], tools: &serde_json::Value) -> Result<(serde_json::Value, ChatPerf), String> {
     if !api_up() {
         return Err("Ollama isn't running on this computer. Start Ollama and try again.".into());
     }
@@ -529,7 +555,10 @@ pub fn chat_tools(model: &str, messages: &[serde_json::Value], tools: &serde_jso
         .map_err(|e| format!("Ollama request failed: {e}"))?;
     let v: serde_json::Value =
         resp.into_json().map_err(|e| format!("Bad response from Ollama: {e}"))?;
-    v.get("message")
+    let perf = ChatPerf::from_response(&v);
+    let msg = v
+        .get("message")
         .cloned()
-        .ok_or_else(|| "Ollama returned no message.".to_string())
+        .ok_or_else(|| "Ollama returned no message.".to_string())?;
+    Ok((msg, perf))
 }

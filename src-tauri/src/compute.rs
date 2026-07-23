@@ -25,6 +25,11 @@ const GB: f64 = 1024.0 * 1024.0 * 1024.0;
 /// too. A model that exactly fills RAM is a swap-storm waiting to happen.
 const HEADROOM_GB: f64 = 1.5;
 
+/// Below this generation speed (tokens/sec), a chat reply feels like watching a
+/// progress bar — long enough that someone mid-experience gives up on it. Used to
+/// catch a machine that has the memory but not the horsepower.
+const SLOW_TPS: f64 = 4.0;
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
@@ -62,6 +67,10 @@ pub struct ComputeStatus {
     pub arch: String,
     pub os: String,
     pub loaded: Option<LoadedModel>,
+    /// Measured generation speed from the last reply, if one has been sent this
+    /// session. Real numbers beat estimates: this is what actually flags a machine
+    /// that fits the model in memory but generates painfully slowly.
+    pub tokens_per_sec: Option<f64>,
     /// One plain sentence for the UI to show as-is.
     pub message: String,
 }
@@ -77,6 +86,7 @@ pub fn unknown() -> ComputeStatus {
         arch: std::env::consts::ARCH.to_string(),
         os: std::env::consts::OS.to_string(),
         loaded: None,
+        tokens_per_sec: None,
         message: "Couldn't read this machine's memory, so I can't tell whether the model \
                   will run comfortably. If replies are very slow, try a smaller model."
             .into(),
@@ -143,7 +153,12 @@ fn loaded_model(model: &str) -> Option<LoadedModel> {
 }
 
 /// Read the machine and judge whether `model` can run comfortably on it.
-pub fn status(model: &str) -> ComputeStatus {
+///
+/// `measured_tps` is the generation speed from the most recent reply, if any —
+/// pass `None` before the first message. When present, it overrides a rosy
+/// memory-only verdict: a machine can fit the model and still be too slow to be
+/// usable, and only a real reply reveals that.
+pub fn status(model: &str, measured_tps: Option<f64>) -> ComputeStatus {
     use sysinfo::System;
     let mut sys = System::new();
     sys.refresh_memory();
@@ -158,8 +173,19 @@ pub fn status(model: &str) -> ComputeStatus {
     // A loaded model's real resident size beats any estimate.
     let required = loaded.as_ref().map(|l| l.resident_gb).unwrap_or_else(|| estimated_gb(model));
 
-    let verdict = decide(total, available, required, loaded.as_ref());
-    let message = phrasing(verdict, total, available, required, loaded.as_ref());
+    let mem_verdict = decide(total, available, required, loaded.as_ref());
+    // Fold in measured speed: it can only make the verdict more cautious, never
+    // more optimistic, and it wins over the memory estimate when the two disagree.
+    let (verdict, message) = match measured_tps {
+        Some(tps) if tps < SLOW_TPS => (
+            if mem_verdict == Verdict::Ample { Verdict::Tight } else { mem_verdict },
+            format!(
+                "The model is replying at about {tps:.1} tokens/sec, which is slow going. \
+                 A smaller model would feel much more responsive."
+            ),
+        ),
+        _ => (mem_verdict, phrasing(mem_verdict, total, available, required, loaded.as_ref())),
+    };
 
     ComputeStatus {
         verdict,
@@ -170,6 +196,7 @@ pub fn status(model: &str) -> ComputeStatus {
         arch: std::env::consts::ARCH.to_string(),
         os: std::env::consts::OS.to_string(),
         loaded,
+        tokens_per_sec: measured_tps.map(round1),
         message,
     }
 }
@@ -239,10 +266,22 @@ mod tests {
     fn reads_a_plausible_machine() {
         // This test runs on a real machine; total memory should be a sane number
         // of GB (bytes → GB), catching a units regression (KB vs bytes) loudly.
-        let s = status("qwen3:8b");
+        let s = status("qwen3:8b", None);
         assert!(s.total_ram_gb > 0.5, "total looks wrong: {}", s.total_ram_gb);
         assert!(s.total_ram_gb < 8192.0, "total looks wrong: {}", s.total_ram_gb);
         assert!(!s.message.is_empty());
+    }
+
+    #[test]
+    fn a_slow_reply_drags_the_verdict_down_and_is_reported() {
+        // Whatever the memory picture, a measured 2 tok/s is never "ample".
+        let s = status("qwen3:8b", Some(2.0));
+        assert_ne!(s.verdict, Verdict::Ample);
+        assert_eq!(s.tokens_per_sec, Some(2.0));
+        assert!(s.message.contains("tokens/sec"));
+        // A healthy speed leaves the memory verdict alone.
+        let ok = status("qwen3:8b", Some(30.0));
+        assert_eq!(ok.tokens_per_sec, Some(30.0));
     }
 
     #[test]
