@@ -43,3 +43,4 @@ tiny_http = "0.12"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # OS randomness for the portal's bearer token.
 getrandom = "0.2"
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }

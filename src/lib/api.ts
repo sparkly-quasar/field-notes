@@ -350,6 +350,27 @@ export const companionChat = (
  * fire it when the Companion comes into view and ignore any error. */
 export const companionWarm = (model: string) => invoke<void>("companion_warm", { model });
 
+export type ComputeVerdict = "ample" | "tight" | "insufficient" | "unknown";
+export interface LoadedModel {
+  resident_gb: number;
+  gpu_gb: number;
+  cpu_gb: number;
+}
+export interface ComputeStatus {
+  verdict: ComputeVerdict;
+  total_ram_gb: number;
+  available_ram_gb: number;
+  required_gb: number;
+  cpu_cores: number;
+  arch: string;
+  os: string;
+  loaded: LoadedModel | null;
+  message: string;
+}
+/** Does this machine have the memory to run `model` comfortably? A read-only
+ * preflight — advisory, never a gate. */
+export const computeStatus = (model: string) => invoke<ComputeStatus>("compute_status", { model });
+
 // ---- Companion as a background job (PHONE-PORTAL-ONLY) ----
 // A slow local model can take minutes per turn; mobile Safari kills a silent
 // request at ~60s, and a locked screen kills it instantly. So the phone starts

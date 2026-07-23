@@ -705,6 +705,16 @@ pub fn knowledge_status(kb: State<'_, Knowledge>) -> KnowledgeStatus {
 /// main thread, means the first real reply arrives at warm speed. Any error is the
 /// caller's to ignore — a failed warm-up just means the first message loads the
 /// model the old, slow way.
+/// Whether this machine has the memory to run `model` comfortably. A read-only
+/// preflight the Companion setup and chat surface — never a gate, just an honest
+/// heads-up. Runs off the UI thread because it touches Ollama's `/api/ps`.
+#[tauri::command]
+pub async fn compute_status(model: String) -> crate::compute::ComputeStatus {
+    tauri::async_runtime::spawn_blocking(move || crate::compute::status(&model))
+        .await
+        .unwrap_or_else(|_| crate::compute::unknown())
+}
+
 #[tauri::command]
 pub async fn companion_warm(model: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || ollama::warm(&model))

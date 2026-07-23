@@ -31,6 +31,8 @@
     aiSwitchModel,
     companionChat,
     companionWarm,
+    computeStatus,
+    type ComputeStatus,
     crisisScan,
     emergencyResources,
     type CrisisResult,
@@ -953,11 +955,29 @@
         warmedModel = aiModel;
         companionWarm(aiModel).catch(() => {});
       }
+      checkCompute();
     }
     if (!experiences.length) await loadJournal();
   }
   // The model warm-up already fired for, so we don't re-request it each tab visit.
   let warmedModel = "";
+
+  // ---- compute watcher ----
+  // Advisory read of whether this machine can run the chosen model comfortably.
+  // Re-checked when the Companion opens, after the model loads, and after each
+  // reply, since free memory (and whether the model spilled to CPU) shifts.
+  let compute = $state<ComputeStatus | null>(null);
+  async function checkCompute() {
+    if (companionOff || !aiModel || !ai?.running) {
+      compute = null;
+      return;
+    }
+    try {
+      compute = await computeStatus(aiModel);
+    } catch {
+      compute = null; // Never let a failed check get in the person's way.
+    }
+  }
 
   // ---- feedback (open a prefilled GitHub issue) ----
   // The repo is public, so "report a bug / request a feature" is a link to a
@@ -1128,6 +1148,8 @@
       cMessages = [...cMessages, { role: "assistant", content: `⚠️ ${typeof e === "string" ? e : String(e)}` }];
     } finally {
       cSending = false;
+      // The model is resident now (or just changed footprint) — re-read the machine.
+      checkCompute();
     }
   }
 
@@ -1821,6 +1843,15 @@
             A calm harm-reduction companion, running locally. Not medical advice. In an emergency,
             contact emergency services or poison control.
           </p>
+
+          {#if compute && compute.verdict !== "ample"}
+            <div class="compute-notice {compute.verdict}">
+              <span class="compute-icon" aria-hidden="true">
+                {compute.verdict === "insufficient" ? "⚠️" : compute.verdict === "tight" ? "⚡" : "ℹ️"}
+              </span>
+              <span>{compute.message}</span>
+            </div>
+          {/if}
 
           {#if upgradeAvailable}
             <div class="upgrade-notice">
@@ -2773,6 +2804,16 @@
   .bubble.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
   .chat-input { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
   .chat-input input { flex: 1; }
+
+  .compute-notice {
+    display: flex; gap: 0.5rem; align-items: flex-start;
+    padding: 0.6rem 0.75rem; border-radius: 8px; margin: 0.2rem 0 0.8rem;
+    font-size: 0.85rem; line-height: 1.35;
+    border: 1px solid var(--line); background: color-mix(in srgb, var(--muted) 10%, transparent);
+  }
+  .compute-notice.insufficient { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .compute-notice.tight { border-color: var(--caution); background: color-mix(in srgb, var(--caution) 14%, transparent); }
+  .compute-icon { flex: none; }
 
   .fb-kind { display: flex; gap: 1.2rem; margin: 0.4rem 0 0.7rem; flex-wrap: wrap; }
   .fb-kind label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; cursor: pointer; }

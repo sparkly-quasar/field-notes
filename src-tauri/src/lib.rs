@@ -7,6 +7,7 @@
 // can drive the Companion exactly as the app does, without a Tauri runtime. The
 // crate is `publish = false`; this is an internal seam, not a supported API.
 pub mod commands;
+pub mod compute;
 mod contribute;
 pub mod crisis;
 pub mod db;
@@ -154,6 +155,7 @@ pub fn run() {
             commands::ollama_models,
             commands::companion_chat,
             commands::companion_warm,
+            commands::compute_status,
             commands::parse_experience,
             commands::import_experience,
             commands::pw_update,
