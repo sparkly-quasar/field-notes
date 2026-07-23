@@ -375,6 +375,12 @@ pub struct CompanionReply {
     pub actions: Vec<String>,
     /// True if the model changed the journal (so the UI should refresh).
     pub journal_changed: bool,
+    /// Measured generation speed of the turn's text, in tokens/sec, from Ollama's
+    /// own stats. `None` when nothing was generated to measure (e.g. a turn that
+    /// was only tool calls). The compute watcher uses it to catch a machine that
+    /// has the RAM but is still painfully slow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_per_sec: Option<f64>,
 }
 
 fn sys(content: impl Into<String>) -> serde_json::Value {
@@ -705,12 +711,14 @@ pub fn knowledge_status(kb: State<'_, Knowledge>) -> KnowledgeStatus {
 /// main thread, means the first real reply arrives at warm speed. Any error is the
 /// caller's to ignore — a failed warm-up just means the first message loads the
 /// model the old, slow way.
-/// Whether this machine has the memory to run `model` comfortably. A read-only
-/// preflight the Companion setup and chat surface — never a gate, just an honest
-/// heads-up. Runs off the UI thread because it touches Ollama's `/api/ps`.
+/// Whether this machine has the memory (and, once a reply lands, the speed) to run
+/// `model` comfortably. A read-only preflight the Companion setup and chat surface —
+/// never a gate, just an honest heads-up. `measured_tps` is the last reply's
+/// tokens/sec, or `None` before the first message. Runs off the UI thread because
+/// it touches Ollama's `/api/ps`.
 #[tauri::command]
-pub async fn compute_status(model: String) -> crate::compute::ComputeStatus {
-    tauri::async_runtime::spawn_blocking(move || crate::compute::status(&model))
+pub async fn compute_status(model: String, measured_tps: Option<f64>) -> crate::compute::ComputeStatus {
+    tauri::async_runtime::spawn_blocking(move || crate::compute::status(&model, measured_tps))
         .await
         .unwrap_or_else(|_| crate::compute::unknown())
 }
@@ -938,12 +946,18 @@ pub fn companion_chat_traced(
     let mut actions: Vec<String> = Vec::new();
     let mut changed = false;
     let mut last_content = String::new();
+    // Speed of the most recent turn that actually generated text. Tool-only turns
+    // report nothing to measure, so we keep the last real number.
+    let mut last_tps: Option<f64> = None;
 
     // Bounded tool loop: the model may call tools, we run them, feed results back.
     let mut citations_corrected = false;
     let mut leak_corrected = false;
     for _ in 0..5 {
-        let msg = ollama::chat_tools(&model, &messages, &tools)?;
+        let (msg, perf) = ollama::chat_tools(&model, &messages, &tools)?;
+        if let Some(tps) = perf.tokens_per_sec() {
+            last_tps = Some((tps * 10.0).round() / 10.0);
+        }
         last_content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
         let calls = msg.get("tool_calls").and_then(|t| t.as_array()).cloned().unwrap_or_default();
         if calls.is_empty() {
@@ -987,7 +1001,7 @@ pub fn companion_chat_traced(
                 // drop the sentences carrying it and send what survives.
                 last_content = strip_sourced_sentences(&last_content, &faked);
             }
-            return Ok(CompanionReply { reply: presentable(last_content), actions, journal_changed: changed });
+            return Ok(CompanionReply { reply: presentable(last_content), actions, journal_changed: changed, tokens_per_sec: last_tps });
         }
         // Record the assistant's tool-call turn, then answer each call.
         messages.push(msg.clone());
@@ -1006,7 +1020,7 @@ pub fn companion_chat_traced(
     }
 
     // Ran the loop out — return whatever text we have (or a gentle fallback).
-    Ok(CompanionReply { reply: presentable(last_content), actions, journal_changed: changed })
+    Ok(CompanionReply { reply: presentable(last_content), actions, journal_changed: changed, tokens_per_sec: last_tps })
 }
 
 // ---------- crisis escalation (deterministic) ----------
