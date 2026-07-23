@@ -371,32 +371,90 @@ pub struct ParsedExperience {
 }
 
 const PARSE_PROMPT: &str = "\
-You extract a structured record from a free-text account of a past experience so it \
-can be logged in a personal journal. Output ONLY a single JSON object, no prose.
+You read a free-text account of a past drug experience and extract the substances, \
+doses, and timeline into a structured record for a personal harm-reduction journal. \
+The text can be anything — a one-line note, a chat message, or a full trip report \
+with T+ timestamps. Output ONLY the JSON object; no prose, no explanation.
 
-Schema (omit nothing; use null or empty when unknown):
-{
-  \"title\": string,                // a short title
-  \"started_at\": string|null,      // ISO-8601 if a clear absolute date/time is stated, else null
-  \"intention\": string,
-  \"setting\": string,
-  \"notes\": string,                // brief overall summary
-  \"doses\": [                       // every substance intake mentioned
-    { \"substance\": string, \"amount\": number|null, \"unit\": string,
-      \"route\": string, \"taken_at\": string|null, \"note\": string }
-  ],
-  \"timeline\": [                    // notable moments/feelings over time
-    { \"at\": string|null, \"note\": string, \"mood\": string, \"intensity\": number|null }
-  ]
+How to read it:
+- Pull out EVERY substance intake the text mentions, each as one entry in `doses`. \
+A redose is its own entry. Look everywhere — prose, bullet points, 'T+' lines, and \
+labelled fields like 'Substance: ... Dose: ...'.
+- Use the substance's standard name so the interaction checker recognises it: \
+'LSD' not 'acid' or 'tabs', 'MDMA' not 'molly' or 'ecstasy', 'ketamine' not 'K'. \
+Keep the original wording in the dose `note` if it helps.
+- Split each dose into amount + unit ('100ug' -> amount 100, unit \"ug\"; '15 mg' \
+-> 15, \"mg\"). If the amount is vague ('a tab', 'a couple lines'), set amount null \
+and put the wording in `note`. Prefer unit abbreviations: mg, g, ug, ml.
+- Record the route only if stated (oral, insufflated, IV, ...); else empty.
+
+Timing — do not invent it:
+- Set `started_at`/`taken_at`/`at` to a full ISO-8601 timestamp ONLY when the text \
+states an actual calendar date. A bare clock time ('9pm'), a relative offset \
+('T+2:00', 'an hour later'), or a weekday ('Saturday') is NOT an absolute date — \
+leave the field null and, if useful, note the timing in `note`. NEVER guess a year \
+or date that is not written.
+
+Honesty: only record what the text actually says. NEVER invent a substance, an \
+amount, or a dose that is not there. Leaving a field null is correct when you don't \
+know it. Return strictly valid JSON matching the requested shape.";
+
+/// JSON schema Ollama grammar-constrains the reply to. This is what makes a small
+/// model produce the right shape every time instead of best-effort JSON: the fields
+/// are required, the nullable ones are typed nullable, and there's no room to wander
+/// into prose. Mirrors [`ParsedExperience`] exactly.
+fn parse_schema() -> serde_json::Value {
+    let nullable = |t: &str| serde_json::json!({ "type": [t, "null"] });
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string" },
+            "started_at": nullable("string"),
+            "intention": { "type": "string" },
+            "setting": { "type": "string" },
+            "notes": { "type": "string" },
+            "doses": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "substance": { "type": "string" },
+                        "amount": nullable("number"),
+                        "unit": { "type": "string" },
+                        "route": { "type": "string" },
+                        "taken_at": nullable("string"),
+                        "note": { "type": "string" }
+                    },
+                    "required": ["substance", "amount", "unit", "route", "taken_at", "note"]
+                }
+            },
+            "timeline": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "at": nullable("string"),
+                        "note": { "type": "string" },
+                        "mood": { "type": "string" },
+                        "intensity": nullable("integer")
+                    },
+                    "required": ["at", "note", "mood", "intensity"]
+                }
+            }
+        },
+        "required": ["title", "started_at", "intention", "setting", "notes", "doses", "timeline"]
+    })
 }
 
-Rules: Only record what the text actually says. NEVER invent doses, amounts, or \
-substances that are not mentioned. If an amount is vague (e.g. 'a couple'), set \
-amount to null and put the wording in note. Prefer common unit abbreviations \
-(mg, g, ug, ml). Return strictly valid JSON.";
-
 /// Parse a free-text experience account into a structured record using the local
-/// model, with JSON-mode output for reliability.
+/// model.
+///
+/// Two things make this reliable on the small models the app runs. First, the reply
+/// is grammar-constrained to [`parse_schema`] rather than merely asked for JSON, so
+/// the shape is guaranteed. Second, `think: false` — measured on qwen3:8b, the app's
+/// default, a thinking pass on a full trip report ran for minutes (long enough to
+/// look hung) and still missed doses; with thinking off the same report parses in
+/// ~30s with every dose found. Non-thinking models ignore the flag.
 pub fn parse_experience(model: &str, text: &str) -> Result<ParsedExperience, String> {
     if !api_up() {
         return Err("Ollama isn't running on this computer. Start Ollama and try again.".into());
@@ -404,7 +462,8 @@ pub fn parse_experience(model: &str, text: &str) -> Result<ParsedExperience, Str
     let body = serde_json::json!({
         "model": model,
         "stream": false,
-        "format": "json",
+        "format": parse_schema(),
+        "think": false,
         "options": { "temperature": 0.1 },
         "messages": [
             { "role": "system", "content": PARSE_PROMPT },
