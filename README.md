@@ -40,9 +40,11 @@ from your phone.
 - **Companion** — a calm, non-judgmental support chat that runs on a local AI
   model. It can be aware of your current session, look up references, and log
   things for you when you ask. Pick a support style ("just listen", "keep me
-  grounded", …) and it honors it. It's improving but still rough in places —
-  see [Companion quality](#companion-quality). You can also turn it off
-  entirely and use everything else.
+  grounded", …) and it honors it. It loads in the background so the window never
+  freezes while it thinks, and it tells you up front if your machine is short on
+  memory to run the model. It's improving but still rough in places — see
+  [Companion quality](#companion-quality). You can also turn it off entirely and
+  use everything else.
 - **Live session** — a quiet, altered-state-friendly screen for an ongoing
   experience: elapsed time, one-tap logging, the companion, and an always-visible
   **Get help now** button. Timeline notes can be edited after the fact — on the
@@ -51,8 +53,9 @@ from your phone.
   dangerous combination is logged, real emergency and peer-support contacts
   appear. This is driven by fixed rules, never by the AI — and your journal
   writing is never scanned.
-- **Import from text** — paste a past experience in your own words and the local
-  model turns it into a structured entry you review before saving.
+- **Import from text** — paste a past experience in any form, from a one-line note
+  to a full trip report with T+ timestamps, and the local model pulls out the
+  substances, doses, and timeline into a structured entry you review before saving.
 - **Reference search** — search thousands of passages of substance information
   (pharmacology, tolerance, legality) offline.
 - **Encryption & backups** — optional password encryption for the whole journal,
@@ -72,6 +75,8 @@ from your phone.
 - **Contribute upstream** (consent-gated) — export substances you've catalogued
   that DoseWiki doesn't cover as a draft to submit by hand. Never automatic,
   never includes journal data.
+- **Send feedback** — a link in Settings opens a prefilled bug report or feature
+  request on GitHub, in your browser. Nothing is sent from the app itself.
 
 ## Screenshots
 
