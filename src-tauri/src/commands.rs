@@ -295,9 +295,15 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
 }
 
 /// Parse a pasted free-text experience into a structured preview (nothing saved).
+/// Extract a structured record from pasted free text via the local model. Async +
+/// off the UI thread: a parse is one blocking model call that runs for many seconds
+/// (and used to freeze the whole window as a sync command, exactly like the
+/// Companion did).
 #[tauri::command]
-pub fn parse_experience(model: String, text: String) -> Result<ollama::ParsedExperience, String> {
-    ollama::parse_experience(&model, &text)
+pub async fn parse_experience(model: String, text: String) -> Result<ollama::ParsedExperience, String> {
+    tauri::async_runtime::spawn_blocking(move || ollama::parse_experience(&model, &text))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Commit a (reviewed) parsed experience to the journal: experience + doses +

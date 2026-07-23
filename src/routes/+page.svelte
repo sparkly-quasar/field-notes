@@ -726,12 +726,42 @@
     }
   }
 
+  // When the model had no real calendar date to work from (started_at came back
+  // null), it still tends to stamp doses with a *fabricated* absolute date that
+  // nonetheless carries the right spacing between them (e.g. from "T+2:00"). Shift
+  // those onto the start the user just confirmed so the times read correctly and the
+  // t+ offsets line up — while leaving a genuinely dated report untouched.
+  function rebaseTimestamps(parsed: ParsedExperience, startIso: string): ParsedExperience {
+    if (parsed.started_at) return parsed; // a real date was extracted — trust it
+    const ms = (s?: string | null) => {
+      const t = s ? Date.parse(s) : NaN;
+      return Number.isNaN(t) ? null : t;
+    };
+    const stamps = [
+      ...parsed.doses.map((d) => ms(d.taken_at)),
+      ...parsed.timeline.map((e) => ms(e.at)),
+    ].filter((t): t is number => t != null);
+    const base = Date.parse(startIso);
+    if (!stamps.length || Number.isNaN(base)) return parsed;
+    const shift = base - Math.min(...stamps);
+    const remap = (s?: string | null) => {
+      const t = ms(s);
+      return t == null ? (s ?? null) : new Date(t + shift).toISOString();
+    };
+    return {
+      ...parsed,
+      doses: parsed.doses.map((d) => ({ ...d, taken_at: remap(d.taken_at) })),
+      timeline: parsed.timeline.map((e) => ({ ...e, at: remap(e.at) })),
+    };
+  }
+
   async function confirmImport() {
     if (!importParsed) return;
+    const startIso = localInputToIso(importStart);
     const exp = await importExperience({
-      ...importParsed,
+      ...rebaseTimestamps(importParsed, startIso),
       title: importTitle,
-      started_at: localInputToIso(importStart),
+      started_at: startIso,
     });
     importParsed = null;
     importText = "";
@@ -1786,11 +1816,23 @@
                 {@render aiSetup()}
                 <button class="ghost small-btn" onclick={() => (showImport = false)}>Cancel</button>
               {:else if !importParsed}
-                <p class="muted small">Paste a past experience in your own words. The local model extracts the substances, doses, and timeline for you to review before saving.</p>
+                <p class="muted small">
+                  Paste a past experience in your own words — a quick note or a full trip report, whatever you have.
+                  The local model reads it and pulls out the substances, doses, and timeline for you to review and
+                  edit before anything is saved. Nothing has to be formatted a particular way.
+                </p>
+                <p class="muted small import-tip">
+                  It works best when each dose names the <strong>substance</strong>, <strong>how much</strong>, and
+                  roughly <strong>when</strong> — e.g. “around 9pm, 100&nbsp;µg LSD” or “T+2:00 took 15&nbsp;mg 2C-B”.
+                  You can add anything it misses by hand after importing.
+                </p>
                 <select bind:value={aiModel} class="model-sel">
                   {#each ai?.models ?? [] as m}<option value={m}>{m}</option>{/each}
                 </select>
-                <textarea class="import-text" rows="6" placeholder="e.g. Last Saturday around 9pm I took 100mg of MDMA at a friend's place. About an hour later I redosed 50mg…" bind:value={importText}></textarea>
+                <textarea class="import-text" rows="7" placeholder="e.g.
+Saturday night at a friend's place, relaxed and in a good headspace.
+Around 9pm I took 100 µg of LSD (one tab). About two hours in, 15 mg of 2C-B.
+Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no nausea." bind:value={importText}></textarea>
                 {#if importErr}<p class="notice bad-notice">{importErr}</p>{/if}
                 <div class="row-actions">
                   <button class="primary small-btn" disabled={importBusy || !importText.trim()} onclick={runParse}>
@@ -1805,6 +1847,13 @@
                   <input placeholder="Title" bind:value={importTitle} />
                   <input type="datetime-local" bind:value={importStart} title="Start time" />
                 </div>
+                {#if importParsed.intention || importParsed.setting || importParsed.notes}
+                  <dl class="import-summary">
+                    {#if importParsed.intention}<div><dt>Intention</dt><dd>{importParsed.intention}</dd></div>{/if}
+                    {#if importParsed.setting}<div><dt>Setting</dt><dd>{importParsed.setting}</dd></div>{/if}
+                    {#if importParsed.notes}<div><dt>Notes</dt><dd>{importParsed.notes}</dd></div>{/if}
+                  </dl>
+                {/if}
                 {#if importParsed.doses.length}
                   <h3>Doses found</h3>
                   <ul class="doses">
@@ -1813,7 +1862,12 @@
                     {/each}
                   </ul>
                 {:else}
-                  <p class="notice">No doses were detected — you can still import and add them by hand.</p>
+                  <div class="notice">
+                    <p><strong>No doses were picked out.</strong> If your account did mention them, the model may have
+                    missed them — going <em>Back</em> and naming each substance with an amount (e.g. “100&nbsp;µg LSD”,
+                    “15&nbsp;mg 2C-B”) usually does the trick.</p>
+                    <p class="muted small">You can also import as-is and add doses by hand from the session afterward.</p>
+                  </div>
                 {/if}
                 {#if importParsed.timeline.length}
                   <h3>Timeline</h3>
@@ -1823,7 +1877,7 @@
                 {/if}
                 <div class="row-actions">
                   <button class="primary small-btn" onclick={confirmImport}>Import</button>
-                  <button class="ghost small-btn" onclick={() => (importParsed = null)}>Back</button>
+                  <button class="ghost small-btn" onclick={() => (importParsed = null)}>Back to edit</button>
                 </div>
               {/if}
             </div>
@@ -2821,6 +2875,14 @@
   .ai-log { max-height: 150px; overflow: auto; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 0.6rem; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: var(--muted); margin: 0.2rem 0 0; }
   .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }
+  .import-tip { margin-top: -0.2rem; }
+  .import-text::placeholder { opacity: 0.55; }
+  .import-summary { margin: 0.4rem 0 0.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  .import-summary div { display: flex; gap: 0.6rem; }
+  .import-summary dt { flex: none; width: 5.5rem; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; padding-top: 0.05rem; }
+  .import-summary dd { margin: 0; font-size: 0.9rem; }
+  .notice p { margin: 0 0 0.4rem; }
+  .notice p:last-child { margin-bottom: 0; }
 
   .notice { border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 12%, transparent); border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.5; }
   .notice.bad-notice { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
