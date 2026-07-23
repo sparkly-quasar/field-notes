@@ -346,6 +346,10 @@ export const companionChat = (
   supportStyle: string | null,
 ) => invoke<CompanionReply>("companion_chat", { model, history, experienceId, supportStyle });
 
+/** Pre-load the model into memory so the first message isn't slow. Best-effort —
+ * fire it when the Companion comes into view and ignore any error. */
+export const companionWarm = (model: string) => invoke<void>("companion_warm", { model });
+
 // ---- Companion as a background job (PHONE-PORTAL-ONLY) ----
 // A slow local model can take minutes per turn; mobile Safari kills a silent
 // request at ~60s, and a locked screen kills it instantly. So the phone starts
