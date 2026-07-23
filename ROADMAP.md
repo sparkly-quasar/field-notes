@@ -123,6 +123,45 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.10.0
+
+Responsiveness, honesty about hardware, and a text-import that actually works —
+plus a way for people to send feedback.
+
+- **The Companion no longer freezes the app.** `companion_chat` was a synchronous
+  command, so a turn — including the tens-of-seconds cold model load on the first
+  message — ran on the UI thread and locked the whole window until it returned,
+  which read as a crash. It's now async and runs off the UI thread (like the phone
+  portal already did). The same fix landed on **text import** (`parse_experience`),
+  which had the identical problem.
+- **The model pre-warms.** When the Companion comes into view the app quietly loads
+  the model into memory (`ollama::warm` → `companion_warm`), so the first real
+  message arrives at warm speed instead of paying a cold multi-second load.
+- **Compute watcher** (`compute.rs`) — local LLMs are memory-bound, so before
+  someone leans on the Companion the app reads the machine (`sysinfo`) and gives a
+  plain verdict: *ample / tight / insufficient*. It weighs available RAM against the
+  model's footprint (using Ollama's `/api/ps` real resident size when the model is
+  loaded, and flagging a GPU→CPU spill), preflights a model **before** the multi-GB
+  download in setup, and folds in the **measured tokens/sec** of the last reply so a
+  machine that fits the model but runs it too slowly is caught honestly. Read-only,
+  advisory, never a gate.
+- **Import from text, fixed.** It was unreliable and opaque — on the default model
+  (qwen3:8b) the parse ran with *thinking on*, took minutes (looked hung), and still
+  under-extracted, so people saw "No doses were detected." Now it runs with
+  `think: false` (a full trip report went from timing out to ~30 s with every dose
+  found), grammar-constrains the reply to a **JSON schema** for a guaranteed shape,
+  and uses the substance's standard name so the interaction checker recognises it
+  (acid→LSD, shrooms→psilocybin, xanax→alprazolam). The UI says what to paste and
+  what works best, shows the extracted intention/setting/notes (not just doses), and
+  explains the no-dose case. When no real date was found, fabricated-but-spaced dose
+  times are rebased onto the start you confirm.
+- **First-run Companion opt-in.** The disclaimer splash on a fresh install now asks
+  whether to enable the Companion, once (it's optional, on-device, and the safety
+  layers work either way).
+- **Send feedback → GitHub.** A Settings card opens a prefilled bug report or feature
+  request as a GitHub issue in the browser. No backend, no telemetry — nothing leaves
+  the journal; GitHub handles identity and the reports collect in one place.
+
 ## Shipped in v0.9.1
 
 A round of Companion and Settings polish on top of v0.9.0, mostly driven by
@@ -359,6 +398,18 @@ using the model switch and reading the screens as a first-timer would.
    don't guess"* on empty retrieval.
 
 </details>
+
+0. **Backend timestamp normalization for imports.** Shipped in v0.10.0, text import
+   rebases fabricated dose/timeline times onto the confirmed start **in the frontend**
+   (`rebaseTimestamps` in `+page.svelte`), because that's where the `t+` date math
+   already lives and the backend has no date library. That's solid for the common case
+   but leaves the invariant split across two layers. A cleaner home is the backend: give
+   `import_experience` (`commands.rs`) real timestamp parsing (add `chrono`, or the
+   `time` crate) so it owns normalization — parse each `taken_at`/`at`, drop the ones it
+   can't, and when no absolute `started_at` was extracted, shift the parseable ones so the
+   earliest lands on the chosen start while preserving spacing. Then the phone portal's
+   import path (if it ever gains one) and the desktop share one rule. Small, self-contained,
+   worth a test that a T+ report rebases correctly and a real-dated one is left untouched.
 
 1. **Phone portal — log from your phone over Tailscale.** ***Entirely optional; off by
    default.*** Field Notes stays a **fully offline, on-device app as it ships** — this
