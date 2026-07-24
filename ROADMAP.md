@@ -123,6 +123,17 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.10.1
+
+- **The pairing screen says when a phone paired.** Scanning the QR gave the desktop
+  no feedback at all — you scanned, and then you guessed. The portal now records the
+  first request that arrives with the right token (`Running.paired` in `portal.rs`,
+  surfaced on `PortalStatus` and emitted as a `portal-paired` event), and Settings
+  shows a green light reading **"Paired successfully"** the moment it happens. A
+  *rejected* token deliberately doesn't light it — otherwise anyone probing the port
+  could tell you your phone was paired. It reports "a phone has paired since you
+  turned this on", not live presence.
+
 ## Shipped in v0.10.0
 
 Responsiveness, honesty about hardware, and a text-import that actually works —

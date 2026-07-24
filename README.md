@@ -65,7 +65,9 @@ from your phone.
   can also be exported on its own ("Export this entry" on the desktop, "Export"
   on the phone) in the same format, so it drops straight into a vault.
 - **Phone access** (optional, off by default) — pair your phone and use the
-  journal, combo checker, reference, and Companion from bed at 3am. Companion
+  journal, combo checker, reference, and Companion from bed at 3am. The desktop
+  shows a green **"Paired successfully"** light the moment the phone first uses
+  the code, so you're not left guessing whether the scan took. Companion
   replies run as a background job on the desktop, so a slow local model — or a
   locked phone screen — no longer drops the answer. Rename a session or entry
   right from the phone by tapping its title. Private by design: see
