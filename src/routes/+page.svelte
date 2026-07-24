@@ -192,7 +192,7 @@
   let contribMsg = $state<string | null>(null);
 
   // Phone portal — off by default, and it stays off until the user says otherwise.
-  let portal = $state<PortalStatus>({ running: false, port: null, pair_url: null });
+  let portal = $state<PortalStatus>({ running: false, port: null, pair_url: null, paired: false });
   let portalQrSvg = $state<string | null>(null);
   let ts = $state<TailscaleStatus | null>(null);
   let portalErr = $state<string | null>(null);
@@ -364,8 +364,14 @@
     const un = listen<string>("ai-progress", (e) => {
       aiLog = [...aiLog.slice(-200), e.payload];
     });
+    // The backend fires this the first time a phone uses the token, so the answer to
+    // "did the scan work?" arrives on its own rather than being hunted for.
+    const unPaired = listen("portal-paired", () => {
+      portal = { ...portal, paired: true };
+    });
     return () => {
       un.then((f) => f());
+      unPaired.then((f) => f());
       if (lsTimer) clearInterval(lsTimer);
     };
   });
@@ -2364,6 +2370,11 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {#if portal.running}
           <div class="sec-block">
             <h3>Pair a phone</h3>
+            {#if portal.paired}
+              <p class="paired" role="status">
+                <span class="paired-dot" aria-hidden="true"></span>Paired successfully
+              </p>
+            {/if}
             {#if !ts?.installed}
               <p class="muted small">
                 ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
@@ -2856,6 +2867,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   .off-badge { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 0.1rem 0.5rem; vertical-align: middle; margin-left: 0.4rem; }
   .off-badge.on { color: var(--note); border-color: var(--note); }
+  /* The one green light in the pairing flow: a phone has used the token. */
+  .paired { display: flex; align-items: center; gap: 0.5rem; margin: 0.2rem 0 0.6rem; color: var(--note); font-size: 0.9rem; }
+  .paired-dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--note); box-shadow: 0 0 0 4px color-mix(in srgb, var(--note) 22%, transparent); flex: none; }
   .qr { background: #fff; padding: 0.8rem; border-radius: 10px; width: max-content; margin: 0.6rem 0; }
   .qr :global(svg) { display: block; width: 220px; height: 220px; }
 
