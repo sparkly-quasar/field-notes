@@ -479,6 +479,9 @@ export interface PortalStatus {
   port: number | null;
   /** Contains the bearer token. Only ever rendered on the desktop's own screen. */
   pair_url: string | null;
+  /** A phone has used this token since the portal was turned on. Not a live
+   *  connection check — it stays true after the phone walks away. */
+  paired: boolean;
 }
 export interface TailscaleStatus {
   installed: boolean;

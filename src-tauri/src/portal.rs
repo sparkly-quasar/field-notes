@@ -34,7 +34,7 @@ use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tiny_http::{Header, Request, Response, Server};
 
 /// Loopback only. See rule 1 — this is not a preference.
@@ -57,6 +57,10 @@ struct Running {
     port: u16,
     token: String,
     stopping: Arc<AtomicBool>,
+    /// Set the first time a request arrives carrying the right token — i.e. the
+    /// moment a phone has actually paired. It only ever goes false again by
+    /// stopping the portal, which throws the token away with it.
+    paired: Arc<AtomicBool>,
 }
 
 #[derive(serde::Serialize)]
@@ -65,6 +69,10 @@ pub struct PortalStatus {
     pub port: Option<u16>,
     /// The pairing URL, token included. Only ever shown on the desktop screen.
     pub pair_url: Option<String>,
+    /// A phone has used this token successfully since the portal was turned on.
+    /// Drives the desktop's "Paired successfully" light; it says nothing about
+    /// whether that phone is still connected right now.
+    pub paired: bool,
 }
 
 impl Default for Portal {
@@ -89,8 +97,9 @@ impl Portal {
                 running: true,
                 port: Some(r.port),
                 pair_url: Some(format!("http://{BIND_ADDR}:{}/m#t={}", r.port, r.token)),
+                paired: r.paired.load(Ordering::SeqCst),
             },
-            None => PortalStatus { running: false, port: None, pair_url: None },
+            None => PortalStatus { running: false, port: None, pair_url: None, paired: false },
         }
     }
 
@@ -194,12 +203,14 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
     let (server, port) = bind()?;
     let server = Arc::new(server);
     let stopping = Arc::new(AtomicBool::new(false));
+    let paired = Arc::new(AtomicBool::new(false));
 
     // A small pool: a Companion reply blocks its thread for many seconds, and a
     // phone that can't load the timeline meanwhile looks broken.
     for _ in 0..4 {
         let server = Arc::clone(&server);
         let stopping = Arc::clone(&stopping);
+        let paired = Arc::clone(&paired);
         let app = app.clone();
         let token = token.clone();
         std::thread::spawn(move || {
@@ -207,12 +218,12 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
                 if stopping.load(Ordering::SeqCst) {
                     break;
                 }
-                handle(&app, &token, req);
+                handle(&app, &token, &paired, req);
             }
         });
     }
 
-    *portal.inner.lock().unwrap() = Some(Running { server, port, token, stopping });
+    *portal.inner.lock().unwrap() = Some(Running { server, port, token, stopping, paired });
     Ok(portal.status())
 }
 
@@ -230,18 +241,18 @@ fn json_response(status: u16, body: Value) -> Response<Cursor<Vec<u8>>> {
     Response::from_string(body.to_string()).with_status_code(status).with_header(hdr)
 }
 
-fn handle<R: Runtime>(app: &AppHandle<R>, token: &str, req: Request) {
+fn handle<R: Runtime>(app: &AppHandle<R>, token: &str, paired: &AtomicBool, req: Request) {
     let url = req.url().to_string();
     let path = url.split('?').next().unwrap_or("/").to_string();
 
     if let Some(command) = path.strip_prefix("/api/") {
         let command = command.to_string();
-        return api(app, token, &command, req);
+        return api(app, token, paired, &command, req);
     }
     assets(app, &path, req);
 }
 
-fn api<R: Runtime>(app: &AppHandle<R>, token: &str, command: &str, mut req: Request) {
+fn api<R: Runtime>(app: &AppHandle<R>, token: &str, paired: &AtomicBool, command: &str, mut req: Request) {
     // Rule 2: token first, before we even look at the body.
     let given = req
         .headers()
@@ -252,6 +263,13 @@ fn api<R: Runtime>(app: &AppHandle<R>, token: &str, command: &str, mut req: Requ
     if !token_matches(token, &given) {
         let _ = req.respond(json_response(401, json!({ "error": "Not paired with this journal." })));
         return;
+    }
+
+    // The token checked out, so a phone is on the other end. The first time that
+    // happens, tell the desktop — the pairing screen has no other way to know a
+    // scan worked, and "did it take?" is the whole question the user is holding.
+    if !paired.swap(true, Ordering::SeqCst) {
+        let _ = app.emit("portal-paired", ());
     }
 
     // Rule 3: re-check on every request, not just at startup.
@@ -671,6 +689,29 @@ mod tests {
         // the endpoint being broken.
         let (status, body) = post(port, "list_experiences", Some(&token), json!({}));
         assert_eq!(status, 200, "the paired phone can read: {body}");
+    }
+
+    /// The desktop's "Paired successfully" light: it turns on when — and only when —
+    /// a request arrives with the right token. A refused request must not light it,
+    /// or someone probing the port would tell the user their phone is paired.
+    #[test]
+    fn the_paired_light_tracks_a_real_pairing() {
+        let (app, port, token) = serving();
+        let portal = app.state::<Portal>();
+
+        assert!(!portal.status().paired, "nothing has paired yet");
+
+        let (status, _) = post(port, "list_experiences", Some(&"0".repeat(64)), json!({}));
+        assert_eq!(status, 401);
+        assert!(!portal.status().paired, "a rejected token must not light the pairing indicator");
+
+        let (status, _) = post(port, "list_experiences", Some(&token), json!({}));
+        assert_eq!(status, 200);
+        assert!(portal.status().paired, "a phone with the right token has paired");
+
+        // Turning the portal off throws the token away, so the next one starts unpaired.
+        portal.stop();
+        assert!(!portal.status().paired);
     }
 
     /// The single-entry export, end to end at the dispatch seam: the pure Markdown
