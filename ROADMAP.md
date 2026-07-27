@@ -123,6 +123,20 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.10.2
+
+- **The in-app update prompt shows what changed.** It used to show only a version
+  number, and `latest.json`'s `notes` carried the workflow's generic install
+  template — the real changelog lived only on the GitHub release page. Now
+  `CHANGELOG.md` is the single source of truth: the release workflow extracts the
+  section matching the tag (portable awk, so it runs on the macOS and Windows
+  runners too) and passes it as `tauri-action`'s `releaseBody`, which is also what
+  lands in `latest.json`. The update banner renders `update.body`. Download links
+  and Gatekeeper/SmartScreen help stay out of the changelog — appended to the
+  GitHub page after publishing (see `RELEASING.md`) so they don't clutter the
+  in-app notes. Seeds the renderer: rich notes appear on the *next* update after
+  this one, since the prompt belongs to the installed version.
+
 ## Shipped in v0.10.1
 
 - **The pairing screen says when a phone paired.** Scanning the QR gave the desktop

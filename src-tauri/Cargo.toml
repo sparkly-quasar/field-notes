@@ -1,6 +1,6 @@
 [package]
 name = "field_notes"
-version = "0.10.1"
+version = "0.10.2"
 description = "Offline harm-reduction journal & trip-sitting workstation"
 authors = ["sparkly-quasar"]
 # Licensed under the PolyForm Noncommercial License 1.0.0 — see ../LICENSE.
