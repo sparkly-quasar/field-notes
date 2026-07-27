@@ -35,6 +35,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Extract release notes for this tag
+        # The single source of truth for "what changed" is CHANGELOG.md. We pull
+        # out the section whose heading matches the tag and hand it to
+        # tauri-action as the release body — which is also what tauri-action
+        # writes into latest.json's `notes`, i.e. what the in-app updater shows.
+        # Runs on every matrix platform (bash is available on all three runners)
+        # so each job produces an identical body and latest.json stays consistent.
+        id: notes
+        shell: bash
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          # Print the lines under `## <tag>` up to the next `## ` heading, with
+          # leading and trailing blank lines trimmed but internal ones kept.
+          # Done inside awk so it needs nothing beyond POSIX (no tac/GNU sed) —
+          # this step also runs on the macOS and Windows runners.
+          body="$(awk -v head="## $ver" '
+            $0 == head { grab=1; next }
+            grab && /^## / { exit }
+            grab {
+              if ($0 ~ /[^[:space:]]/) { while (pending-- > 0) print ""; pending=0; print; started=1 }
+              else if (started) { pending++ }
+            }
+          ' CHANGELOG.md)"
+          if [ -z "$body" ]; then
+            echo "::warning::no CHANGELOG.md section for $ver — using a fallback line"
+            body="See the release page for what's new in ${ver}."
+          fi
+          {
+            echo "body<<__NOTES_EOF__"
+            echo "$body"
+            echo "__NOTES_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -93,26 +126,13 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Field Notes ${{ github.ref_name }}"
-          releaseBody: |
-            Download an installer for your platform below.
-
-            **macOS:** not yet notarized — on first launch, **right-click the app and
-            choose Open** to get past Gatekeeper.
-
-            If you still have a problem opening it, use the **"Open Anyway"** setting:
-            1. Try to open the app and dismiss the warning dialog.
-            2. Open the **Apple menu** and select **System Settings**.
-            3. Click **Privacy & Security** in the left sidebar.
-            4. Scroll to the **Security** section — you'll see a message that the app was blocked.
-            5. Click **Open Anyway**, enter your Mac's login password, and click **OK**.
-
-            **Windows:** download the `-setup.exe` installer. It isn't code-signed yet, so
-            SmartScreen may warn on first launch — click **More info → Run anyway**.
-
-            **Linux:** use the .AppImage (portable), or the .deb / .rpm for your distro.
-
-            The Companion and text-import features run a model locally — the app guides
-            you through installing Ollama and downloading one on first use.
+          # The changelog section for this tag, from the step above. This is the
+          # release body AND `latest.json`'s `notes`, so the in-app updater prompt
+          # now shows what actually changed. Download links and Gatekeeper /
+          # SmartScreen help are deliberately NOT here — they'd be noise in the
+          # app; they're added to the GitHub release page after publishing
+          # (see RELEASING.md).
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           # The updater reads /releases/latest/download/latest.json, and GitHub's
           # "latest" excludes prereleases. So marking a v*-beta / v*-rc tag as a

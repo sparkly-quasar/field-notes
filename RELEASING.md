@@ -33,6 +33,18 @@ npm install --package-lock-only                        # syncs package-lock.json
 Also update `ROADMAP.md` (mark shipped items with the version) and `README.md`
 (the feature list) if features shipped.
 
+## 2a. Write the changelog section (before tagging)
+
+Add a `## vX.Y.Z` section to the top of **`CHANGELOG.md`** with the user-facing
+"what's new", written for the person reading it **inside the app**. The release
+workflow extracts this exact section and uses it as the release body — which is
+also what goes into `latest.json` and what the in-app "a new version is
+available" prompt now shows. So keep it to what changed; **no** download links
+or Gatekeeper/SmartScreen help here (those go on the GitHub page in step 4).
+
+The heading must be exactly `## vX.Y.Z`, matching the tag, or the build falls
+back to a generic one-liner (and logs a warning).
+
 ## 3. Tag
 
 Work lands on `main` first (merge feature branches, make sure CI-relevant
@@ -49,18 +61,22 @@ git push origin main vX.Y.Z
   **prerelease**, which keeps it away from `/releases/latest` and therefore away
   from everyone's auto-updater. Plain tags become the update everyone is offered.
 
-## 4. Write the release notes
+## 4. Round out the GitHub release page
 
-The workflow fills the draft with a generic install-instructions template — CI
-can't know what changed. Replace it before (or right after) publishing:
+The workflow already fills the draft body with the `CHANGELOG.md` section from
+step 2a — that part is done, and it's what `latest.json` and the in-app prompt
+carry. What the changelog deliberately leaves out is the web-page furniture, so
+**append** it to the draft body (don't replace what's there):
 
-1. **What's new** — the actual changes, written for end users.
-2. **Downloads table** — direct links to the five files a human wants
+1. **Downloads table** — direct links to the files a human wants
    (`_x64-setup.exe`, `.msi`, `_universal.dmg`, `.AppImage`, `.deb`, `.rpm`).
    Asset URLs follow the pattern:
    `https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/<asset-name>`
-3. **First-launch notes** — SmartScreen (Windows) and Gatekeeper (macOS)
+2. **First-launch notes** — SmartScreen (Windows) and Gatekeeper (macOS)
    workarounds, since installers are unsigned.
+
+Keep this download/first-launch furniture **out of `latest.json`** — it lives
+only on the web page. That's why it's appended here rather than in `CHANGELOG.md`.
 
 Constraints worth knowing:
 
