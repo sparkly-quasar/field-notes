@@ -136,6 +136,12 @@ non-negotiables, each with a test:
   GitHub page after publishing (see `RELEASING.md`) so they don't clutter the
   in-app notes. Seeds the renderer: rich notes appear on the *next* update after
   this one, since the prompt belongs to the installed version.
+- **Update checks now run on a timer, not just at startup.** `checkForUpdate` was
+  called once in `onMount`, so an app left open for days never noticed a release.
+  A `setInterval` (6 h) re-checks while running; it skips a check that's mid-install
+  and clears a prior dismissal when a genuinely newer version turns up, so
+  dismissing one version doesn't hide the next. Silent — it only surfaces when
+  `check()` returns something.
 
 ## Shipped in v0.10.1
 
