@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.10.2
+
+- **This update prompt now tells you what changed.** Until now it only showed a
+  version number; from here on it shows the actual list of what's new — the notes
+  you're reading. (You're seeing this because you updated *to* the version that
+  added it, so this is the first time it appears.)
+
 ## v0.10.1
 
 - **You can see when your phone has paired.** Setting up phone access used to

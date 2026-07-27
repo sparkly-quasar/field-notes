@@ -1,6 +1,6 @@
 {
   "name": "field-notes",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Offline harm-reduction journal & trip-sitting workstation.",
   "type": "module",
   "private": true,
