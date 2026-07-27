@@ -274,6 +274,11 @@
   let updateBusy = $state(false);
   let updateMsg = $state("");
   let updateDismissed = $state(false);
+  // Re-check on a timer so a machine that stays open for days still learns about
+  // a release without being restarted. Six hours is often enough to catch a
+  // release the same day without hammering GitHub.
+  let updateTimer: ReturnType<typeof setInterval> | null = null;
+  const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
   // companion
   let cMessages = $state<ChatMsg[]>([]);
@@ -356,6 +361,7 @@
   onMount(() => {
     interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
+    updateTimer = setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
     companionOff = localStorage.getItem(COMPANION_OFF_KEY) === "1";
     companionChoiceMade = localStorage.getItem(COMPANION_CHOICE_KEY) === "1";
@@ -373,6 +379,7 @@
       un.then((f) => f());
       unPaired.then((f) => f());
       if (lsTimer) clearInterval(lsTimer);
+      if (updateTimer) clearInterval(updateTimer);
     };
   });
 
@@ -391,8 +398,16 @@
   }
 
   async function checkForUpdate() {
+    // Leave a download/install alone — re-checking mid-flight would swap the
+    // object out from under it.
+    if (updateBusy) return;
     try {
-      update = await check();
+      const found = await check();
+      // If a timer tick turns up a version newer than the one already on screen,
+      // surface it even if the user dismissed the previous banner — dismissing
+      // v0.10.2 shouldn't hide v0.10.3.
+      if (found && found.version !== update?.version) updateDismissed = false;
+      update = found;
     } catch (_) {
       // offline, or no published release with an updater manifest yet — ignore
     }

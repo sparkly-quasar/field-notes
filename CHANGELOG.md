@@ -17,6 +17,10 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   version number; from here on it shows the actual list of what's new — the notes
   you're reading. (You're seeing this because you updated *to* the version that
   added it, so this is the first time it appears.)
+- **The app now checks for updates on its own while it's open**, every few hours,
+  so a machine left running for days still finds out about a new version without
+  being restarted. The check is silent — you'll only ever notice it when there's
+  actually something new.
 
 ## v0.10.1
 
