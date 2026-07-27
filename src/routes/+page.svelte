@@ -1555,14 +1555,22 @@
   <main>
     {#if update && !updateDismissed}
       <div class="update-banner">
-        <span>A new version <strong>v{update.version}</strong> of Field Notes is available.</span>
-        {#if updateBusy}
-          <span class="muted small">{updateMsg}</span>
-        {:else}
-          <span class="row-actions">
-            <button class="primary small-btn" onclick={installUpdate}>Install &amp; restart</button>
-            <button class="ghost small-btn" onclick={() => (updateDismissed = true)}>Later</button>
-          </span>
+        <div class="update-head">
+          <span>A new version <strong>v{update.version}</strong> of Field Notes is available.</span>
+          {#if updateBusy}
+            <span class="muted small">{updateMsg}</span>
+          {:else}
+            <span class="row-actions">
+              <button class="primary small-btn" onclick={installUpdate}>Install &amp; restart</button>
+              <button class="ghost small-btn" onclick={() => (updateDismissed = true)}>Later</button>
+            </span>
+          {/if}
+        </div>
+        {#if update.body?.trim()}
+          <!-- The changelog section for this version, straight from latest.json.
+               Shown as plain text (not rendered as markdown) — it's short and the
+               Markdown-ish dashes read fine as-is. -->
+          <p class="update-body">{update.body.trim()}</p>
         {/if}
       </div>
     {/if}
@@ -2885,7 +2893,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .dose-class.caution { color: var(--caution); }
   .dose-class.danger { color: var(--danger); font-weight: 600; }
   .dose-class.muted { color: var(--muted); }
-  .update-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; justify-content: space-between; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 10px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.9rem; }
+  .update-banner { border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 10px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.9rem; }
+  .update-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; justify-content: space-between; }
+  .update-body { margin: 0.6rem 0 0.1rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); color: var(--muted); font-size: 0.83rem; line-height: 1.5; white-space: pre-wrap; max-height: 11rem; overflow-y: auto; }
   .ai-log { max-height: 150px; overflow: auto; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 0.6rem; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: var(--muted); margin: 0.2rem 0 0; }
   .import-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .import-text { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; resize: vertical; width: 100%; box-sizing: border-box; }
