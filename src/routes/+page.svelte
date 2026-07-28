@@ -1657,14 +1657,14 @@
       <h1>Field Notes</h1>
       <nav>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
+        <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
+        <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substance Directory</button>
         {#if !companionOff}
           <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         {/if}
-        <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
-        <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
-        <button title="Report a bug or request a feature" onclick={openBugReport}>Report a bug</button>
         <button title="Emergency &amp; support resources" onclick={openHelp}>Emergency Resources</button>
+        <button title="Report a bug or request a feature" onclick={openBugReport}>Report a bug</button>
       </nav>
     </header>
 
