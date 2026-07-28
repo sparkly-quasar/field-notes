@@ -11,6 +11,18 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.11.0
+
+- **Logging a past experience is now a first-class option.** The "+ Session" form
+  has a **"This already happened"** checkbox — tick it and you get an end-time
+  field, and the session is saved as a finished trip (not an ongoing one) rather
+  than having to start a live session and backdate it. Doses you add to a
+  finished session default to when it happened instead of "now", so writing up an
+  old trip doesn't mean fixing every timestamp.
+- **A "Report a bug" button now lives on the top bar**, so filing a bug or feature
+  request is one click from anywhere instead of buried in Settings. It opens the
+  same prefilled GitHub issue in your browser — nothing leaves your journal.
+
 ## v0.10.2
 
 - **This update prompt now tells you what changed.** Until now it only showed a
