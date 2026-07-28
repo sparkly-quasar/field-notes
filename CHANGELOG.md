@@ -13,8 +13,11 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.11.1
 
-- **Small polish:** the "Report a bug" button on the top bar no longer has an
-  emoji, so it sits cleanly alongside the other controls.
+- **Top-bar tidy-up.** The menu is reordered into a more natural flow — Journal,
+  Substance Log, Substance Directory, Companion, Settings, then Emergency
+  Resources and Report a bug at the end. The old "Substances" reference tab is now
+  labelled **Substance Directory** so it's clearer what it is, and the "Report a
+  bug" button lost its emoji so it sits cleanly alongside the rest.
 
 ## v0.11.0
 
