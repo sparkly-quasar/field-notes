@@ -24,9 +24,12 @@ from your phone.
 ## Features
 
 - **Journal** — log experiences with intention, set & setting, doses, and a
-  running timeline of how you feel. Edit, delete, or backdate anything. Every
-  timestamp in a session also shows the time since your first dose
-  (`14:02 (t+1:23)`), so the timeline reads against the clock that matters.
+  running timeline of how you feel. Edit, delete, or backdate anything. Logging
+  something that already happened is a first-class option — tick "this already
+  happened" on a new session and it's saved as a finished trip, with doses
+  defaulting to when it occurred rather than now. Every timestamp in a session
+  also shows the time since your first dose (`14:02 (t+1:23)`), so the timeline
+  reads against the clock that matters.
 - **Plain notes** — not everything is a session. Write ordinary journal entries
   (a title, your words, a date) alongside them.
 - **Combination warnings** — every dose is checked against the others for

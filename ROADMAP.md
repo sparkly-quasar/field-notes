@@ -123,6 +123,22 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.11.0
+
+- **First-class past-experience logging.** Writing up a trip that already happened
+  meant either starting a live session and backdating it (which stamped a wrong
+  `ended_at`) or leaning on the LLM text-import. The "+ Session" form now has a
+  "This already happened" checkbox: it reveals an end-time field and creates the
+  session already ended (via `end_experience`, falling back to the start time when
+  no end is given), so it reads as history. New doses on an already-ended session
+  default their time to the session's start rather than now (`defaultDoseTime`),
+  so a write-up doesn't require correcting every dose timestamp. Desktop-only —
+  the phone is the in-hand companion, this is a desk activity.
+- **Report-a-bug moved to the top bar.** The prefilled-GitHub-issue feedback flow
+  (added in v0.10.0) lived only in a Settings card. A "🐛 Report a bug" button on
+  the header now opens it in a modal, one click from anywhere. The Settings card
+  stays; this is just a faster way in.
+
 ## Shipped in v0.10.2
 
 - **The in-app update prompt shows what changed.** It used to show only a version
