@@ -152,6 +152,10 @@
   let neIntention = $state("");
   let neSetting = $state("");
   let neStart = $state("");
+  // "This already happened" — when set, the session is created already ended
+  // (with `neEnd`) so it reads as history rather than an ongoing session.
+  let nePast = $state(false);
+  let neEnd = $state("");
   let showNewExp = $state(false);
   // plain note (kind: "note") — title, body, date; nothing else
   let nnTitle = $state("");
@@ -676,6 +680,15 @@
     usage = await usageBySubstance();
   }
 
+  /** What a fresh dose-time field should default to. For a session that already
+   *  ended (a past trip being written up), new doses belong to when it happened,
+   *  not now — so seed from its start. Live sessions and notes default to now. */
+  function defaultDoseTime(): string {
+    return selected?.kind === "session" && selected.ended_at
+      ? isoToLocalInput(selected.started_at)
+      : nowLocalInput();
+  }
+
   async function openExperience(id: number) {
     lastWarnings = [];
     editExp = false;
@@ -683,13 +696,19 @@
     dRef = null;
     exportErr = exportMsg = null;
     selected = await getExperience(id);
-    dTime = nowLocalInput();
+    dTime = defaultDoseTime();
   }
 
   function openNewExp() {
     showNewExp = !showNewExp;
     if (showNewExp) showNewNote = false;
     if (showNewExp && !neStart) neStart = nowLocalInput();
+  }
+
+  // When "this already happened" is ticked, seed the end time from the start so
+  // the field isn't empty — the person adjusts both to the real dates.
+  function onPastToggle() {
+    if (nePast && !neEnd) neEnd = neStart;
   }
 
   function openNewNote() {
@@ -792,13 +811,21 @@
   }
 
   async function submitNewExperience() {
+    const startIso = localInputToIso(neStart);
     const e = await createExperience({
       title: neTitle || "Untitled experience",
       intention: neIntention,
       setting: neSetting,
-      started_at: localInputToIso(neStart),
+      started_at: startIso,
     });
-    neTitle = neIntention = neSetting = neStart = "";
+    // A past experience is over the moment it's logged — mark it ended so it's
+    // history, not a live session (no "ongoing", no live-session controls). If
+    // the end time was left blank, fall back to the start rather than to now.
+    if (nePast) {
+      await endExperience(e.id, neEnd ? localInputToIso(neEnd) : startIso, null, "");
+    }
+    neTitle = neIntention = neSetting = neStart = neEnd = "";
+    nePast = false;
     showNewExp = false;
     await loadJournal();
     await openExperience(e.id);
@@ -816,7 +843,7 @@
     });
     lastWarnings = res.warnings;
     dSubstance = dAmount = "";
-    dTime = nowLocalInput();
+    dTime = defaultDoseTime();
     await openExperienceKeepWarnings(selected.id);
     await loadJournal();
   }
@@ -1075,6 +1102,19 @@
   let fbKind = $state<"bug" | "feature">("bug");
   let fbSummary = $state("");
   let fbDetail = $state("");
+
+  // A quick way in from the header, so reporting a bug isn't buried in Settings.
+  let showFeedback = $state(false);
+  function openBugReport() {
+    fbKind = "bug";
+    showFeedback = true;
+  }
+  // From the modal: open the prefilled issue, then close. (The Settings card
+  // calls openFeedback directly and stays put.)
+  async function sendFeedback() {
+    await openFeedback();
+    showFeedback = false;
+  }
 
   async function openFeedback() {
     const isBug = fbKind === "bug";
@@ -1623,6 +1663,7 @@
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substances</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
+        <button title="Report a bug or request a feature" onclick={openBugReport}>🐛 Report a bug</button>
         <button title="Emergency &amp; support resources" onclick={openHelp}>Emergency Resources</button>
       </nav>
     </header>
@@ -1819,11 +1860,18 @@
           {#if showNewExp}
             <div class="new-exp">
               <input placeholder="Title" bind:value={neTitle} />
-              <input type="datetime-local" bind:value={neStart} title="Start time" />
+              <input type="datetime-local" bind:value={neStart} title={nePast ? "When it started" : "Start time"} />
+              {#if nePast}
+                <input type="datetime-local" bind:value={neEnd} title="When it ended (optional)" />
+              {/if}
               <input placeholder="Intention (optional)" bind:value={neIntention} />
               <input placeholder="Set & setting (optional)" bind:value={neSetting} />
-              <button class="primary small-btn" onclick={submitNewExperience}>Start</button>
+              <button class="primary small-btn" onclick={submitNewExperience}>{nePast ? "Log it" : "Start"}</button>
             </div>
+            <label class="past-toggle">
+              <input type="checkbox" bind:checked={nePast} onchange={onPastToggle} />
+              This already happened — I'm logging a past experience
+            </label>
           {/if}
 
           {#if showNewNote}
@@ -2663,6 +2711,39 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     </div>
   {/if}
 
+  {#if showFeedback}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="modal-overlay" role="presentation" onclick={() => (showFeedback = false)}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="help-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+        <h2>{fbKind === "bug" ? "Report a bug" : "Request a feature"}</h2>
+        <p class="muted small">
+          Opens a prefilled issue on GitHub in your browser — nothing leaves your journal; you
+          write and send it there.
+        </p>
+        <div class="fb-kind">
+          <label><input type="radio" bind:group={fbKind} value="bug" /> Report a bug</label>
+          <label><input type="radio" bind:group={fbKind} value="feature" /> Request a feature</label>
+        </div>
+        <input
+          class="fb-field"
+          placeholder={fbKind === "bug" ? "What went wrong? (short summary)" : "What would you like? (short summary)"}
+          bind:value={fbSummary}
+        />
+        <textarea
+          class="fb-field"
+          rows="3"
+          placeholder="Any detail you want to include (optional — you can also write it on GitHub)"
+          bind:value={fbDetail}
+        ></textarea>
+        <div class="row-actions">
+          <button class="ghost small-btn" onclick={() => (showFeedback = false)}>Cancel</button>
+          <button class="primary small-btn" onclick={sendFeedback}>Continue on GitHub →</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- ============ LIVE SESSION ============ -->
   {#if liveSession && selected}
     <div class="live">
@@ -2821,6 +2902,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   .new-exp, .dose-form, .new-sub { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; align-items: center; }
   .new-exp input, .new-sub input { flex: 1; min-width: 8rem; }
+  .past-toggle { display: flex; align-items: center; gap: 0.45rem; margin: -0.3rem 0 0.8rem; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
+  .past-toggle input { cursor: pointer; }
   .new-note { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
   .new-note textarea { width: 100%; resize: vertical; }
   .note-pill { font-style: italic; }
