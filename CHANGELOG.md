@@ -11,6 +11,11 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.11.1
+
+- **Small polish:** the "Report a bug" button on the top bar no longer has an
+  emoji, so it sits cleanly alongside the other controls.
+
 ## v0.11.0
 
 - **Logging a past experience is now a first-class option.** The "+ Session" form
