@@ -89,6 +89,9 @@
   let evNote = $state("");
   let evIntensity = $state("");
 
+  // starting a session: an optional title, blank by default
+  let newTitle = $state("");
+
   // renaming an experience (live session or an opened journal entry)
   let renamingId = $state<number | null>(null);
   let renameText = $state("");
@@ -239,9 +242,14 @@
   }
 
   // ---- the live session ----
+  // A title is offered but never demanded: typing one at the moment you're
+  // starting a session is often the last thing you want to be doing. Left blank,
+  // the backend names the session after the first substance logged into it
+  // (`name_after_first_dose` in db.rs) rather than leaving it "Untitled" forever.
   const startSession = () =>
     run(async () => {
-      await createExperience({ title: "", started_at: new Date().toISOString() });
+      await createExperience({ title: newTitle.trim(), started_at: new Date().toISOString() });
+      newTitle = "";
       await refresh();
     });
 
@@ -571,6 +579,8 @@
         <section class="pane">
           <h2>No session running</h2>
           <p class="muted">Start one here, or carry on with one you started at the desk.</p>
+          <input placeholder="Title (optional)" bind:value={newTitle} />
+          <p class="muted hint">Leave it blank and it takes the name of the first substance you log.</p>
           <button class="primary" disabled={busy} onclick={startSession}>Start a session</button>
           <button disabled={busy} onclick={refresh}>Refresh</button>
         </section>
@@ -922,6 +932,8 @@
   header { display: flex; justify-content: space-between; align-items: baseline; padding: 0.4rem 0.2rem 0.8rem; }
   .live { color: #7ee787; font-size: 0.85rem; }
   .muted { color: #9aa2ad; }
+  /* Sits under the field it explains, so it reads as part of it. */
+  .hint { font-size: 0.85rem; margin: -0.2rem 0 0.6rem; }
 
   .pane { background: #1b1e24; border: 1px solid #2a2f38; border-radius: 14px; padding: 1rem; margin-bottom: 0.8rem; }
   h1 { font-size: 1.2rem; margin: 0 0 0.5rem; }

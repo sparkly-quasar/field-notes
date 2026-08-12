@@ -123,6 +123,29 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.11.3
+
+- **An untitled session is named after its first dose.** The phone starts a
+  session with a single tap and had nowhere to put a title, so phone-started
+  entries lived in the journal as "Untitled" — the one thing that makes a journal
+  hard to read back. `name_after_first_dose` (in `db.rs`, called from `log_dose`)
+  fills a blank title with the substance name of the session's **first** dose.
+  Deliberate limits: only the first dose (after that the session has a name, and a
+  title cleared back to blank was cleared on purpose), never over a title the user
+  typed, and renaming still wins. It sits at the db layer, so it holds for the
+  desktop, the phone, and the Companion's `log_dose` tool alike.
+  - The desktop's "+ Session" form used to stamp the literal string
+    `"Untitled experience"` into the title column when the field was left blank,
+    which would have made the auto-name unreachable there. It now stores a blank
+    title and leans on the display fallback the journal already had.
+  - The phone's start-a-session pane gained an **optional** title field. Offered,
+    never demanded: typing a title is often the last thing you want to be doing at
+    the moment you're starting a session.
+- **Still untitled:** a session that is started and never gets a dose. Nothing to
+  name it after; left alone rather than guessed at.
+
+---
+
 ## Shipped in v0.11.0
 
 - **First-class past-experience logging.** Writing up a trip that already happened

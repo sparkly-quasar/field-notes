@@ -510,6 +510,8 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
         })
     })?;
 
+    name_after_first_dose(conn, input.experience_id, &input.substance_name)?;
+
     // Gather every distinct substance in this experience and check interactions.
     let mut stmt =
         conn.prepare("SELECT DISTINCT substance_name FROM doses WHERE experience_id = ?1")?;
@@ -517,6 +519,33 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
         stmt.query_map([input.experience_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
 
     Ok((dose, combo_warnings(conn, &names)))
+}
+
+/// Give an untitled session the name of the first substance logged into it.
+///
+/// Starting a session mid-stride — especially from the phone, one-handed — is a
+/// single tap with nowhere to type a title, and the entry would otherwise land in
+/// the journal as "Untitled" forever. The first dose is the most useful thing we
+/// know about a session, so it becomes the title.
+///
+/// Deliberately only the *first* dose: after that the session has a name, and a
+/// user who clears the title back to blank meant to, so nothing refills it.
+/// Renaming (desktop or phone) overrides this at any point.
+fn name_after_first_dose(conn: &Connection, experience_id: i64, substance: &str) -> rusqlite::Result<()> {
+    let name = substance.trim();
+    if name.is_empty() {
+        return Ok(());
+    }
+    let doses: i64 =
+        conn.query_row("SELECT COUNT(*) FROM doses WHERE experience_id = ?1", [experience_id], |r| r.get(0))?;
+    if doses != 1 {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE experiences SET title = ?2 WHERE id = ?1 AND TRIM(COALESCE(title, '')) = ''",
+        params![experience_id, name],
+    )?;
+    Ok(())
 }
 
 /// Every warning we know about for a set of substances taken together, from both
@@ -885,6 +914,49 @@ mod tests {
 
         let detail = get_experience(&c, exp.id).unwrap();
         assert_eq!(detail.doses.len(), 2);
+    }
+
+    #[test]
+    fn an_untitled_session_takes_the_name_of_its_first_dose() {
+        let c = mem();
+        let blank = |started_at: &str, title: &str| {
+            create_experience(&c, &ExperienceInput {
+                kind: "session".into(), title: title.into(),
+                intention: String::new(), setting: String::new(),
+                started_at: started_at.into(),
+            }).unwrap()
+        };
+        let dose = |exp: i64, name: &str, at: &str| {
+            log_dose(&c, &DoseInput {
+                experience_id: exp, substance_name: name.into(), amount: Some(100.0),
+                unit: "mg".into(), route: "oral".into(), taken_at: at.into(),
+                note: String::new(),
+            }).unwrap()
+        };
+
+        // Started from the phone with nowhere to type a title: the first dose names it.
+        let auto = blank("2026-08-01T20:00:00Z", "");
+        assert_eq!(auto.title, "");
+        dose(auto.id, "ketamine", "2026-08-01T20:10:00Z");
+        assert_eq!(get_experience_row(&c, auto.id).unwrap().title, "ketamine");
+
+        // The second dose does not rename it — only the first one names a session.
+        dose(auto.id, "MDMA", "2026-08-01T21:00:00Z");
+        assert_eq!(get_experience_row(&c, auto.id).unwrap().title, "ketamine");
+
+        // …and a title the user typed is never overwritten.
+        let named = blank("2026-08-02T20:00:00Z", "Birthday");
+        dose(named.id, "LSD", "2026-08-02T20:10:00Z");
+        assert_eq!(get_experience_row(&c, named.id).unwrap().title, "Birthday");
+
+        // A cleared title stays cleared: that was a decision, not a gap to fill.
+        update_experience(&c, auto.id, &ExperienceUpdate {
+            title: String::new(), intention: String::new(), setting: String::new(),
+            notes: String::new(), rating: None,
+            started_at: "2026-08-01T20:00:00Z".into(), ended_at: None,
+        }).unwrap();
+        dose(auto.id, "caffeine", "2026-08-01T22:00:00Z");
+        assert_eq!(get_experience_row(&c, auto.id).unwrap().title, "");
     }
 
     #[test]
