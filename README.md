@@ -29,7 +29,9 @@ from your phone.
   happened" on a new session and it's saved as a finished trip, with doses
   defaulting to when it occurred rather than now. Every timestamp in a session
   also shows the time since your first dose (`14:02 (t+1:23)`), so the timeline
-  reads against the clock that matters.
+  reads against the clock that matters. A session you never got round to titling
+  takes the name of the first substance you log into it, so nothing sits in the
+  journal as "Untitled" — rename it whenever you like.
 - **Plain notes** — not everything is a session. Write ordinary journal entries
   (a title, your words, a date) alongside them.
 - **Combination warnings** — every dose is checked against the others for
@@ -72,8 +74,10 @@ from your phone.
   shows a green **"Paired successfully"** light the moment the phone first uses
   the code, so you're not left guessing whether the scan took. Companion
   replies run as a background job on the desktop, so a slow local model — or a
-  locked phone screen — no longer drops the answer. Rename a session or entry
-  right from the phone by tapping its title. Private by design: see
+  locked phone screen — no longer drops the answer. Starting a session from the
+  phone takes an optional title — or leave it blank and the first substance you
+  log names it. Rename a session or entry right from the phone by tapping its
+  title. Private by design: see
   [Architecture](#architecture) for how.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.

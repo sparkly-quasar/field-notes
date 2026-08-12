@@ -817,7 +817,11 @@
   async function submitNewExperience() {
     const startIso = localInputToIso(neStart);
     const e = await createExperience({
-      title: neTitle || "Untitled experience",
+      // Blank stays blank rather than being stamped with the literal string
+      // "Untitled experience": an empty title is what lets the first logged dose
+      // name the session (`name_after_first_dose` in db.rs). The journal already
+      // falls back to "Untitled experience" for display.
+      title: neTitle.trim(),
       intention: neIntention,
       setting: neSetting,
       started_at: startIso,
@@ -1866,7 +1870,11 @@
 
           {#if showNewExp}
             <div class="new-exp">
-              <input placeholder="Title" bind:value={neTitle} />
+              <input
+                placeholder="Title (optional — else the first substance)"
+                title="Leave blank and the session takes the name of the first substance you log."
+                bind:value={neTitle}
+              />
               <input type="datetime-local" bind:value={neStart} title={nePast ? "When it started" : "Start time"} />
               {#if nePast}
                 <input type="datetime-local" bind:value={neEnd} title="When it ended (optional)" />

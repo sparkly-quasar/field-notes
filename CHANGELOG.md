@@ -11,6 +11,18 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.11.3
+
+- **Sessions name themselves.** Starting a session from your phone gave you
+  nowhere to type a title, so it landed in the journal as "Untitled" and usually
+  stayed that way. Now an untitled session takes the name of the first substance
+  you log into it — so a session you started one-handed in the dark shows up as
+  "ketamine" rather than "Untitled". Only the first dose names it, a title you
+  typed yourself is never overwritten, and you can still rename anything at any
+  time by tapping its title on the phone or editing it on the desktop.
+- **A title field when you start a session on the phone.** Optional — leave it
+  blank and the naming above takes over.
+
 ## v0.11.2
 
 - **Phone access no longer takes over a port another app is using.** If something
