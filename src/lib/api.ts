@@ -488,6 +488,8 @@ export interface TailscaleStatus {
   host: string | null;
   serving: boolean;
   url: string | null;
+  /** HTTPS port we're published on — not always 443, another service may hold it. */
+  https_port: number | null;
   serve_command: string | null;
 }
 export const portalStatus = () => invoke<PortalStatus>("portal_status");

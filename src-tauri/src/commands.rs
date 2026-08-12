@@ -1379,6 +1379,9 @@ pub struct TailscaleStatus {
     pub serving: bool,
     /// The tailnet URL the phone reaches, once we're serving.
     pub url: Option<String>,
+    /// Which HTTPS port *we* are published on, if any. Not always 443 — another
+    /// service may already own that, in which case we move aside.
+    pub https_port: Option<u16>,
     /// The equivalent command, for anyone who would rather run it themselves or
     /// wants to see what the button does. `portal_serve` runs exactly this.
     pub serve_command: Option<String>,
@@ -1420,6 +1423,65 @@ fn tailscale_run(bin: &str, args: &[&str]) -> Result<String, String> {
     Err(if msg.is_empty() { "Tailscale refused, without saying why.".into() } else { msg })
 }
 
+/// HTTPS ports we'll publish on, in order of preference. 443 gives the bare
+/// `https://host/` URL and is what we want when we can have it — but it is a *shared*
+/// resource. Another service on this machine (a chat UI, a dev server) may already be
+/// served there, and taking it would silently break them. When it's spoken for we move
+/// aside rather than evict.
+const SERVE_PORTS: &[u16] = &[443, 8443, 8444, 10443];
+
+/// `:8443`, or nothing at all for 443 — which `https://` already implies.
+fn port_suffix(https: u16) -> String {
+    if https == 443 { String::new() } else { format!(":{https}") }
+}
+
+/// Read `tailscale serve` and work out (which HTTPS port is *ours*, every HTTPS port in
+/// use). "Ours" means it proxies to our own loopback port; anything else on the tailnet
+/// belongs to someone else and is not ours to touch.
+///
+/// The JSON shape is `Web: { "host:port": { Handlers: { "/": { Proxy: "http://127.0.0.1:N" } } } }`.
+fn serve_map(bin: &str, local: Option<u16>) -> (Option<u16>, std::collections::BTreeSet<u16>) {
+    match tailscale_run(bin, &["serve", "status", "--json"]) {
+        Ok(raw) => parse_serve(&raw, local),
+        Err(_) => (None, std::collections::BTreeSet::new()),
+    }
+}
+
+/// The parsing half of [`serve_map`], split out so it can be tested without a tailnet.
+fn parse_serve(raw: &str, local: Option<u16>) -> (Option<u16>, std::collections::BTreeSet<u16>) {
+    let mut used = std::collections::BTreeSet::new();
+    let mut ours = None;
+
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return (ours, used);
+    };
+    let Some(web) = v.get("Web").and_then(|w| w.as_object()) else {
+        return (ours, used);
+    };
+
+    for (hostport, entry) in web {
+        let Some(https) = hostport.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) else {
+            continue;
+        };
+        used.insert(https);
+
+        // Match on the full `//host:port` tail so that serving :8787 is never mistaken
+        // for someone else's :18787.
+        if let Some(local) = local {
+            let needle = format!("//127.0.0.1:{local}");
+            let mine = entry["Handlers"].as_object().is_some_and(|handlers| {
+                handlers
+                    .values()
+                    .any(|h| h["Proxy"].as_str().is_some_and(|p| p.ends_with(&needle)))
+            });
+            if mine {
+                ours = Some(https);
+            }
+        }
+    }
+    (ours, used)
+}
+
 #[tauri::command]
 pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
     let Some(bin) = tailscale_bin() else {
@@ -1428,6 +1490,7 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
             host: None,
             serving: false,
             url: None,
+            https_port: None,
             serve_command: None,
         };
     };
@@ -1444,18 +1507,24 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
 
     // Are we already proxying to *our* port? Tailscale may well be serving something
     // else entirely; that isn't us, and turning it off isn't ours to do.
-    let serving = port.is_some_and(|p| {
-        tailscale_run(&bin, &["serve", "status", "--json"])
-            .map(|s| s.contains(&format!("127.0.0.1:{p}")))
-            .unwrap_or(false)
-    });
+    let (ours, used) = serve_map(&bin, port);
+
+    // The port we'd land on if asked to publish right now: the one we already hold, else
+    // the first one nobody else has taken. Keeps the shown command honest.
+    let next = ours.or_else(|| SERVE_PORTS.iter().copied().find(|p| !used.contains(p)));
 
     TailscaleStatus {
         installed: true,
-        host: host.clone(),
-        serving,
-        url: (serving && host.is_some()).then(|| format!("https://{}/m", host.unwrap())),
-        serve_command: port.map(|p| format!("{bin} serve --bg {p}")),
+        url: host
+            .as_deref()
+            .zip(ours)
+            .map(|(h, https)| format!("https://{h}{}/m", port_suffix(https))),
+        host,
+        serving: ours.is_some(),
+        https_port: ours,
+        serve_command: port
+            .zip(next)
+            .map(|(local, https)| format!("{bin} serve --bg --https={https} {local}")),
     }
 }
 
@@ -1467,7 +1536,19 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
 pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
     let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
     let port = portal.status().port.ok_or("Turn on phone access first.")?;
-    tailscale_run(&bin, &["serve", "--bg", &port.to_string()])?;
+
+    let (ours, used) = serve_map(&bin, Some(port));
+    // Re-publishing an already-published portal on a *different* port would strand the
+    // old handler, so keep the one we hold. Otherwise take the first port going spare —
+    // never one that already proxies somewhere else.
+    let https = ours
+        .or_else(|| SERVE_PORTS.iter().copied().find(|p| !used.contains(p)))
+        .ok_or(
+            "Tailscale is already serving something on every port Field Notes would use. \
+             Free one up with `tailscale serve --https=<port> off`, then try again.",
+        )?;
+
+    tailscale_run(&bin, &["serve", "--bg", &format!("--https={https}"), &port.to_string()])?;
     Ok(portal_tailscale(portal))
 }
 
@@ -1476,7 +1557,15 @@ pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String
 #[tauri::command]
 pub fn portal_unserve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
     let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
-    tailscale_run(&bin, &["serve", "--https=443", "off"])?;
+
+    // Retract *our* handler and nothing else. Assuming 443 was ours would take down
+    // whatever else the machine publishes there — and leave the journal published.
+    let (ours, _) = serve_map(&bin, portal.status().port);
+    let Some(https) = ours else {
+        return Ok(portal_tailscale(portal));
+    };
+
+    tailscale_run(&bin, &["serve", &format!("--https={https}"), "off"])?;
     Ok(portal_tailscale(portal))
 }
 
@@ -1591,5 +1680,61 @@ mod tests {
     fn prose_beginning_with_assistants_is_left_alone() {
         let reply = "assistants like me can't diagnose that.";
         assert_eq!(presentable(reply.into()), reply);
+    }
+
+    // ---------- sharing the tailnet with whatever else lives on this machine ----------
+
+    /// Two services published at once: the journal on 8443, something else on 443.
+    const SHARED: &str = r#"{
+      "TCP": { "443": { "HTTPS": true }, "8443": { "HTTPS": true } },
+      "Web": {
+        "host.tailnet.ts.net:443":  { "Handlers": { "/": { "Proxy": "http://127.0.0.1:3000" } } },
+        "host.tailnet.ts.net:8443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:8787" } } }
+      }
+    }"#;
+
+    #[test]
+    fn finds_our_own_port_rather_than_assuming_443() {
+        let (ours, used) = parse_serve(SHARED, Some(8787));
+        assert_eq!(ours, Some(8443));
+        assert_eq!(used.iter().copied().collect::<Vec<_>>(), vec![443, 8443]);
+    }
+
+    #[test]
+    fn another_services_handler_is_never_mistaken_for_ours() {
+        // 3000 is somebody else's; we're not serving at all.
+        let (ours, _) = parse_serve(SHARED, Some(9999));
+        assert_eq!(ours, None);
+    }
+
+    #[test]
+    fn a_port_is_not_confused_with_one_that_merely_ends_the_same() {
+        let raw = r#"{"Web":{"h:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:18787"}}}}}"#;
+        assert_eq!(parse_serve(raw, Some(8787)).0, None);
+    }
+
+    #[test]
+    fn we_step_aside_when_443_is_taken() {
+        let (_, used) = parse_serve(SHARED, Some(8787));
+        let free = SERVE_PORTS.iter().copied().find(|p| !used.contains(p));
+        assert_eq!(free, Some(8444));
+    }
+
+    #[test]
+    fn an_empty_tailnet_leaves_443_available() {
+        let (ours, used) = parse_serve("{}", Some(8787));
+        assert_eq!(ours, None);
+        assert_eq!(SERVE_PORTS.iter().copied().find(|p| !used.contains(p)), Some(443));
+    }
+
+    #[test]
+    fn garbage_from_the_cli_is_not_a_panic() {
+        assert_eq!(parse_serve("not json", Some(8787)), (None, Default::default()));
+    }
+
+    #[test]
+    fn only_443_needs_no_port_in_the_url() {
+        assert_eq!(port_suffix(443), "");
+        assert_eq!(port_suffix(8443), ":8443");
     }
 }

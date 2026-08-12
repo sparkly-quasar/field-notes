@@ -11,6 +11,26 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.11.2
+
+- **Phone access no longer takes over a port another app is using.** If something
+  else on your computer is already published to your tailnet — a chat interface, a
+  media server, anything using `tailscale serve` — Field Notes now publishes
+  alongside it on a free port instead of quietly replacing it. Previously it
+  claimed the standard HTTPS port whatever was already there, which took the other
+  service off your tailnet without saying so.
+- **The pairing QR code now points where the portal actually is.** When Field Notes
+  publishes on a different port, the QR code and the address shown on screen carry
+  that port. Before, they always showed the standard address, so on a machine
+  running other services the QR could send your phone to the wrong app entirely.
+- **Turning phone access off only turns off Field Notes.** It now retracts its own
+  connection and nothing else. Before, it switched off the standard port
+  unconditionally, which could take down an unrelated service while leaving the
+  journal published.
+
+These only affect computers running other tailnet services alongside Field Notes;
+if it's the only one, nothing changes.
+
 ## v0.11.1
 
 - **Top-bar tidy-up.** The menu is reordered into a more natural flow — Journal,

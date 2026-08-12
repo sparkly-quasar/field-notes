@@ -204,8 +204,12 @@
   // it should not be sitting on screen behind you while you're screen-sharing.
   let showQr = $state(false);
   let serving = $state(false);
+  // Not necessarily port 443 — if something else on this machine already holds it we
+  // publish alongside on another, and the phone needs to be told which.
   let tailscaleUrl = $derived(
-    ts?.host && portal.port ? `https://${ts.host}/m` : null,
+    ts?.host && portal.port
+      ? `https://${ts.host}${ts.https_port && ts.https_port !== 443 ? `:${ts.https_port}` : ""}/m`
+      : null,
   );
 
   // import-from-text state
@@ -1390,7 +1394,10 @@
   function pairTarget(): string | null {
     if (!portal.pair_url) return null;
     const token = portal.pair_url.match(/#t=([a-f0-9]+)/)?.[1];
-    if (ts?.host && token) return `https://${ts.host}/m#t=${token}`;
+    // Prefer the URL the backend actually published on — a QR built from a guessed port
+    // sends the phone to whatever else is serving there.
+    const base = ts?.url ?? tailscaleUrl;
+    if (base && token) return `${base}#t=${token}`;
     return portal.pair_url;
   }
 
