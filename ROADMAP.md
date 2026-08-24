@@ -123,7 +123,7 @@ non-negotiables, each with a test:
 
 ---
 
-## Shipped in v0.11.4 (unreleased)
+## Shipped in v0.11.4
 
 Two gaps in the phone portal, both about the journal being a record you keep
 rather than a session you sit through. Frontend only — every command involved

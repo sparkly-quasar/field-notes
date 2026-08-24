@@ -76,8 +76,11 @@ from your phone.
   replies run as a background job on the desktop, so a slow local model — or a
   locked phone screen — no longer drops the answer. Starting a session from the
   phone takes an optional title — or leave it blank and the first substance you
-  log names it. Rename a session or entry right from the phone by tapping its
-  title. Private by design: see
+  log names it. Or skip the session entirely: **log something you took** —
+  substance, amount, and when — as a one-shot entry, for any day you're catching
+  up on. Past entries are editable from the phone too: tap any dose or note to
+  correct it, add one you forgot, or open the entry to change its title, times,
+  rating and write-up. Private by design: see
   [Architecture](#architecture) for how.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.
