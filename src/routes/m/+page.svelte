@@ -25,6 +25,7 @@
     addTimelineEvent,
     updateTimelineEvent,
     deleteTimelineEvent,
+    deleteExperience,
     listSubstances,
     addSubstance,
     usageBySubstance,
@@ -66,11 +67,16 @@
   let session = $state<ExperienceDetail | null>(null);
   let recent = $state<ExperienceSummary[]>([]);
 
-  // dose entry
+  // Dose entry. One set of fields serves both places you can log into — the live
+  // session on Now, and an entry opened in the Journal — because only one of the
+  // two is ever on screen.
   let dSub = $state("");
   let dAmt = $state("");
   let dUnit = $state("mg");
   let dRoute = $state("oral");
+  /** datetime-local. Only asked for when adding to an entry that already happened;
+   *  in a live session the answer is always "now". */
+  let dWhen = $state("");
   let doseWarnings = $state<Warning[]>([]);
 
   // editing a dose already logged
@@ -78,19 +84,41 @@
   let eAmt = $state("");
   let eUnit = $state("mg");
   let eRoute = $state("oral");
+  let eWhen = $state("");
   let eNote = $state("");
 
-  // timeline note
+  // timeline note (shared between the live session and an opened entry, as above)
   let note = $state("");
   let intensity = $state("");
+  let noteWhen = $state("");
 
   // editing a timeline note already written
   let editingEvent = $state<TimelineEvent | null>(null);
   let evNote = $state("");
   let evIntensity = $state("");
+  let evWhen = $state("");
 
   // starting a session: an optional title, blank by default
   let newTitle = $state("");
+
+  // Quick log — one substance, a time, nothing else. The common case is not a
+  // trip you sit through and write up; it's "I took this, record it". No session
+  // to end, no write-up to fill in.
+  let qSub = $state("");
+  let qAmt = $state("");
+  let qUnit = $state("mg");
+  let qRoute = $state("oral");
+  let qWhen = $state("");
+  let qWarnings = $state<Warning[]>([]);
+  let qSaved = $state(false);
+
+  // editing an entry already in the journal: its title, dates, rating, write-up
+  let editEntry = $state(false);
+  let enTitle = $state("");
+  let enStart = $state("");
+  let enEnd = $state("");
+  let enRating = $state("");
+  let enNotes = $state("");
 
   // renaming an experience (live session or an opened journal entry)
   let renamingId = $state<number | null>(null);
@@ -173,6 +201,7 @@
     captureToken();
     paired = inTauri() || hasToken();
     if (!paired) return;
+    qWhen = nowLocalInput();
     await refresh();
     await loadAi();
   });
@@ -275,6 +304,51 @@
       await refresh();
     });
 
+  // ---- quick log: a substance and a time, and that's the whole entry ----
+  //
+  // Made as an already-ended session so it lands in the journal as history and
+  // never shows up on Now as a session someone forgot to end. The title is left
+  // blank on purpose: `name_after_first_dose` in db.rs names it after what was
+  // taken, which is the only name this kind of entry wants.
+  const quickLog = () =>
+    run(async () => {
+      if (!qSub.trim()) return;
+      const at = localInputToIso(qWhen);
+      const exp = await createExperience({ title: "", started_at: at });
+      await logDose({
+        experience_id: exp.id,
+        substance_name: qSub.trim(),
+        amount: qAmt.trim() ? Number(qAmt) : null,
+        unit: qUnit,
+        route: qRoute,
+        taken_at: at,
+      });
+      await endExperience(exp.id, at, null, "");
+      const name = qSub.trim();
+      qSub = qAmt = "";
+      qWhen = nowLocalInput();
+      qSaved = true;
+      setTimeout(() => (qSaved = false), 3000);
+      await refresh();
+      await warnAgainstNearby(name, at);
+    });
+
+  /** A quick log stands alone, so `log_dose`'s own check — which compares a dose
+   *  against the *rest of its entry* — has nothing to compare it with, and would
+   *  go quiet on exactly the combination that matters. So run the same
+   *  deterministic checker across everything logged nearby in time instead.
+   *  Entry start times are the coarse grain available here; erring towards
+   *  showing a warning is the right way to be wrong. */
+  const NEARBY_HOURS = 12;
+  async function warnAgainstNearby(name: string, atIso: string) {
+    const at = new Date(atIso).getTime();
+    const nearby = recent
+      .filter((e) => Math.abs(new Date(e.started_at).getTime() - at) < NEARBY_HOURS * 3600_000)
+      .flatMap((e) => e.substances);
+    const names = [...new Set([name, ...nearby])];
+    qWarnings = names.length > 1 ? await checkCombo(names) : [];
+  }
+
   const endSession = () =>
     run(async () => {
       if (!session || !confirm("End this session?")) return;
@@ -290,10 +364,10 @@
 
   const saveRename = () =>
     run(async () => {
-      // update_experience replaces the whole row, so everything except the
-      // title is passed through from the loaded entry unchanged.
-      const target =
-        session?.id === renamingId ? session : open?.id === renamingId ? open : null;
+      // Renaming the live session from the header. An entry in the Journal is
+      // renamed through its own editor, which can change everything else too.
+      // update_experience replaces the whole row, so the rest is passed through.
+      const target = session?.id === renamingId ? session : null;
       if (!target) return;
       await updateExperience(target.id, {
         title: renameText.trim(),
@@ -308,16 +382,18 @@
       await refresh();
     });
 
-  const submitDose = () =>
+  /** Log into whichever entry is on screen: the live session, or one opened in
+   *  the Journal (where `at` comes from the time field rather than the clock). */
+  const submitDose = (to: ExperienceDetail, at: string) =>
     run(async () => {
-      if (!session || !dSub.trim()) return;
+      if (!dSub.trim()) return;
       const res = await logDose({
-        experience_id: session.id,
+        experience_id: to.id,
         substance_name: dSub.trim(),
         amount: dAmt.trim() ? Number(dAmt) : null,
         unit: dUnit,
         route: dRoute,
-        taken_at: new Date().toISOString(),
+        taken_at: at,
       });
       // The same deterministic checker the desktop runs — it does not go quiet just
       // because you're on a phone.
@@ -332,6 +408,7 @@
     eAmt = d.amount?.toString() ?? "";
     eUnit = d.unit ?? "mg";
     eRoute = d.route ?? "oral";
+    eWhen = isoToLocalInput(d.taken_at);
     eNote = d.note ?? "";
   }
 
@@ -343,7 +420,7 @@
         amount: eAmt.trim() ? Number(eAmt) : null,
         unit: eUnit,
         route: eRoute,
-        taken_at: editing.taken_at,
+        taken_at: localInputToIso(eWhen),
         note: eNote,
       });
       editing = null;
@@ -363,13 +440,14 @@
     editing = null;
     evNote = t.note;
     evIntensity = t.intensity != null ? String(t.intensity) : "";
+    evWhen = isoToLocalInput(t.at);
   }
 
   const saveEventEdit = () =>
     run(async () => {
       if (!editingEvent) return;
       await updateTimelineEvent(editingEvent.id, {
-        at: editingEvent.at,
+        at: localInputToIso(evWhen),
         note: evNote.trim(),
         mood: editingEvent.mood,
         intensity: evIntensity.trim() ? Number(evIntensity) : null,
@@ -386,15 +464,15 @@
       await refresh();
     });
 
-  const submitNote = () =>
+  const submitNote = (to: ExperienceDetail, at: string) =>
     run(async () => {
-      if (!session || !note.trim()) return;
+      if (!note.trim()) return;
       // The note is saved as written, and nothing reads it over the user's
       // shoulder: the journal is private. Crisis guardrails live where the user
       // is *talking to* something — the Companion — and in the combo checker.
       await addTimelineEvent({
-        experience_id: session.id,
-        at: new Date().toISOString(),
+        experience_id: to.id,
+        at,
         note: note.trim(),
         intensity: intensity.trim() ? Number(intensity) : null,
       });
@@ -403,7 +481,56 @@
     });
 
   // ---- journal ----
-  const openExperience = (id: number) => run(async () => (open = await getExperience(id)));
+  const openExperience = (id: number) =>
+    run(async () => {
+      open = await getExperience(id);
+      editing = editingEvent = null;
+      editEntry = false;
+      doseWarnings = [];
+      // Adding to something that already happened: default to when it happened.
+      // A session that's still open is a different matter — there, "now" is right.
+      dWhen = noteWhen = open.ended_at ? isoToLocalInput(open.started_at) : nowLocalInput();
+    });
+
+  // ---- editing an entry that's already in the journal ----
+  function startEditEntry() {
+    if (!open) return;
+    editEntry = true;
+    editing = editingEvent = null;
+    enTitle = open.title;
+    enStart = isoToLocalInput(open.started_at);
+    enEnd = open.ended_at ? isoToLocalInput(open.ended_at) : "";
+    enRating = open.rating != null ? String(open.rating) : "";
+    enNotes = open.notes;
+  }
+
+  const saveEntry = () =>
+    run(async () => {
+      if (!open) return;
+      // update_experience replaces the whole row; intention and setting aren't
+      // editable on a phone, so they're passed through untouched.
+      await updateExperience(open.id, {
+        title: enTitle.trim(),
+        intention: open.intention,
+        setting: open.setting,
+        notes: enNotes,
+        rating: enRating.trim() ? Number(enRating) : null,
+        started_at: localInputToIso(enStart),
+        ended_at: enEnd.trim() ? localInputToIso(enEnd) : null,
+      });
+      editEntry = false;
+      await refresh();
+    });
+
+  const removeEntry = () =>
+    run(async () => {
+      if (!open) return;
+      if (!confirm(`Delete "${open.title || "this entry"}" and everything in it?`)) return;
+      await deleteExperience(open.id);
+      open = null;
+      editEntry = false;
+      await refresh();
+    });
 
   const loadUsage = () =>
     run(async () => {
@@ -509,10 +636,30 @@
   // display. Slicing the raw string shows UTC — hours off from the clock on
   // the wall, and the wrong *date* for any evening session.
   const pad2 = (n: number) => String(n).padStart(2, "0");
+  // <input type="datetime-local"> works in local time and has no zone; the journal
+  // stores UTC. Shift across the offset in both directions rather than slicing an
+  // ISO string, which silently backdates an evening entry by a day.
+  const localOffset = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  const nowLocalInput = () => localOffset(new Date()).toISOString().slice(0, 16);
+  const isoToLocalInput = (iso: string) => localOffset(new Date(iso)).toISOString().slice(0, 16);
+  const localInputToIso = (local: string) =>
+    local ? new Date(local).toISOString() : new Date().toISOString();
   const hhmm = (iso: string) => {
     const d = new Date(iso);
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   };
+  /** Doses and notes live in two tables but tell one story, and the phone shows
+   *  them as a single list — so merge them into time order. Without this, a dose
+   *  whose time you just corrected sits wherever it was logged. */
+  type Row =
+    | { kind: "dose"; at: string; dose: Dose }
+    | { kind: "event"; at: string; event: TimelineEvent };
+  const rowsOf = (e: ExperienceDetail): Row[] =>
+    [
+      ...e.doses.map((d) => ({ kind: "dose" as const, at: d.taken_at, dose: d })),
+      ...e.timeline.map((t) => ({ kind: "event" as const, at: t.at, event: t })),
+    ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
   /** T-zero for a session: its first dose. Same rule as the desktop timeline —
    *  t+ is counted from ingestion, not from when the entry was opened. Null
    *  until something is logged, and callers then show wall-clock only. */
@@ -540,6 +687,89 @@
 </script>
 
 <svelte:head><title>Field Notes</title></svelte:head>
+
+<!-- One entry's doses and notes in time order, every line a tap-to-edit target.
+     The live session and an entry opened in the Journal render the same list:
+     what you got wrong at 3am is usually only fixable the next morning. -->
+{#snippet timelineList(e: ExperienceDetail)}
+  <ul class="tl">
+    {#each rowsOf(e) as r (r.kind + (r.kind === "dose" ? r.dose.id : r.event.id))}
+      <li>
+        {#if r.kind === "dose"}
+          <button class="line" onclick={() => startEdit(r.dose)}>
+            <span class="t">{hhmm(r.at)}<span class="rel">{rel(r.at, t0Of(e))}</span></span>
+            <strong>{r.dose.substance_name}</strong>
+            {r.dose.amount ?? ""}{r.dose.unit}
+            <span class="muted">{r.dose.route}</span>
+          </button>
+        {:else}
+          <button class="line" onclick={() => startEditEvent(r.event)}>
+            <span class="t">{hhmm(r.at)}<span class="rel">{rel(r.at, t0Of(e))}</span></span>
+            {r.event.note}
+            {#if r.event.intensity != null}<span class="muted">· {r.event.intensity}/10</span>{/if}
+          </button>
+        {/if}
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
+<!-- Editing a dose or a note, wherever it lives: the live session's timeline or an
+     entry opened in the Journal. Only one line is ever being edited, so one form
+     serves both and the two screens can't drift apart. -->
+{#snippet editors()}
+  {#if editingEvent}
+    <div class="edit">
+      <h3>Edit note</h3>
+      <textarea rows="3" bind:value={evNote}></textarea>
+      <input placeholder="Intensity 0–10 (optional)" inputmode="numeric" bind:value={evIntensity} />
+      <input type="datetime-local" bind:value={evWhen} />
+      <button class="primary" disabled={busy || !evNote.trim()} onclick={saveEventEdit}>Save</button>
+      <button disabled={busy} onclick={() => (editingEvent = null)}>Cancel</button>
+      <button class="danger-btn" disabled={busy} onclick={() => removeEvent(editingEvent!.id)}>Delete note</button>
+    </div>
+  {/if}
+
+  {#if editing}
+    <div class="edit">
+      <h3>Edit {editing.substance_name}</h3>
+      <div class="row">
+        <input placeholder="Amount" inputmode="decimal" bind:value={eAmt} />
+        <select bind:value={eUnit}>
+          {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
+        </select>
+        <select bind:value={eRoute}>
+          {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
+        </select>
+      </div>
+      <input type="datetime-local" bind:value={eWhen} />
+      <input placeholder="Note" bind:value={eNote} />
+      <button class="primary" disabled={busy} onclick={saveEdit}>Save</button>
+      <button disabled={busy} onclick={() => (editing = null)}>Cancel</button>
+      <button class="danger-btn" disabled={busy} onclick={() => removeDose(editing!)}>Delete dose</button>
+    </div>
+  {/if}
+{/snippet}
+
+<!-- The entry itself: what it's called, when it happened, how it went. A plain
+     note has no doses and no end, so it's only asked what it is. -->
+{#snippet entryEditor()}
+  <div class="edit">
+    <h3>Edit entry</h3>
+    <input placeholder="Title" bind:value={enTitle} />
+    <input type="datetime-local" bind:value={enStart} />
+    <p class="muted hint">When it started.</p>
+    {#if open?.kind !== "note"}
+      <input type="datetime-local" bind:value={enEnd} />
+      <p class="muted hint">When it ended. Leave blank and it stays open.</p>
+      <input placeholder="Rating 0–10 (optional)" inputmode="numeric" bind:value={enRating} />
+    {/if}
+    <textarea rows="6" placeholder="Write-up" bind:value={enNotes}></textarea>
+    <button class="primary" disabled={busy} onclick={saveEntry}>Save</button>
+    <button disabled={busy} onclick={() => (editEntry = false)}>Cancel</button>
+    <button class="danger-btn" disabled={busy} onclick={removeEntry}>Delete entry</button>
+  </div>
+{/snippet}
 
 <main>
   {#if !paired}
@@ -576,6 +806,32 @@
     <!-- ---------------- NOW ---------------- -->
     {#if view === "now"}
       {#if !session}
+        <!-- First, because it's the commonest thing anyone opens this app to do:
+             record that they took something. No session, no write-up. -->
+        <section class="pane">
+          <h2>Log something you took</h2>
+          <p class="muted">One substance, one time. No session to end, nothing to write.</p>
+          <input placeholder="Substance" bind:value={qSub} autocapitalize="none" />
+          <div class="row">
+            <input placeholder="Amount" inputmode="decimal" bind:value={qAmt} />
+            <select bind:value={qUnit}>
+              {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
+            </select>
+            <select bind:value={qRoute}>
+              {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
+            </select>
+          </div>
+          <input type="datetime-local" bind:value={qWhen} />
+          <p class="muted hint">When you took it — today, or any day you're catching up on.</p>
+          <button class="primary" disabled={busy || !qSub.trim()} onclick={quickLog}>
+            {busy ? "Saving…" : "Log it"}
+          </button>
+          {#if qSaved}<p class="muted">Saved to the journal.</p>{/if}
+          {#each qWarnings as w}
+            <p class="banner {w.severity}">{w.message}</p>
+          {/each}
+        </section>
+
         <section class="pane">
           <h2>No session running</h2>
           <p class="muted">Start one here, or carry on with one you started at the desk.</p>
@@ -608,7 +864,11 @@
               {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
             </select>
           </div>
-          <button class="primary" disabled={busy || !dSub.trim()} onclick={submitDose}>
+          <button
+            class="primary"
+            disabled={busy || !dSub.trim()}
+            onclick={() => submitDose(session!, new Date().toISOString())}
+          >
             {busy ? "Logging…" : "Log dose"}
           </button>
           {#each doseWarnings as w}
@@ -620,62 +880,20 @@
           <h2>Note</h2>
           <textarea rows="3" placeholder="How's it going?" bind:value={note}></textarea>
           <input placeholder="Intensity 0–10 (optional)" inputmode="numeric" bind:value={intensity} />
-          <button class="primary" disabled={busy || !note.trim()} onclick={submitNote}>Add note</button>
+          <button
+            class="primary"
+            disabled={busy || !note.trim()}
+            onclick={() => submitNote(session!, new Date().toISOString())}
+          >
+            Add note
+          </button>
         </section>
 
         <section class="pane">
           <h2>Timeline</h2>
-          <ul class="tl">
-            {#each session.doses as d}
-              <li>
-                <button class="line" onclick={() => startEdit(d)}>
-                  <span class="t">{hhmm(d.taken_at)}<span class="rel">{rel(d.taken_at, t0Of(session))}</span></span>
-                  <strong>{d.substance_name}</strong>
-                  {d.amount ?? ""}{d.unit}
-                  <span class="muted">{d.route}</span>
-                </button>
-              </li>
-            {/each}
-            {#each session.timeline as t}
-              <li>
-                <button class="line" onclick={() => startEditEvent(t)}>
-                  <span class="t">{hhmm(t.at)}<span class="rel">{rel(t.at, t0Of(session))}</span></span>
-                  {t.note}
-                  {#if t.intensity != null}<span class="muted">· {t.intensity}/10</span>{/if}
-                </button>
-              </li>
-            {/each}
-          </ul>
+          {@render timelineList(session)}
 
-          {#if editingEvent}
-            <div class="edit">
-              <h3>Edit note</h3>
-              <textarea rows="3" bind:value={evNote}></textarea>
-              <input placeholder="Intensity 0–10 (optional)" inputmode="numeric" bind:value={evIntensity} />
-              <button class="primary" disabled={busy || !evNote.trim()} onclick={saveEventEdit}>Save</button>
-              <button disabled={busy} onclick={() => (editingEvent = null)}>Cancel</button>
-              <button class="danger-btn" disabled={busy} onclick={() => removeEvent(editingEvent!.id)}>Delete note</button>
-            </div>
-          {/if}
-
-          {#if editing}
-            <div class="edit">
-              <h3>Edit {editing.substance_name}</h3>
-              <div class="row">
-                <input placeholder="Amount" inputmode="decimal" bind:value={eAmt} />
-                <select bind:value={eUnit}>
-                  {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
-                </select>
-                <select bind:value={eRoute}>
-                  {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
-                </select>
-              </div>
-              <input placeholder="Note" bind:value={eNote} />
-              <button class="primary" disabled={busy} onclick={saveEdit}>Save</button>
-              <button disabled={busy} onclick={() => (editing = null)}>Cancel</button>
-              <button class="danger-btn" disabled={busy} onclick={() => removeDose(editing!)}>Delete dose</button>
-            </div>
-          {/if}
+          {@render editors()}
 
           <button disabled={busy} onclick={endSession}>End session</button>
         </section>
@@ -687,35 +905,77 @@
       {#if open && open.kind === "note"}
         <section class="pane">
           <button class="link" onclick={() => (open = null)}>‹ Back</button>
-          <h2>{open.title || "Untitled note"} <button class="link" onclick={() => startRename(open!)}>rename</button></h2>
+          <h2>{open.title || "Untitled note"}</h2>
           <p class="muted">{day(open.started_at)}</p>
-          {#if open.notes}<p class="notes">{open.notes}</p>{/if}
-          <button disabled={busy} onclick={exportOpen}>Export</button>
+          {#if editEntry}
+            {@render entryEditor()}
+          {:else}
+            {#if open.notes}<p class="notes">{open.notes}</p>{/if}
+            <button disabled={busy} onclick={startEditEntry}>Edit</button>
+            <button disabled={busy} onclick={exportOpen}>Export</button>
+          {/if}
         </section>
       {:else if open}
         <section class="pane">
           <button class="link" onclick={() => (open = null)}>‹ Back</button>
-          <h2>{open.title || "Untitled"} <button class="link" onclick={() => startRename(open!)}>rename</button></h2>
+          <h2>{open.title || "Untitled"}</h2>
           <p class="muted">
             {day(open.started_at)}
             {#if open.ended_at}→ {day(open.ended_at)}{:else}· still open{/if}
             {#if open.rating != null}· {open.rating}/10{/if}
           </p>
-          <ul class="tl">
-            {#each open.doses as d}
-              <li>
-                <span class="t">{hhmm(d.taken_at)}<span class="rel">{rel(d.taken_at, t0Of(open))}</span></span>
-                <strong>{d.substance_name}</strong> {d.amount ?? ""}{d.unit}
-                <span class="muted">{d.route}</span>
-              </li>
-            {/each}
-            {#each open.timeline as t}
-              <li><span class="t">{hhmm(t.at)}<span class="rel">{rel(t.at, t0Of(open))}</span></span> {t.note}</li>
-            {/each}
-          </ul>
-          {#if open.notes}<p class="notes">{open.notes}</p>{/if}
-          <button disabled={busy} onclick={exportOpen}>Export</button>
+          {@render timelineList(open)}
+
+          {@render editors()}
+
+          {#if editEntry}
+            {@render entryEditor()}
+          {:else}
+            {#if open.notes}<p class="notes">{open.notes}</p>{/if}
+            <button disabled={busy} onclick={startEditEntry}>Edit entry</button>
+            <button disabled={busy} onclick={exportOpen}>Export</button>
+          {/if}
         </section>
+
+        {#if !editEntry}
+          <section class="pane">
+            <h2>Add to this entry</h2>
+            <p class="muted">Something you took, or something you remember, that isn't logged yet.</p>
+            <input placeholder="Substance" bind:value={dSub} autocapitalize="none" />
+            <div class="row">
+              <input placeholder="Amount" inputmode="decimal" bind:value={dAmt} />
+              <select bind:value={dUnit}>
+                {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
+              </select>
+              <select bind:value={dRoute}>
+                {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
+              </select>
+            </div>
+            <input type="datetime-local" bind:value={dWhen} />
+            <button
+              class="primary"
+              disabled={busy || !dSub.trim()}
+              onclick={() => submitDose(open!, localInputToIso(dWhen))}
+            >
+              Add dose
+            </button>
+            {#each doseWarnings as w}
+              <p class="banner {w.severity}">{w.message}</p>
+            {/each}
+
+            <h3>Or a note</h3>
+            <textarea rows="3" placeholder="What happened?" bind:value={note}></textarea>
+            <input placeholder="Intensity 0–10 (optional)" inputmode="numeric" bind:value={intensity} />
+            <input type="datetime-local" bind:value={noteWhen} />
+            <button
+              class="primary"
+              disabled={busy || !note.trim()}
+              onclick={() => submitNote(open!, localInputToIso(noteWhen))}
+            >
+              Add note
+            </button>
+          </section>
+        {/if}
       {:else}
         <section class="pane">
           <h2>Journal</h2>
