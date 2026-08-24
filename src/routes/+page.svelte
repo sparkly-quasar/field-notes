@@ -87,6 +87,13 @@
     type ChatMsg,
     type AiStatus,
   } from "$lib/api";
+  import {
+    quickLog,
+    recentSubstances,
+    whenPresets,
+    recallDoseShape,
+    rememberDoseShape,
+  } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -162,6 +169,20 @@
   let nnBody = $state("");
   let nnDate = $state("");
   let showNewNote = $state(false);
+
+  // Quick log — a dose and a time, without a session around it. Same path the
+  // phone uses ($lib/quicklog.ts); most of what people want to record is this
+  // and not a trip report, and it stays open to be written up later.
+  let showQuickLog = $state(false);
+  let qlSub = $state("");
+  let qlAmt = $state("");
+  let qlUnit = $state("mg");
+  let qlRoute = $state("oral");
+  let qlWhen = $state("");
+  let qlWarnings = $state<Warning[]>([]);
+  let qlSaved = $state<{ id: number; title: string; at: string } | null>(null);
+  let qlInto = $state<number | null>(null);
+  const qlRecents = $derived(recentSubstances(experiences));
 
   // dose form
   let dSubstance = $state("");
@@ -323,7 +344,8 @@
   let liveSession = $state(false);
   let lsNow = $state(Date.now());
   let lsTimer: ReturnType<typeof setInterval> | null = null;
-  // quick-log within the live session
+  // one-tap logging inside the live session (distinct from the journal's quick
+  // log, which makes a whole entry — see `submitQuickLog`)
   let qSub = $state("");
   let qAmt = $state("");
   let qUnit = $state("mg");
@@ -705,7 +727,7 @@
 
   function openNewExp() {
     showNewExp = !showNewExp;
-    if (showNewExp) showNewNote = false;
+    if (showNewExp) showNewNote = showQuickLog = false;
     if (showNewExp && !neStart) neStart = nowLocalInput();
   }
 
@@ -717,7 +739,7 @@
 
   function openNewNote() {
     showNewNote = !showNewNote;
-    if (showNewNote) showNewExp = false;
+    if (showNewNote) showNewExp = showQuickLog = false;
     if (showNewNote && !nnDate) nnDate = nowLocalInput();
   }
 
@@ -812,6 +834,71 @@
     showImport = false;
     await loadJournal();
     await openExperience(exp.id);
+  }
+
+  // ---- quick log ----
+  function openQuickLog() {
+    showQuickLog = !showQuickLog;
+    if (showQuickLog) showNewExp = showNewNote = false;
+    if (showQuickLog && !qlWhen) qlWhen = nowLocalInput();
+  }
+
+  async function submitQuickLog() {
+    if (!qlSub.trim()) return;
+    const at = localInputToIso(qlWhen);
+    const res = await quickLog({
+      substance: qlSub.trim(),
+      amount: qlAmt ? parseFloat(qlAmt) : null,
+      unit: qlUnit,
+      route: qlRoute,
+      at,
+      intoId: qlInto,
+    });
+    rememberDoseShape(qlSub, { unit: qlUnit, route: qlRoute });
+    qlWarnings = res.warnings;
+    qlSaved = { id: res.id, title: res.title, at };
+    qlInto = null;
+    qlSub = qlAmt = "";
+    qlWhen = nowLocalInput();
+    await loadJournal();
+  }
+
+  /** A second substance goes into the entry we just made rather than beside it:
+   *  that's how the evening reads back, and it's what lets `log_dose` compare
+   *  the two against each other. */
+  function quickLogAnother() {
+    if (!qlSaved) return;
+    qlInto = qlSaved.id;
+    qlWhen = isoToLocalInput(qlSaved.at);
+    qlSaved = null;
+  }
+
+  function pickRecentSubstance(name: string) {
+    qlSub = name;
+    applyRememberedShape();
+  }
+
+  /** Unit and route follow the substance, remembered from last time — see
+   *  `recallDoseShape`. Nothing about the journal changes; it's a default. */
+  function applyRememberedShape() {
+    const shape = recallDoseShape(qlSub);
+    if (shape) {
+      qlUnit = shape.unit;
+      qlRoute = shape.route;
+    }
+  }
+
+  /** "Logged now, written up later" only works if later is one click away: open
+   *  the entry with its write-up field focused and waiting. */
+  async function addNotesTo(id: number) {
+    qlSaved = null;
+    showQuickLog = false;
+    await openExperience(id);
+    startEditExp();
+    await new Promise((r) => setTimeout(r, 0));
+    const el = document.getElementById("exp-writeup");
+    el?.scrollIntoView({ block: "center" });
+    el?.focus();
   }
 
   async function submitNewExperience() {
@@ -1314,7 +1401,7 @@
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
 
-  async function quickLog() {
+  async function logIntoSession() {
     if (!selected || !qSub.trim()) return;
     const n = qAmt.trim() === "" ? null : Number(qAmt);
     const res = await logDose({
@@ -1729,7 +1816,7 @@
               <label>Started<input type="datetime-local" bind:value={eStart} /></label>
               <label>Intention<input bind:value={eIntention} /></label>
               <label>Setting<input bind:value={eSetting} /></label>
-              <label>Notes<textarea bind:value={eNotes} rows="3"></textarea></label>
+              <label>Notes<textarea id="exp-writeup" bind:value={eNotes} rows="3"></textarea></label>
               <label>Rating (0–10)<input type="number" min="0" max="10" bind:value={eRating} /></label>
               <div class="row-actions">
                 <button class="primary small-btn" onclick={saveExp}>Save</button>
@@ -1864,9 +1951,92 @@
             <span class="row-actions">
               <button class="ghost small-btn" onclick={openImport}>Import from text</button>
               <button class="ghost small-btn" onclick={openNewNote}>+ Note</button>
-              <button class="primary small-btn" onclick={openNewExp}>+ Session</button>
+              <button class="ghost small-btn" onclick={openNewExp}>+ Session</button>
+              <!-- Leads, because it's the thing most often being recorded. A
+                   session is for the times you'll sit with it. -->
+              <button class="primary small-btn" onclick={openQuickLog}>+ Dose</button>
             </span>
           </div>
+
+          {#if showQuickLog}
+            <div class="quick-log">
+              {#if qlInto}
+                <p class="muted small">
+                  Adding to the entry you just logged — a second substance in the same night
+                  belongs with the first, so they're checked against each other.
+                  <button class="link" onclick={() => (qlInto = null)}>Separate entry instead</button>
+                </p>
+              {:else}
+                <p class="muted small">
+                  A dose and roughly when — that's the whole entry. No session to end and
+                  nothing to write up, though you can add all of that later.
+                </p>
+              {/if}
+
+              {#if qlRecents.length}
+                <div class="chips">
+                  {#each qlRecents as s}
+                    <button class="chip" class:on={qlSub === s} onclick={() => pickRecentSubstance(s)}>{s}</button>
+                  {/each}
+                </div>
+              {/if}
+
+              <div class="quick-row">
+                <input
+                  placeholder="Substance"
+                  list="substance-names"
+                  bind:value={qlSub}
+                  onblur={applyRememberedShape}
+                />
+                <datalist id="substance-names">
+                  {#each substances as s}<option value={s.name}></option>{/each}
+                </datalist>
+                <input class="narrow" placeholder="Amount" bind:value={qlAmt} />
+                <select bind:value={qlUnit}>
+                  {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
+                </select>
+                <select bind:value={qlRoute}>
+                  {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
+                </select>
+              </div>
+
+              <!-- A preset fills the field beside it rather than replacing it, so
+                   the time that will be saved is always visible. -->
+              <div class="quick-row">
+                <div class="chips">
+                  {#each whenPresets as p}
+                    <button class="chip" onclick={() => (qlWhen = isoToLocalInput(p.at().toISOString()))}>
+                      {p.label}
+                    </button>
+                  {/each}
+                </div>
+                <input type="datetime-local" bind:value={qlWhen} title="When you took it" />
+                <button class="primary small-btn" disabled={!qlSub.trim()} onclick={submitQuickLog}>
+                  Log it
+                </button>
+              </div>
+
+              {#if qlWarnings.length}
+                <div class="warnings">
+                  {#each qlWarnings as w}
+                    <div class="warn {sevClass(w.severity)}">
+                      <strong>{w.severity.toUpperCase()}</strong> · {w.a} + {w.b}
+                      <div>{w.message}</div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if qlSaved}
+                <p class="saved-line">
+                  <strong>{qlSaved.title || "Logged"}</strong>
+                  <span class="muted small">{fmtDate(qlSaved.at)} · {fmtTime(qlSaved.at)}</span>
+                  <button class="ghost small-btn" onclick={() => addNotesTo(qlSaved!.id)}>Add notes</button>
+                  <button class="ghost small-btn" onclick={quickLogAnother}>Log another into it</button>
+                </p>
+              {/if}
+            </div>
+          {/if}
 
           {#if showNewExp}
             <div class="new-exp">
@@ -1991,7 +2161,15 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                     {:else}
                       <div>
                         <strong>{e.title || "Untitled"}</strong>
-                        <span class="muted small">{fmtDate(e.started_at)}{e.ended_at ? "" : " · ongoing"}</span>
+                        <!-- "no notes yet" marks an entry still waiting for its story,
+                             so a quick log has somewhere obvious to be finished. -->
+                        <span class="muted small">
+                          {fmtDate(e.started_at)}{e.ended_at
+                            ? e.notes.trim()
+                              ? ""
+                              : " · no notes yet"
+                            : " · ongoing"}
+                        </span>
                       </div>
                       <div class="exp-meta">
                         {#each e.substances as s}<span class="pill">{s}</span>{/each}
@@ -2797,7 +2975,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <input placeholder="Amount" inputmode="decimal" bind:value={qAmt} />
             <input placeholder="Unit" bind:value={qUnit} />
             <input placeholder="Route" bind:value={qRoute} />
-            <button class="primary" disabled={!qSub.trim()} onclick={quickLog}>Log dose</button>
+            <button class="primary" disabled={!qSub.trim()} onclick={logIntoSession}>Log dose</button>
           </div>
 
           <h3>Timeline</h3>
@@ -2914,6 +3092,21 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .exp-row strong { display: block; }
   .exp-meta { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
   .pill { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 999px; padding: 0.1rem 0.5rem; color: var(--muted); }
+
+  /* The quick log sits above the journal list, so it's bounded like the import
+     panel rather than floating loose in the card. */
+  .quick-log { border: 1px solid var(--line); border-radius: 12px; padding: 0.9rem 1rem; margin: 0.6rem 0 1rem; }
+  .quick-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 0; align-items: center; }
+  .quick-row > input:first-child { flex: 1; min-width: 9rem; }
+  /* Selects aren't styled app-wide (nothing else uses one in a form row), and a
+     default white dropdown in this dark card reads as a rendering bug. */
+  .quick-row select {
+    font: inherit; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.5rem;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .saved-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin: 0.8rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--line); }
+  .saved-line .small-btn { margin-top: 0; }
 
   .new-exp, .dose-form, .new-sub { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; align-items: center; }
   .new-exp input, .new-sub input { flex: 1; min-width: 8rem; }
