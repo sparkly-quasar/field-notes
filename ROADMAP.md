@@ -123,6 +123,37 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.11.4 (unreleased)
+
+Two gaps in the phone portal, both about the journal being a record you keep
+rather than a session you sit through. Frontend only — every command involved
+was already on the portal allowlist (`src/routes/m/+page.svelte`).
+
+- **Quick log: a substance and a time, and that's the whole entry.** Logging
+  something from a phone meant starting a session, logging into it, and
+  remembering to end it — a trip-report shape imposed on "I took this at nine".
+  The Now screen now leads with a one-shot form (substance, amount, route, and a
+  `datetime-local` defaulting to now) that creates an **already-ended** session
+  so it lands in the journal as history and never appears as a session someone
+  forgot to close. The title is left blank on purpose: `name_after_first_dose`
+  names it after what was taken. Because a standalone entry has nothing for
+  `log_dose`'s own check to compare against, the same deterministic checker is
+  run across everything logged within 12 hours either side — the checker must
+  not go quiet on exactly the path that skips the session.
+- **A past entry is editable from the phone, not just readable.** The Journal
+  detail screen was read-only apart from rename and export. Now every dose and
+  note in it is a tap-to-edit target (the same editors the live session uses,
+  which gained a time field so a mistimed dose can be corrected), an entry can be
+  added to after the fact (dose or note, at a time you choose), and **Edit entry**
+  opens title, start, end, rating, and the write-up — plus delete. The write-up
+  field is the point: it's how a quick log becomes a full entry later, if it ever
+  does.
+- **The phone's timeline is in time order.** Doses and notes are two tables and
+  the phone shows them as one list; it rendered all doses, then all notes. Merged
+  and sorted now, which matters once times are editable.
+
+---
+
 ## Shipped in v0.11.3
 
 - **An untitled session is named after its first dose.** The phone starts a
