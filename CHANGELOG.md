@@ -11,6 +11,30 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.11.5
+
+- **Logging a dose is now the shortest path, on the desktop too.** The Journal
+  header leads with **+ Dose**: a substance, an amount, and roughly when. That's
+  the whole entry — no session to start or end, nothing to write up. The phone's
+  version of the same thing got the same treatment.
+- **Fewer taps to get there.** Substances you've logged recently are one tap.
+  So are the times you actually reach for — **Now**, **1h ago**, **3h ago**,
+  **Last night** — and they fill the date field rather than replacing it, so you
+  can always see the exact time being saved and nudge it. The unit and route are
+  remembered per substance, so cannabis stops asking you to change "mg" to "g"
+  every time.
+- **Log it now, write it up later.** After saving, **Add notes to it** opens the
+  entry with the write-up ready to type into, and entries that don't have one yet
+  are marked "no notes yet" in the journal, so nothing quietly stays unfinished.
+  Everything else about the entry — times, rating, more doses — can still be
+  edited afterwards, from either screen.
+- **A second substance goes in the same entry.** **Log another into it** adds to
+  what you just logged rather than starting a separate entry. That's how the
+  evening reads back, and it means the interaction checker sees the two together.
+- **The checker doesn't go quiet on a quick log.** An entry with a single dose has
+  nothing to compare against, so anything else you logged within twelve hours
+  either side is checked against it too.
+
 ## v0.11.4
 
 - **Log something you took, without writing a trip report.** The phone's Now
