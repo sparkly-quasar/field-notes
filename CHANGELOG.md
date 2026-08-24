@@ -11,6 +11,25 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.11.4
+
+- **Log something you took, without writing a trip report.** The phone's Now
+  screen now opens with a one-shot form: substance, amount, route, and when you
+  took it. That's the whole entry — no session to start, none to remember to
+  end, nothing to write up. The time defaults to now, so it's four taps for
+  something you just took, and you can set it back to any day you're catching up
+  on. It lands in your journal named after the substance, and the interaction
+  checker still runs against anything else you logged around the same time.
+- **Fix a past entry from your phone.** Entries in the Journal used to be
+  read-only there — you could read one back and rename it, and that was all.
+  Now you can tap any dose or note in it to correct it (including the time,
+  which was previously desktop-only), add a dose or a note you forgot at the
+  time it happened, and open **Edit entry** for the title, the start and end
+  times, the rating, and the write-up — or delete the entry. So a quick log can
+  become a full entry the next morning, if you want it to.
+- **The phone's timeline reads in order.** Doses and notes were listed in two
+  groups; they're now interleaved by time, like the desktop's.
+
 ## v0.11.3
 
 - **Sessions name themselves.** Starting a session from your phone gave you
