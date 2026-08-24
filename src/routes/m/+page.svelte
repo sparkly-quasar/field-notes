@@ -56,6 +56,13 @@
     type AiStatus,
   } from "$lib/api";
   import { captureToken, hasToken, inTauri } from "$lib/portal";
+  import {
+    quickLog,
+    recentSubstances,
+    whenPresets,
+    recallDoseShape,
+    rememberDoseShape,
+  } from "$lib/quicklog";
 
   type View = "now" | "journal" | "combo" | "reference" | "companion";
 
@@ -103,14 +110,19 @@
 
   // Quick log — one substance, a time, nothing else. The common case is not a
   // trip you sit through and write up; it's "I took this, record it". No session
-  // to end, no write-up to fill in.
+  // to end, no write-up to fill in. Logic lives in $lib/quicklog.ts, shared with
+  // the desktop.
   let qSub = $state("");
   let qAmt = $state("");
   let qUnit = $state("mg");
   let qRoute = $state("oral");
   let qWhen = $state("");
   let qWarnings = $state<Warning[]>([]);
-  let qSaved = $state(false);
+  /** The entry the last quick log landed in — what "add notes to it" acts on. */
+  let qSaved = $state<{ id: number; title: string; at: string } | null>(null);
+  /** Set while adding a second substance to that same entry, rather than starting another. */
+  let qInto = $state<number | null>(null);
+  const qRecents = $derived(recentSubstances(recent));
 
   // editing an entry already in the journal: its title, dates, rating, write-up
   let editEntry = $state(false);
@@ -305,49 +317,64 @@
     });
 
   // ---- quick log: a substance and a time, and that's the whole entry ----
-  //
-  // Made as an already-ended session so it lands in the journal as history and
-  // never shows up on Now as a session someone forgot to end. The title is left
-  // blank on purpose: `name_after_first_dose` in db.rs names it after what was
-  // taken, which is the only name this kind of entry wants.
-  const quickLog = () =>
+  const submitQuickLog = () =>
     run(async () => {
       if (!qSub.trim()) return;
       const at = localInputToIso(qWhen);
-      const exp = await createExperience({ title: "", started_at: at });
-      await logDose({
-        experience_id: exp.id,
-        substance_name: qSub.trim(),
+      const res = await quickLog({
+        substance: qSub.trim(),
         amount: qAmt.trim() ? Number(qAmt) : null,
         unit: qUnit,
         route: qRoute,
-        taken_at: at,
+        at,
+        intoId: qInto,
       });
-      await endExperience(exp.id, at, null, "");
-      const name = qSub.trim();
+      rememberDoseShape(qSub, { unit: qUnit, route: qRoute });
+      qWarnings = res.warnings;
+      qSaved = { id: res.id, title: res.title, at };
+      qInto = null;
       qSub = qAmt = "";
       qWhen = nowLocalInput();
-      qSaved = true;
-      setTimeout(() => (qSaved = false), 3000);
       await refresh();
-      await warnAgainstNearby(name, at);
     });
 
-  /** A quick log stands alone, so `log_dose`'s own check — which compares a dose
-   *  against the *rest of its entry* — has nothing to compare it with, and would
-   *  go quiet on exactly the combination that matters. So run the same
-   *  deterministic checker across everything logged nearby in time instead.
-   *  Entry start times are the coarse grain available here; erring towards
-   *  showing a warning is the right way to be wrong. */
-  const NEARBY_HOURS = 12;
-  async function warnAgainstNearby(name: string, atIso: string) {
-    const at = new Date(atIso).getTime();
-    const nearby = recent
-      .filter((e) => Math.abs(new Date(e.started_at).getTime() - at) < NEARBY_HOURS * 3600_000)
-      .flatMap((e) => e.substances);
-    const names = [...new Set([name, ...nearby])];
-    qWarnings = names.length > 1 ? await checkCombo(names) : [];
+  /** A second substance goes into the same entry, not a new one — that's how the
+   *  evening reads back, and it's what lets the checker compare the two. */
+  function addAnother() {
+    if (!qSaved) return;
+    qInto = qSaved.id;
+    qWhen = isoToLocalInput(qSaved.at);
+    qSaved = null;
   }
+
+  /** Fill in a substance you've logged before, in the shape you logged it in. */
+  function pickRecent(name: string) {
+    qSub = name;
+    applyRemembered();
+  }
+
+  function applyRemembered() {
+    const shape = recallDoseShape(qSub);
+    if (shape) {
+      qUnit = shape.unit;
+      qRoute = shape.route;
+    }
+  }
+
+  /** Open the entry a quick log just made, with the write-up ready to type into.
+   *  This is the whole "log it now, say what it was like later" path: it has to
+   *  be one tap from the confirmation or it won't happen. */
+  const addNotesTo = (id: number) =>
+    run(async () => {
+      qSaved = null;
+      view = "journal";
+      await openExperience(id);
+      startEditEntry();
+      await new Promise((r) => setTimeout(r, 0));
+      const el = document.getElementById("entry-writeup");
+      el?.scrollIntoView({ block: "center" });
+      el?.focus();
+    });
 
   const endSession = () =>
     run(async () => {
@@ -764,7 +791,7 @@
       <p class="muted hint">When it ended. Leave blank and it stays open.</p>
       <input placeholder="Rating 0–10 (optional)" inputmode="numeric" bind:value={enRating} />
     {/if}
-    <textarea rows="6" placeholder="Write-up" bind:value={enNotes}></textarea>
+    <textarea id="entry-writeup" rows="6" placeholder="How was it? (optional)" bind:value={enNotes}></textarea>
     <button class="primary" disabled={busy} onclick={saveEntry}>Save</button>
     <button disabled={busy} onclick={() => (editEntry = false)}>Cancel</button>
     <button class="danger-btn" disabled={busy} onclick={removeEntry}>Delete entry</button>
@@ -809,9 +836,32 @@
         <!-- First, because it's the commonest thing anyone opens this app to do:
              record that they took something. No session, no write-up. -->
         <section class="pane">
-          <h2>Log something you took</h2>
-          <p class="muted">One substance, one time. No session to end, nothing to write.</p>
-          <input placeholder="Substance" bind:value={qSub} autocapitalize="none" />
+          {#if qInto}
+            <h2>Add to that entry</h2>
+            <p class="muted">
+              A second substance in the same night belongs with the first — that way they're
+              checked against each other.
+              <button class="link" onclick={() => (qInto = null)}>separate entry instead</button>
+            </p>
+          {:else}
+            <h2>Log something you took</h2>
+            <p class="muted">One substance, one time. No session to end, nothing to write.</p>
+          {/if}
+
+          {#if qRecents.length}
+            <div class="chips">
+              {#each qRecents as s}
+                <button class="chip" class:on={qSub === s} onclick={() => pickRecent(s)}>{s}</button>
+              {/each}
+            </div>
+          {/if}
+          <input
+            placeholder="Substance"
+            bind:value={qSub}
+            onblur={applyRemembered}
+            autocapitalize="none"
+          />
+
           <div class="row">
             <input placeholder="Amount" inputmode="decimal" bind:value={qAmt} />
             <select bind:value={qUnit}>
@@ -821,15 +871,36 @@
               {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
             </select>
           </div>
+
+          <!-- The preset fills the field below rather than replacing it, so what
+               will be saved is always on screen. -->
+          <div class="chips">
+            {#each whenPresets as p}
+              <button class="chip" onclick={() => (qWhen = isoToLocalInput(p.at().toISOString()))}>
+                {p.label}
+              </button>
+            {/each}
+          </div>
           <input type="datetime-local" bind:value={qWhen} />
           <p class="muted hint">When you took it — today, or any day you're catching up on.</p>
-          <button class="primary" disabled={busy || !qSub.trim()} onclick={quickLog}>
+
+          <button class="primary" disabled={busy || !qSub.trim()} onclick={submitQuickLog}>
             {busy ? "Saving…" : "Log it"}
           </button>
-          {#if qSaved}<p class="muted">Saved to the journal.</p>{/if}
+
           {#each qWarnings as w}
             <p class="banner {w.severity}">{w.message}</p>
           {/each}
+
+          {#if qSaved}
+            <!-- The entry exists and is correctly timed; everything else about it
+                 can wait. These are the two things anyone wants next. -->
+            <div class="saved">
+              <p><strong>{qSaved.title || "Logged"}</strong> · {hhmm(qSaved.at)} {day(qSaved.at)}</p>
+              <button onclick={() => addNotesTo(qSaved!.id)}>Add notes to it</button>
+              <button onclick={addAnother}>Log another into it</button>
+            </div>
+          {/if}
         </section>
 
         <section class="pane">
@@ -990,7 +1061,13 @@
                     <strong>{e.title || "Untitled"}</strong>
                     <span class="muted">
                       {day(e.started_at)} · {e.dose_count} dose{e.dose_count === 1 ? "" : "s"}
-                      {#if !e.ended_at}· live{/if}
+                      {#if !e.ended_at}
+                        · live
+                      {:else if !e.notes.trim()}
+                        <!-- Says out loud that a quick log is still waiting for its
+                             story, so "I'll write it up later" has somewhere to land. -->
+                        · no notes yet
+                      {/if}
                     </span>
                   {/if}
                 </button>
@@ -1242,6 +1319,18 @@
   .t { color: #9aa2ad; margin-right: 0.5rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* t+ offset: readable in the dark, but subordinate to the wall-clock time */
   .rel { opacity: 0.75; font-size: 0.9em; }
+
+  /* One tap instead of a keyboard or a date picker — the difference between a
+     dose getting logged and not. They wrap; a long substance list is fine. */
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+  .chip {
+    width: auto; margin: 0; min-height: 2.2rem; padding: 0.35rem 0.7rem;
+    font-size: 0.85rem; font-weight: 400; border-radius: 999px; background: #21252c;
+  }
+  .chip.on { background: #6ea8fe; color: #10131a; border-color: #6ea8fe; }
+
+  .saved { border-top: 1px solid #2a2f38; margin-top: 0.8rem; padding-top: 0.8rem; }
+  .saved p { margin: 0 0 0.6rem; font-size: 0.92rem; }
 
   .edit { border-top: 1px solid #2a2f38; margin-top: 0.8rem; padding-top: 0.8rem; }
   .notes { white-space: pre-wrap; font-size: 0.92rem; }

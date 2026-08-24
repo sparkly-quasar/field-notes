@@ -123,6 +123,39 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.11.5 (unreleased)
+
+**Offhand dose tracking, on both screens.** v0.11.4 put a quick log on the phone;
+this makes it the path of least resistance everywhere, and makes the entry it
+leaves behind easy to finish later. The logic is shared — `src/lib/quicklog.ts`
+is called by the desktop and the phone alike, so the warning rule below can't
+drift between them.
+
+- **`quickLog()` in `src/lib/quicklog.ts`** — creates the already-ended entry,
+  logs the dose, and returns the entry plus its warnings. Also `stretchToCover`
+  (a dose added outside an entry's span moves its start or end, or the journal
+  shows an entry that ended before something in it happened, and every t+ offset
+  in it is measured from the wrong moment) and `recentSubstances` / `whenPresets`
+  / `recallDoseShape` so both UIs offer the same shortcuts.
+- **Fewer taps to the same entry** — recently-logged substances as one-tap chips;
+  **Now / 1h ago / 3h ago / Last night** presets that *fill the visible time
+  field* rather than replacing it, so a preset can never quietly file a dose
+  under the wrong moment; and unit+route remembered per substance in browser
+  storage (`recallDoseShape`) so cannabis stops defaulting to milligrams oral.
+  The memory is a convenience, never journal data.
+- **"Add notes to it" / "Log another into it"** on the confirmation. The first
+  opens the entry with its write-up focused — "log it now, write it up later"
+  only works if later is one click away. The second logs the next substance into
+  the **same** entry rather than beside it, which is both how the evening reads
+  back and what lets `log_dose` compare the two against each other.
+- **Desktop: `+ Dose` leads the Journal header** (Session demoted to ghost) and
+  opens the same panel. The live session's own one-tap logger was renamed
+  `logIntoSession` to stop it colliding with the shared `quickLog`.
+- **"no notes yet"** against a finished entry in both journal lists, so an entry
+  still waiting for its story says so.
+
+---
+
 ## Shipped in v0.11.4
 
 Two gaps in the phone portal, both about the journal being a record you keep
