@@ -50,6 +50,12 @@ from your phone.
   memory to run the model. It's improving but still rough in places — see
   [Companion quality](#companion-quality). You can also turn it off entirely and
   use everything else.
+- **Quick dose log** — most of what gets recorded isn't a trip you sit through and
+  write up, it's "I took this, at about this time". **+ Dose** on the desktop, or
+  the top of the phone's Now screen, takes a substance, an amount and a time —
+  recent substances and times like "last night" are one tap — and leaves a real
+  entry in the journal. Add the notes, rating and any other doses later, from
+  either screen, or don't.
 - **Live session** — a quiet, altered-state-friendly screen for an ongoing
   experience: elapsed time, one-tap logging, the companion, and an always-visible
   **Get help now** button. Timeline notes can be edited after the fact — on the

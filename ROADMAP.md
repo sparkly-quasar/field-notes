@@ -123,7 +123,7 @@ non-negotiables, each with a test:
 
 ---
 
-## Shipped in v0.11.5 (unreleased)
+## Shipped in v0.11.5
 
 **Offhand dose tracking, on both screens.** v0.11.4 put a quick log on the phone;
 this makes it the path of least resistance everywhere, and makes the entry it
