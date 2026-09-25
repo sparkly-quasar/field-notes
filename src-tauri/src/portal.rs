@@ -13,7 +13,8 @@
 //!    this line and you have published a substance journal to the local network.
 //! 2. **A token on every API request, tailnet or not.** A tailnet is *not* a trust
 //!    boundary for this data — every device you ever added to it is on it, forever.
-//!    The token is compared in constant time and lives only in memory.
+//!    Each paired device has its own token (see `devices.rs`): compared in constant
+//!    time, stored only as a hash, and revocable one device at a time.
 //! 3. **Only while the journal is unlocked.** The portal refuses to start against a
 //!    locked journal and every request re-checks, so an encrypted journal can never
 //!    be reached through it before the passphrase is entered on the desktop.
@@ -27,7 +28,7 @@
 //! second implementation of any rule, so the interaction checker and the crisis layer
 //! behave identically whichever screen you're on.
 
-use crate::{commands, Db, Knowledge};
+use crate::{commands, devices::Devices, Db, Knowledge};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -41,7 +42,7 @@ use tiny_http::{Header, Request, Response, Server};
 const BIND_ADDR: &str = "127.0.0.1";
 
 /// First choice; we walk upward if it's taken (3000 is a popular port).
-const PORT_RANGE: std::ops::Range<u16> = 8787..8807;
+pub(crate) const PORT_RANGE: std::ops::Range<u16> = 8787..8807;
 
 pub struct Portal {
     inner: Mutex<Option<Running>>,
@@ -55,11 +56,9 @@ pub struct Portal {
 struct Running {
     server: Arc<Server>,
     port: u16,
-    token: String,
     stopping: Arc<AtomicBool>,
-    /// Set the first time a request arrives carrying the right token — i.e. the
-    /// moment a phone has actually paired. It only ever goes false again by
-    /// stopping the portal, which throws the token away with it.
+    /// Set the first time a request arrives carrying a paired device's token since
+    /// the portal was turned on. Goes false again only by stopping the portal.
     paired: Arc<AtomicBool>,
 }
 
@@ -67,11 +66,8 @@ struct Running {
 pub struct PortalStatus {
     pub running: bool,
     pub port: Option<u16>,
-    /// The pairing URL, token included. Only ever shown on the desktop screen.
-    pub pair_url: Option<String>,
-    /// A phone has used this token successfully since the portal was turned on.
-    /// Drives the desktop's "Paired successfully" light; it says nothing about
-    /// whether that phone is still connected right now.
+    /// A paired device has made a request since the portal was turned on. It
+    /// says nothing about whether that device is still connected right now.
     pub paired: bool,
 }
 
@@ -96,10 +92,9 @@ impl Portal {
             Some(r) => PortalStatus {
                 running: true,
                 port: Some(r.port),
-                pair_url: Some(format!("http://{BIND_ADDR}:{}/m#t={}", r.port, r.token)),
                 paired: r.paired.load(Ordering::SeqCst),
             },
-            None => PortalStatus { running: false, port: None, pair_url: None, paired: false },
+            None => PortalStatus { running: false, port: None, paired: false },
         }
     }
 
@@ -171,24 +166,6 @@ impl CompanionJobs {
     }
 }
 
-/// 256 bits of OS randomness, hex. Not a password — never typed, only scanned.
-fn new_token() -> Result<String, String> {
-    let mut buf = [0u8; 32];
-    getrandom::getrandom(&mut buf).map_err(|e| format!("no secure randomness available: {e}"))?;
-    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/// Compare without leaking where the mismatch was. `==` on a `String` short-circuits
-/// on the first differing byte, which over enough requests tells an attacker the
-/// token one byte at a time.
-fn token_matches(expected: &str, given: &str) -> bool {
-    let (a, b) = (expected.as_bytes(), given.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
 /// Start the portal. Fails if the journal is locked (rule 3).
 pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
     let portal = app.state::<Portal>();
@@ -199,7 +176,6 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
         return Err("Unlock the journal before turning on phone access.".into());
     }
 
-    let token = new_token()?;
     let (server, port) = bind()?;
     let server = Arc::new(server);
     let stopping = Arc::new(AtomicBool::new(false));
@@ -212,18 +188,17 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
         let stopping = Arc::clone(&stopping);
         let paired = Arc::clone(&paired);
         let app = app.clone();
-        let token = token.clone();
         std::thread::spawn(move || {
             while let Ok(req) = server.recv() {
                 if stopping.load(Ordering::SeqCst) {
                     break;
                 }
-                handle(&app, &token, &paired, req);
+                handle(&app, &paired, req);
             }
         });
     }
 
-    *portal.inner.lock().unwrap() = Some(Running { server, port, token, stopping, paired });
+    *portal.inner.lock().unwrap() = Some(Running { server, port, stopping, paired });
     Ok(portal.status())
 }
 
@@ -241,18 +216,18 @@ fn json_response(status: u16, body: Value) -> Response<Cursor<Vec<u8>>> {
     Response::from_string(body.to_string()).with_status_code(status).with_header(hdr)
 }
 
-fn handle<R: Runtime>(app: &AppHandle<R>, token: &str, paired: &AtomicBool, req: Request) {
+fn handle<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, req: Request) {
     let url = req.url().to_string();
     let path = url.split('?').next().unwrap_or("/").to_string();
 
     if let Some(command) = path.strip_prefix("/api/") {
         let command = command.to_string();
-        return api(app, token, paired, &command, req);
+        return api(app, paired, &command, req);
     }
     assets(app, &path, req);
 }
 
-fn api<R: Runtime>(app: &AppHandle<R>, token: &str, paired: &AtomicBool, command: &str, mut req: Request) {
+fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut req: Request) {
     // Rule 2: token first, before we even look at the body.
     let given = req
         .headers()
@@ -260,17 +235,16 @@ fn api<R: Runtime>(app: &AppHandle<R>, token: &str, paired: &AtomicBool, command
         .find(|h| h.field.equiv("Authorization"))
         .and_then(|h| h.value.as_str().strip_prefix("Bearer ").map(str::to_string))
         .unwrap_or_default();
-    if !token_matches(token, &given) {
+    let Some(device) = app.state::<Devices>().verify(&given) else {
         let _ = req.respond(json_response(401, json!({ "error": "Not paired with this journal." })));
         return;
-    }
+    };
 
-    // The token checked out, so a phone is on the other end. The first time that
-    // happens, tell the desktop — the pairing screen has no other way to know a
-    // scan worked, and "did it take?" is the whole question the user is holding.
-    if !paired.swap(true, Ordering::SeqCst) {
-        let _ = app.emit("portal-paired", ());
-    }
+    // The token checked out, so a paired device is on the other end. Tell the
+    // desktop — the pairing screen has no other way to know a scan worked, and
+    // "did it take?" is the whole question the user is holding.
+    paired.store(true, Ordering::SeqCst);
+    let _ = app.emit("portal-paired", device.id);
 
     // Rule 3: re-check on every request, not just at startup.
     if !app.state::<Db>().is_unlocked() {
@@ -547,27 +521,6 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_wrong_token_is_rejected_and_a_right_one_accepted() {
-        let t = new_token().unwrap();
-        assert!(token_matches(&t, &t));
-        assert!(!token_matches(&t, "wrong"));
-        assert!(!token_matches(&t, ""));
-        // Same length, one byte different — the case a naive compare leaks.
-        let mut near = t.clone();
-        near.pop();
-        near.push(if t.ends_with('a') { 'b' } else { 'a' });
-        assert!(!token_matches(&t, &near));
-    }
-
-    #[test]
-    fn tokens_are_long_and_not_repeated() {
-        let a = new_token().unwrap();
-        let b = new_token().unwrap();
-        assert_eq!(a.len(), 64, "256 bits, hex");
-        assert_ne!(a, b);
-    }
-
     /// Rule 1. If this test ever needs "fixing", stop and re-read the module docs:
     /// binding anything but loopback publishes a substance journal to the network.
     #[test]
@@ -613,6 +566,23 @@ mod tests {
             "portal_tailscale",
             "portal_serve",
             "portal_unserve",
+            // Nor pair new devices, list them, or revoke anyone — including itself.
+            "portal_pair",
+            "portal_devices",
+            "portal_revoke",
+            // Nor read the remembered passphrase's state or change it.
+            "keychain_status",
+            "keychain_remember",
+            "keychain_forget",
+            "server_prefs",
+            "set_server_prefs",
+            // A server must never act as a client of another server on a device's say-so.
+            "remote_status",
+            "remote_connect",
+            "remote_disconnect",
+            "remote_call",
+            "remote_flush",
+            "remote_discard",
         ];
         for c in forbidden {
             assert!(!EXPOSED.contains(&c), "`{c}` must not be reachable from the phone");
@@ -649,15 +619,18 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let conn = crate::db::open(&path, None).unwrap();
 
-        app.manage(Db { conn: StdMutex::new(Some(conn)), path });
+        app.manage(Db { conn: StdMutex::new(Some(conn)), path: path.clone() });
         app.manage(Knowledge(None));
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
+        let _ = std::fs::remove_file(path.with_extension("devices.json"));
+        let devices = Devices::load(path.with_extension("devices.json"));
+        let (_, token) = devices.pair("Test phone").unwrap();
+        app.manage(devices);
 
         let handle = app.handle().clone();
         let status = start(&handle).expect("portal starts");
         let port = status.port.unwrap();
-        let token = status.pair_url.unwrap().split("#t=").nth(1).unwrap().to_string();
         (handle, port, token)
     }
 
@@ -709,9 +682,26 @@ mod tests {
         assert_eq!(status, 200);
         assert!(portal.status().paired, "a phone with the right token has paired");
 
-        // Turning the portal off throws the token away, so the next one starts unpaired.
+        // Turning the portal off resets the light; the pairing itself persists.
         portal.stop();
         assert!(!portal.status().paired);
+    }
+
+    /// Revoking a device shuts it out on its very next request, while the portal
+    /// keeps running for everyone else.
+    #[test]
+    fn a_revoked_device_is_shut_out_immediately() {
+        let (app, port, token) = serving();
+        let (other, other_token) = app.state::<Devices>().pair("Laptop").unwrap();
+
+        let (status, _) = post(port, "list_experiences", Some(&other_token), json!({}));
+        assert_eq!(status, 200);
+        app.state::<Devices>().revoke(other.id).unwrap();
+        let (status, _) = post(port, "list_experiences", Some(&other_token), json!({}));
+        assert_eq!(status, 401, "a revoked device must be refused");
+
+        let (status, _) = post(port, "list_experiences", Some(&token), json!({}));
+        assert_eq!(status, 200, "revoking one device must not affect another");
     }
 
     /// The single-entry export, end to end at the dispatch seam: the pure Markdown

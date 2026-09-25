@@ -43,4 +43,11 @@ tiny_http = "0.12"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # OS randomness for the portal's bearer token.
 getrandom = "0.2"
+# Per-device portal tokens are stored hashed (devices.rs), never in the clear.
+sha2 = "0.10"
+# Opt-in: remember the journal passphrase in the OS keychain, so a computer acting
+# as the server can unlock itself after a reboot (keychain.rs).
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# Opt-in: open at login, for a computer acting as the server.
+tauri-plugin-autostart = "2"
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
