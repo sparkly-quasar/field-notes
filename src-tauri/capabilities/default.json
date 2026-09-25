@@ -10,6 +10,9 @@
     "process:allow-restart",
     "process:allow-exit",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

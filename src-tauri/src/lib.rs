@@ -11,12 +11,16 @@ pub mod compute;
 mod contribute;
 pub mod crisis;
 pub mod db;
+mod devices;
 mod interactions;
+mod keychain;
 pub mod knowledge;
 mod obsidian;
 pub mod ollama;
 mod portal;
+mod prefs;
 pub mod pw;
+mod remote;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -85,13 +89,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Open at login — off until the user turns it on, for a computer that
+        // serves the journal to their other devices.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let path = dir.join("journal.db");
             // If the journal is encrypted, leave it locked until the user unlocks
-            // it with their passphrase; otherwise open it (creating on first run).
+            // it with their passphrase — unless they chose to remember it in the
+            // system keychain (`keychain.rs`), so a computer serving the journal can
+            // come back on its own after a reboot. A remembered passphrase that no
+            // longer fits just leaves it locked. Otherwise open it (creating on first run).
             let conn = if db::is_encrypted(&path) {
-                None
+                keychain::get().and_then(|p| db::open(&path, Some(&p)).ok())
             } else {
                 Some(db::open(&path, None).expect("failed to open journal database"))
             };
@@ -122,6 +135,16 @@ pub fn run() {
             // Background Companion turns started from a phone (portal-only; the
             // desktop calls `companion_chat` directly and never needs a job).
             app.manage(portal::CompanionJobs::default());
+            app.manage(devices::Devices::load(dir.join("devices.json")));
+            app.manage(prefs::Prefs::load(dir.join("server.json")));
+            // Using another computer as the server: sends queued entries and notices
+            // when it comes back. Idle unless this computer is connected to one.
+            app.manage(remote::Remote::default());
+            remote::start_background(app.handle());
+
+            // A computer set up as the server starts serving as soon as the journal
+            // is open. With the journal locked this waits for `unlock_db`.
+            commands::bring_up_server(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -183,6 +206,20 @@ pub fn run() {
             commands::portal_tailscale,
             commands::portal_serve,
             commands::portal_unserve,
+            commands::portal_pair,
+            commands::portal_devices,
+            commands::portal_revoke,
+            commands::server_prefs,
+            commands::set_server_prefs,
+            commands::keychain_status,
+            commands::keychain_remember,
+            commands::keychain_forget,
+            commands::remote_status,
+            commands::remote_connect,
+            commands::remote_disconnect,
+            commands::remote_discard,
+            commands::remote_flush,
+            commands::remote_call,
             commands::crisis_scan,
             commands::knowledge_search,
             commands::knowledge_entry,

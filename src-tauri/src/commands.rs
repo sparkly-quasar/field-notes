@@ -4,6 +4,9 @@
 
 use crate::contribute;
 use crate::db::{self, *};
+use crate::devices::{DeviceInfo, Devices};
+use crate::keychain;
+use crate::prefs::{Prefs, ServerPrefs};
 use crate::interactions::{self, Warning};
 use crate::knowledge::Hit;
 use crate::ollama::{self, AiStatus, ChatMsg};
@@ -1042,28 +1045,33 @@ pub fn crisis_scan(
     // expressive distress be judged on repetition rather than on one sentence.
     recent: Option<Vec<String>>,
 ) -> crate::crisis::CrisisResult {
+    let names: Vec<String> = experience_id
+        .and_then(|id| db.with(|c| db::get_experience(c, id)).ok())
+        .map(|detail| detail.doses.iter().map(|d| d.substance_name.clone()).collect())
+        .unwrap_or_default();
+    crisis_scan_names(db.inner(), text, &names, recent)
+}
+
+/// The body of [`crisis_scan`], given the session's substances directly rather than
+/// an experience id. A laptop whose journal lives on another computer calls this
+/// while that computer is out of reach, with the session it has cached and queued —
+/// so the crisis layer never goes dark just because the server is asleep.
+pub fn crisis_scan_names(
+    db: &Db,
+    text: String,
+    names: &[String],
+    recent: Option<Vec<String>>,
+) -> crate::crisis::CrisisResult {
     let mut run = recent.unwrap_or_default();
     run.push(text);
     let mut result = crate::crisis::scan_recent(&run);
-    if let Some(id) = experience_id {
-        let has_danger = db
-            .with(|c| {
-                let detail = db::get_experience(c, id)?;
-                let names: Vec<String> = detail
-                    .doses
-                    .iter()
-                    .map(|d| d.substance_name.clone())
-                    .collect::<BTreeSet<String>>()
-                    .into_iter()
-                    .collect();
-                let subs: Vec<(String, Vec<String>)> =
-                    names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
-                let mut warns = interactions::check(&subs);
-                warns.extend(db::pw_interaction_warnings(c, &names));
-                Ok(warns.iter().any(|w| w.severity == "danger"))
-            })
-            .unwrap_or(false);
-        if has_danger {
+    let names: Vec<String> = names.iter().cloned().collect::<BTreeSet<String>>().into_iter().collect();
+    if !names.is_empty() {
+        let subs: Vec<(String, Vec<String>)> =
+            names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
+        let mut warns = interactions::check(&subs);
+        warns.extend(db.with(|c| Ok(db::pw_interaction_warnings(c, &names))).unwrap_or_default());
+        if warns.iter().any(|w| w.severity == "danger") {
             result = crate::crisis::escalate(result, crate::crisis::Level::Medical, "a dangerous interaction is flagged in this session");
         }
     }
@@ -1106,6 +1114,8 @@ pub fn unlock_db(app: AppHandle, db: State<'_, Db>, passphrase: String) -> Resul
     }
     // Repopulate the (in-DB) dose reference from the bundled snapshot, as at startup.
     refresh_dose_reference(&app, db.inner());
+    // If this computer is the server, now is when it can start serving.
+    bring_up_server(&app);
     Ok(())
 }
 
@@ -1160,7 +1170,11 @@ pub fn disable_encryption(db: State<'_, Db>, passphrase: String) -> Result<(), S
     if !db::is_encrypted(&db.path) {
         return Err("The journal is not encrypted.".to_string());
     }
-    rekey(&mut guard, &db.path, Some(&passphrase), None)
+    rekey(&mut guard, &db.path, Some(&passphrase), None)?;
+    // Nothing left to remember — and a stale passphrase in the keychain is a
+    // secret with no purpose.
+    let _ = keychain::forget();
+    Ok(())
 }
 
 /// Change the passphrase of an encrypted journal.
@@ -1180,7 +1194,12 @@ pub fn change_passphrase(
     if !db::is_encrypted(&db.path) {
         return Err("The journal is not encrypted.".to_string());
     }
-    rekey(&mut guard, &db.path, Some(&current), Some(&new_passphrase))
+    rekey(&mut guard, &db.path, Some(&current), Some(&new_passphrase))?;
+    // Keep a remembered passphrase in step, or the next reboot can't unlock.
+    if keychain::remembered() {
+        keychain::set(&new_passphrase)?;
+    }
+    Ok(())
 }
 
 /// Write a single-file copy of the journal to `path` (chosen via the frontend's
@@ -1263,6 +1282,12 @@ pub fn reveal_data_dir(db: State<'_, Db>) -> Result<(), String> {
 /// created so the app stays usable. Irreversible — the caller must confirm first.
 #[tauri::command]
 pub fn wipe_all_data(app: AppHandle, db: State<'_, Db>) -> Result<(), String> {
+    // A wiped journal keeps no way back in: stop serving, un-pair every device,
+    // and forget any remembered passphrase.
+    app.state::<Portal>().stop();
+    let _ = app.state::<Devices>().revoke_all();
+    let _ = keychain::forget();
+    let _ = app.state::<Prefs>().update(|p| *p = ServerPrefs::default());
     {
         let mut guard = db.conn.lock().unwrap();
         *guard = None; // close the connection so the files can be removed
@@ -1355,12 +1380,11 @@ pub fn portal_disable(portal: State<'_, Portal>) -> portal::PortalStatus {
 /// The pairing QR, as an inline SVG. It encodes the bearer token, so it is only
 /// ever rendered on the desktop screen — it is a key, and it is shown to a camera.
 #[tauri::command]
-pub fn portal_qr(portal: State<'_, Portal>, url: Option<String>) -> Result<String, String> {
-    let status = portal.status();
-    let target = url
-        .filter(|u| !u.trim().is_empty())
-        .or(status.pair_url)
-        .ok_or("The portal isn't running.")?;
+pub fn portal_qr(url: String) -> Result<String, String> {
+    let target = url.trim();
+    if target.is_empty() {
+        return Err("Nothing to encode.".into());
+    }
     let code = qrcode::QrCode::new(target.as_bytes()).map_err(err)?;
     Ok(code
         .render::<qrcode::render::svg::Color>()
@@ -1533,15 +1557,27 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
 /// reachable from another device, so it stays an explicit, reversible act — and it
 /// refuses if the portal isn't actually running, rather than serving a dead port.
 #[tauri::command]
-pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
-    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
-    let port = portal.status().port.ok_or("Turn on phone access first.")?;
+pub fn portal_serve(portal: State<'_, Portal>, prefs: State<'_, Prefs>) -> Result<TailscaleStatus, String> {
+    publish(&portal, &prefs, None)?;
+    Ok(portal_tailscale(portal))
+}
 
-    let (ours, used) = serve_map(&bin, Some(port));
+/// The body of [`portal_serve`]. `reclaim` is the HTTPS port we held before a restart:
+/// if it still points at *a* Field Notes portal port (ours from last run, now possibly
+/// on a different loopback port), take it back rather than publishing on a new URL
+/// every paired device would have to learn.
+fn publish(portal: &Portal, prefs: &Prefs, reclaim: Option<u16>) -> Result<u16, String> {
+    let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
+    let port = portal.status().port.ok_or("Turn on device access first.")?;
+
+    let raw = tailscale_run(&bin, &["serve", "status", "--json"]).unwrap_or_default();
+    let (ours, used) = parse_serve(&raw, Some(port));
+    let reclaimed = reclaim.filter(|h| !used.contains(h) || was_ours(&raw, *h));
     // Re-publishing an already-published portal on a *different* port would strand the
     // old handler, so keep the one we hold. Otherwise take the first port going spare —
     // never one that already proxies somewhere else.
     let https = ours
+        .or(reclaimed)
         .or_else(|| SERVE_PORTS.iter().copied().find(|p| !used.contains(p)))
         .ok_or(
             "Tailscale is already serving something on every port Field Notes would use. \
@@ -1549,13 +1585,52 @@ pub fn portal_serve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String
         )?;
 
     tailscale_run(&bin, &["serve", "--bg", &format!("--https={https}"), &port.to_string()])?;
-    Ok(portal_tailscale(portal))
+    let _ = prefs.update(|p| p.served_https = Some(https));
+    Ok(https)
+}
+
+/// Does the handler on `https` proxy to loopback on a port in the portal's range —
+/// i.e. is it a Field Notes portal left over from before a restart?
+fn was_ours(raw: &str, https: u16) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return false };
+    let Some(web) = v.get("Web").and_then(|w| w.as_object()) else { return false };
+    web.iter()
+        .filter(|(hostport, _)| hostport.rsplit(':').next() == Some(&https.to_string()))
+        .all(|(_, entry)| {
+            entry["Handlers"].as_object().is_some_and(|handlers| {
+                handlers.values().all(|h| {
+                    h["Proxy"].as_str().and_then(|p| p.strip_prefix("http://127.0.0.1:")).and_then(|p| {
+                        p.trim_end_matches('/').parse::<u16>().ok()
+                    }).is_some_and(|p| portal::PORT_RANGE.contains(&p))
+                })
+            })
+        })
+}
+
+/// A computer acting as the server: once the journal is open, start device access
+/// and republish to the tailnet on the same URL as before. Called at launch and
+/// after an unlock. Does nothing unless the user turned "serve on launch" on.
+pub fn bring_up_server<R: tauri::Runtime>(app: &AppHandle<R>) {
+    let prefs = app.state::<Prefs>();
+    let p = prefs.get();
+    if !p.serve_on_launch || !app.state::<Db>().is_unlocked() {
+        return;
+    }
+    if let Err(e) = portal::start(app) {
+        eprintln!("bring up server: {e}");
+        return;
+    }
+    if let Some(https) = p.served_https {
+        if let Err(e) = publish(&app.state::<Portal>(), &prefs, Some(https)) {
+            eprintln!("bring up server: couldn't republish to the tailnet: {e}");
+        }
+    }
 }
 
 /// Stop publishing. The portal itself keeps running on loopback — this only removes
 /// the tailnet's route to it.
 #[tauri::command]
-pub fn portal_unserve(portal: State<'_, Portal>) -> Result<TailscaleStatus, String> {
+pub fn portal_unserve(portal: State<'_, Portal>, prefs: State<'_, Prefs>) -> Result<TailscaleStatus, String> {
     let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
 
     // Retract *our* handler and nothing else. Assuming 443 was ours would take down
@@ -1566,7 +1641,84 @@ pub fn portal_unserve(portal: State<'_, Portal>) -> Result<TailscaleStatus, Stri
     };
 
     tailscale_run(&bin, &["serve", &format!("--https={https}"), "off"])?;
+    let _ = prefs.update(|p| p.served_https = None);
     Ok(portal_tailscale(portal))
+}
+
+// ---------- paired devices ----------
+//
+// None of these are reachable through the portal: which devices may reach the
+// journal is decided on the computer that serves it.
+
+#[derive(Serialize)]
+pub struct PairResult {
+    pub device: DeviceInfo,
+    /// Shown once, as a QR code or a link, and never again.
+    pub token: String,
+}
+
+#[tauri::command]
+pub fn portal_pair(devices: State<'_, Devices>, name: String) -> Result<PairResult, String> {
+    let (device, token) = devices.pair(&name)?;
+    Ok(PairResult { device, token })
+}
+
+#[tauri::command]
+pub fn portal_devices(devices: State<'_, Devices>) -> Vec<DeviceInfo> {
+    devices.list()
+}
+
+#[tauri::command]
+pub fn portal_revoke(devices: State<'_, Devices>, id: u64) -> Result<Vec<DeviceInfo>, String> {
+    devices.revoke(id)?;
+    Ok(devices.list())
+}
+
+// ---------- running as the server ----------
+
+#[tauri::command]
+pub fn server_prefs(prefs: State<'_, Prefs>) -> ServerPrefs {
+    prefs.get()
+}
+
+#[tauri::command]
+pub fn set_server_prefs(app: AppHandle, prefs: State<'_, Prefs>, serve_on_launch: bool) -> Result<ServerPrefs, String> {
+    let p = prefs.update(|p| p.serve_on_launch = serve_on_launch)?;
+    if serve_on_launch {
+        bring_up_server(&app);
+    }
+    Ok(p)
+}
+
+#[derive(Serialize)]
+pub struct KeychainStatus {
+    /// The journal is encrypted, so there is a passphrase to remember at all.
+    pub applicable: bool,
+    pub remembered: bool,
+}
+
+#[tauri::command]
+pub fn keychain_status(db: State<'_, Db>) -> KeychainStatus {
+    KeychainStatus { applicable: db::is_encrypted(&db.path), remembered: keychain::remembered() }
+}
+
+/// Remember the passphrase in the OS keychain so this computer unlocks itself at
+/// launch. Checks it against the journal first — remembering a wrong passphrase
+/// would only surface at the next reboot, when nobody is at the keyboard.
+#[tauri::command]
+pub fn keychain_remember(db: State<'_, Db>, passphrase: String) -> Result<KeychainStatus, String> {
+    if !db::is_encrypted(&db.path) {
+        return Err("The journal isn't encrypted, so there's no password to remember.".into());
+    }
+    db::open(&db.path, Some(&passphrase)).map_err(|_| "Incorrect password.".to_string())?;
+    keychain::set(&passphrase)?;
+    Ok(keychain_status(db))
+}
+
+#[tauri::command]
+pub fn keychain_forget(db: State<'_, Db>) -> Result<KeychainStatus, String> {
+    keychain::forget()?;
+    Ok(keychain_status(db))
 }
 
 // ---------- upstream contribution drafts ----------
@@ -1603,6 +1755,19 @@ pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// After a reboot the portal may land on a different loopback port, but the
+    /// tailnet URL every device knows must stay the same. Our old handler is
+    /// recognisable (it proxies into the portal's range); someone else's is not.
+    #[test]
+    fn a_reboot_reclaims_our_old_tailnet_port_and_nobody_elses() {
+        let raw = r#"{"Web":{
+            "isaac.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8787"}}},
+            "isaac.ts.net:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3000"}}}
+        }}"#;
+        assert!(was_ours(raw, 443), "a Field Notes portal from last run");
+        assert!(!was_ours(raw, 8443), "someone else's chat UI");
+    }
 
     fn said(texts: &[&str]) -> Vec<ChatMsg> {
         texts
@@ -1737,4 +1902,52 @@ mod tests {
         assert_eq!(port_suffix(443), "");
         assert_eq!(port_suffix(8443), ":8443");
     }
+}
+
+// ---------- using another computer as the server ----------
+//
+// The client half: this computer reads and writes its journal on another one.
+// See `remote.rs`. None of these are reachable through this computer's own portal.
+
+#[tauri::command]
+pub fn remote_status(app: AppHandle) -> crate::remote::RemoteStatus {
+    crate::remote::status(&app)
+}
+
+#[tauri::command]
+pub async fn remote_connect(app: AppHandle, link: String) -> Result<crate::remote::RemoteStatus, String> {
+    // Off the UI thread: this is a network round-trip that can take seconds to fail.
+    tauri::async_runtime::spawn_blocking(move || crate::remote::connect(&app, &link))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub fn remote_disconnect(app: AppHandle, discard: bool) -> Result<crate::remote::RemoteStatus, String> {
+    crate::remote::disconnect(&app, discard)
+}
+
+#[tauri::command]
+pub fn remote_discard(app: AppHandle, seq: i64) -> Result<crate::remote::RemoteStatus, String> {
+    crate::remote::discard_failed(&app, seq)
+}
+
+/// Send queued entries now, rather than waiting for the background loop.
+#[tauri::command]
+pub async fn remote_flush(app: AppHandle) -> Result<crate::remote::RemoteStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::remote::tick(&app);
+        crate::remote::status(&app)
+    })
+    .await
+    .map_err(err)
+}
+
+/// Run a journal command on the server (or offline, as well as it can be). The
+/// frontend's `invoke` sends every routed command here while connected.
+#[tauri::command]
+pub async fn remote_call(app: AppHandle, cmd: String, args: serde_json::Value) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::remote::call(&app, &cmd, args))
+        .await
+        .map_err(err)?
 }
