@@ -88,6 +88,13 @@ from your phone.
   correct it, add one you forgot, or open the entry to change its title, times,
   rating and write-up. Private by design: see
   [Architecture](#architecture) for how.
+- **One journal, all your computers** (optional) — let a computer that stays on
+  be your Field Notes server, and connect a laptop to it over Tailscale: same
+  journal, everywhere. Each device gets its own revocable key. If the server
+  can't be reached, new entries save on the laptop and are sent when it's back,
+  and the interaction checker keeps working in the meantime. The server can
+  start serving at login and — opt-in — unlock from the system keychain after a
+  reboot.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.
 - **Contribute upstream** (consent-gated) — export substances you've catalogued
@@ -150,12 +157,18 @@ so updating never touches it.
   reference; snapshot + slimming pipeline in [`data/dosewiki/`](./data/dosewiki/)).
 - `knowledge.rs` — BM25 over the bundled DoseWiki prose corpus (7,800+ passages,
   575 substances), in-process, no embeddings.
-- `portal.rs` — the optional phone server. Binds **127.0.0.1 only** and is fronted
-  by your **Tailscale tailnet**; every request needs a paired token; it refuses to
+- `portal.rs` — the optional device server. Binds **127.0.0.1 only** and is fronted
+  by your **Tailscale tailnet**; every request needs a paired device's token
+  (`devices.rs`: one per device, stored only as a hash, revocable); it refuses to
   serve a locked journal; and it exposes a strict **allowlist** — wiping the
   journal, the passphrase, backups, and filesystem access are unreachable from a
   phone by construction. Its module docs state four load-bearing rules, and tests
   pin all four.
+- `remote.rs` — the client half: a desktop that uses another computer as its
+  journal. Journal commands go over that computer's portal; new entries queue in
+  the local (encrypted) journal while it's unreachable, with the interaction
+  checker and crisis scan still running locally. `keychain.rs` is the opt-in
+  "remember the password" for a server that must unlock itself after a reboot.
 - `contribute.rs` — upstream draft exports, with no HTTP client in the file at all.
 - The AI features (Companion, text import) talk only to a local
   [Ollama](https://ollama.com) instance on `127.0.0.1` — the app can install it
