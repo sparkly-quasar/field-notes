@@ -123,7 +123,7 @@ non-negotiables, each with a test:
 
 ---
 
-## Built for v0.13.0 — phone redesign + paste a trip log
+## Shipped in v0.13.0 — phone redesign + paste a trip log
 
 **Phone redesign** (`src/routes/m/+page.svelte`, rewritten) from a three-lens UX
 review run 2026-09-26: task flows/IA, impaired-state accessibility, and reading/
