@@ -30,6 +30,42 @@ export function captureToken(): void {
   history.replaceState(null, "", window.location.pathname);
 }
 
+/**
+ * Pair from a pasted link (`…/m#t=<token>`) or a bare token. Returns false if the
+ * text doesn't contain one.
+ *
+ * This exists for the iPhone Home Screen app: iOS gives a saved web app its own
+ * storage, separate from Safari's, so a phone paired in Safari opens the saved app
+ * unpaired — and the saved app has no address bar to scan a link into.
+ */
+export function acceptPairing(text: string): boolean {
+  const m = text.trim().match(/(?:^|[#&]t=)([a-f0-9]{64})$/i);
+  if (!m) return false;
+  localStorage.setItem(TOKEN_KEY, m[1].toLowerCase());
+  return true;
+}
+
+/** This phone's pairing link, to carry it from Safari into the Home Screen app. */
+export function pairingLink(): string | null {
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  return token ? `${window.location.origin}/m#t=${token}` : null;
+}
+
+/** Running as a saved Home Screen app rather than in a browser tab. */
+export function isStandalone(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    ("standalone" in navigator && (navigator as { standalone?: boolean }).standalone === true) ||
+    window.matchMedia?.("(display-mode: standalone)").matches
+  );
+}
+
+/** iPhone/iPad Safari (iPadOS reports itself as a Mac, but with touch). */
+export function isIos(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+}
+
 export function hasToken(): boolean {
   return typeof localStorage !== "undefined" && !!localStorage.getItem(TOKEN_KEY);
 }
