@@ -11,6 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.13.1
+
+- **The phone app now works from your iPhone's Home Screen.** iPhone keeps a
+  web app saved to the Home Screen separate from Safari, so a phone paired in
+  Safari opened the saved app to a "Not paired" screen with nothing to do. Now
+  the Home Screen app lets you paste your pairing link to pair it once. In
+  Safari, a card offers **Copy link for the Home Screen app** so you have the
+  link ready. It's a key to your journal, so paste it straight in and don't
+  keep it anywhere else.
+
 ## v0.13.0
 
 - **Paste a trip log, on the phone or the desktop.** Copy a log from anywhere —
