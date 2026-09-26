@@ -67,7 +67,7 @@
     type KnowledgeHit,
     type AiStatus,
   } from "$lib/api";
-  import { captureToken, hasToken, inTauri } from "$lib/portal";
+  import { acceptPairing, captureToken, hasToken, inTauri, isIos, isStandalone, pairingLink } from "$lib/portal";
   import TripImport from "$lib/TripImport.svelte";
   import {
     quickLog,
@@ -99,6 +99,14 @@
   const ROUTES = ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"];
 
   let paired = $state(false);
+  /** Pasted pairing link, for the Home Screen app (it can't see Safari's pairing). */
+  let pairText = $state("");
+  let pairErr = $state<string | null>(null);
+  const standalone = typeof window !== "undefined" && isStandalone();
+  /** In Safari on an iPhone: offer to carry the pairing into a Home Screen app. */
+  let showHomeHint = $state(false);
+  let homeLinkCopied = $state(false);
+  const HOME_HINT_KEY = "fieldnotes.homeHintDismissed";
   let view = $state<View>("today");
   let sheet = $state<Sheet | null>(null);
   /** Which action is in flight, so only *its* button says "Saving…". */
@@ -218,9 +226,43 @@
   /** Height of the on-screen keyboard, so a sheet's buttons ride above it. */
   let kb = $state(0);
 
+  function pairFromText() {
+    if (!acceptPairing(pairText)) {
+      pairErr = "That doesn't look like a pairing link. It should end in #t= followed by a long code.";
+      return;
+    }
+    pairText = "";
+    pairErr = null;
+    paired = true;
+    refresh();
+    loadAi();
+    loadResources();
+  }
+
+  async function copyHomeLink() {
+    const link = pairingLink();
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      homeLinkCopied = true;
+    } catch {
+      err = "Couldn't copy the link. Try again.";
+    }
+  }
+
+  function dismissHomeHint() {
+    showHomeHint = false;
+    try { localStorage.setItem(HOME_HINT_KEY, "1"); } catch { /* private mode */ }
+  }
+
   onMount(() => {
     captureToken();
     paired = inTauri() || hasToken();
+    try {
+      showHomeHint = paired && !inTauri() && isIos() && !standalone && !localStorage.getItem(HOME_HINT_KEY);
+    } catch {
+      showHomeHint = false;
+    }
     const vv = window.visualViewport;
     const onVv = () => {
       if (vv) kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
@@ -1130,10 +1172,30 @@
   {#if !paired}
     <section class="pane">
       <h1>Not paired</h1>
-      <p>
-        On the computer that runs your Field Notes server, open <strong>Settings → Devices &amp; server →
-        Pair a device</strong>, name this phone, and scan the code with its camera.
-      </p>
+      {#if standalone}
+        <p>
+          The Home Screen app keeps its own storage, separate from Safari, so it needs pairing once
+          on its own. Paste your pairing link here:
+        </p>
+        <ul class="muted small steps">
+          <li>If this phone is already paired in Safari, open Field Notes there and tap
+            <strong>Copy link for the Home Screen app</strong>.</li>
+          <li>Or, on your server, open <strong>Settings → Devices &amp; server → Pair a device</strong>
+            and use <strong>Copy link</strong>. Send it to yourself privately; it's a key.</li>
+        </ul>
+        <form onsubmit={(e) => { e.preventDefault(); pairFromText(); }}>
+          <label for="pair-link">Pairing link</label>
+          <input id="pair-link" bind:value={pairText} placeholder="https://…/m#t=…"
+            autocomplete="off" autocapitalize="off" spellcheck="false" />
+          {#if pairErr}<p class="err" role="alert">{pairErr}</p>{/if}
+          <button class="primary" type="submit" disabled={!pairText.trim()}>Pair this app</button>
+        </form>
+      {:else}
+        <p>
+          On the computer that runs your Field Notes server, open <strong>Settings → Devices &amp; server →
+          Pair a device</strong>, name this phone, and scan the code with its camera.
+        </p>
+      {/if}
     </section>
   {:else}
     <header class="top">
@@ -1220,6 +1282,19 @@
               </li>
             {/each}
           </ul>
+        </section>
+      {/if}
+
+      {#if showHomeHint}
+        <section class="pane">
+          <h2>Saving to your Home Screen?</h2>
+          <p class="muted small">
+            iPhone keeps a Home Screen app's storage separate from Safari, so it opens unpaired. Copy
+            this phone's pairing link first, then paste it when the app asks. It's a key, so don't
+            share it.
+          </p>
+          <button onclick={copyHomeLink}>{homeLinkCopied ? "Link copied ✓" : "Copy link for the Home Screen app"}</button>
+          <button class="ghost" onclick={dismissHomeHint}>Don't show this again</button>
         </section>
       {/if}
 
@@ -1978,6 +2053,9 @@
   button.danger-text.wide { width: 100%; }
   button:disabled { background: var(--surface-2); color: var(--text-2); border-color: var(--divider); cursor: default; }
   .pair { display: flex; gap: 0.5rem; }
+  .err { color: var(--danger); margin: -0.2rem 0 0.6rem; }
+  .steps { padding-left: 1.2rem; margin: 0 0 0.8rem; }
+  .steps li { margin-bottom: 0.4rem; }
   .pair > button { flex: 1; }
 
   /* ---------- chips ---------- */
