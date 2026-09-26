@@ -11,6 +11,20 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.13.2
+
+- **Capsule and pill are now units**, alongside mg, µg, g, ml and tab. A pasted
+  log that says "2 capsules" or "1 pill" keeps that unit instead of turning it
+  into "tab".
+- **The unit follows the substance.** Picking LSD or another lysergamide
+  (1P-LSD, AL-LAD, ALD-52 and the rest) switches the unit to **µg**. Picking
+  psilocybin mushrooms (or shrooms, truffles) switches it to **g**. Before,
+  both stayed on mg, which is a thousandfold off. If you've logged the
+  substance before, the unit you used last time still wins.
+- **Fixed:** on the desktop, the light/common/strong hint never showed for LSD
+  and other microgram substances, because the reference writes "ug" and the
+  form writes "µg".
+
 ## v0.13.1
 
 - **The phone app now works from your iPhone's Home Screen.** iPhone keeps a

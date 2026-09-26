@@ -19,7 +19,7 @@
  * - `(6/10)` / `6/10` anywhere: the moment's intensity
  */
 
-export type Unit = "mg" | "µg" | "g" | "ml" | "tab";
+export type Unit = "mg" | "µg" | "g" | "ml" | "tab" | "capsule" | "pill";
 
 export interface ParsedRow {
   kind: "dose" | "moment";
@@ -58,6 +58,8 @@ function normUnit(u: string): Unit {
   if (/^(mg|mgs|milligrams?)$/.test(s)) return "mg";
   if (/^(g|grams?|gr)$/.test(s)) return "g";
   if (/^(ml|mls)$/.test(s)) return "ml";
+  if (/^(caps?|capsules?)$/.test(s)) return "capsule";
+  if (/^pills?$/.test(s)) return "pill";
   return "tab";
 }
 
@@ -172,7 +174,7 @@ export function takeStamp(line: string): { stamp: Stamp | null; rest: string } {
     if (ap === "am" && h === 12) h = 0;
     // A bare "8" isn't a time; "8:43" is. And "35mg" must never read as 35 o'clock.
     const after = s.slice(m[0].length);
-    if (!ap && /^\s*(mg|µg|ug|mcg|g|ml|tab|x\b)/i.test(after)) return { stamp: null, rest: s };
+    if (!ap && /^\s*(mg|µg|ug|mcg|g|ml|tab|cap|pill|x\b)/i.test(after)) return { stamp: null, rest: s };
     const label = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
     return { stamp: { kind: "clock", min: h * 60 + min, label }, rest: strip(after) };
   }
