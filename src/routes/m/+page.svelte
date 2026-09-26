@@ -76,6 +76,8 @@
     recallDoseShape,
     rememberDoseShape,
     stretchToCover,
+    defaultUnitFor,
+    UNITS,
   } from "$lib/quicklog";
 
   type View = "today" | "journal" | "check" | "talk";
@@ -95,7 +97,6 @@
     | "more"
     | "paste";
 
-  const UNITS = ["mg", "µg", "g", "ml", "tab"];
   const ROUTES = ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"];
 
   let paired = $state(false);
@@ -513,6 +514,8 @@
     if (shape) {
       dUnit = shape.unit;
       dRoute = shape.route;
+    } else {
+      dUnit = defaultUnitFor(dSub) ?? dUnit;
     }
   }
 

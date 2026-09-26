@@ -11,7 +11,7 @@
 <script lang="ts">
   import { listSubstances, pwNames, type Warning } from "$lib/api";
   import { parseTripLog, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
-  import { saveTripLog, type TripLine } from "$lib/quicklog";
+  import { saveTripLog, UNITS, type TripLine } from "$lib/quicklog";
 
   let {
     onsaved,
@@ -21,7 +21,6 @@
     oncancel: () => void;
   } = $props();
 
-  const UNITS = ["mg", "µg", "g", "ml", "tab"];
   const ROUTES = ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"];
 
   let raw = $state("");

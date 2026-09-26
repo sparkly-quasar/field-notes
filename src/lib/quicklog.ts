@@ -199,6 +199,37 @@ export function recallDoseShape(substance: string): DoseShape | null {
   return shapes()[substance.trim().toLowerCase()] ?? null;
 }
 
+/** The units every dose form offers. One list, so the phone and desktop agree. */
+export const UNITS = ["mg", "µg", "g", "ml", "tab", "capsule", "pill"];
+
+/**
+ * Substances nobody measures in milligrams. Picking one of these switches the
+ * unit for you when there's no remembered shape — "100 mg LSD" is a thousandfold
+ * mistake, and "3.5" of mushrooms left on the form's mg default is a thousandfold
+ * under-record. Names are the DoseWiki titles plus common aliases, lowercased.
+ */
+const DEFAULT_UNITS: Record<string, string> = Object.fromEntries([
+  ...[
+    "lsd", "lsd-25", "acid",
+    "1a-lsd", "1b-lsd", "1cp-lsd", "1d-lsd", "1p-lsd", "1v-lsd", "ald-52",
+    "al-lad", "1cp-al-lad", "eth-lad", "1p-eth-lad", "pro-lad", "pargy-lad",
+  ].map((n) => [n, "µg"]),
+  ...[
+    "psilocybin mushrooms", "magic mushrooms", "mushrooms", "shrooms", "mushies",
+    "psychedelic mushrooms", "magic truffles", "truffles",
+  ].map((n) => [n, "g"]),
+]);
+
+export function defaultUnitFor(substance: string): string | null {
+  return DEFAULT_UNITS[substance.trim().toLowerCase()] ?? null;
+}
+
+/** DoseWiki writes micrograms as both "ug" and "µg"; the forms only offer "µg". */
+export const sameUnit = (a: string, b: string) => {
+  const n = (u: string) => u.trim().toLowerCase().replace(/^(ug|mcg)$/, "µg");
+  return n(a) === n(b);
+};
+
 export function rememberDoseShape(substance: string, shape: DoseShape): void {
   const name = substance.trim().toLowerCase();
   if (!name) return;

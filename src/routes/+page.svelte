@@ -120,6 +120,9 @@
     whenPresets,
     recallDoseShape,
     rememberDoseShape,
+    defaultUnitFor,
+    sameUnit,
+    UNITS,
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
@@ -966,6 +969,8 @@
     if (shape) {
       qlUnit = shape.unit;
       qlRoute = shape.route;
+    } else {
+      qlUnit = defaultUnitFor(qlSub) ?? qlUnit;
     }
   }
 
@@ -1872,8 +1877,8 @@
     if (!roa) return null;
     if (roa.threshold == null && roa.light.min == null && roa.common.min == null) return null;
     // Don't classify across mismatched units (e.g. entering g against mg ranges).
-    const u = (roa.units ?? "").toLowerCase();
-    if (u && dUnit && u !== dUnit.trim().toLowerCase()) return null;
+    const u = roa.units ?? "";
+    if (u && dUnit && !sameUnit(u, dUnit)) return null;
     return classifyDose(amt, roa);
   });
 
@@ -2169,7 +2174,7 @@
           {/if}
 
           <div class="dose-form">
-            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => lookupRef(dSubstance)} />
+            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance) ?? dUnit; }} />
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
@@ -2299,7 +2304,7 @@
                 </datalist>
                 <input class="narrow" placeholder="Amount" bind:value={qlAmt} />
                 <select bind:value={qlUnit}>
-                  {#each ["mg", "µg", "g", "ml", "tab"] as u}<option>{u}</option>{/each}
+                  {#each UNITS as u}<option>{u}</option>{/each}
                 </select>
                 <select bind:value={qlRoute}>
                   {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
