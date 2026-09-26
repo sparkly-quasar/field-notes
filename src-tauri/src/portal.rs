@@ -387,6 +387,8 @@ pub const EXPOSED: &[&str] = &[
     "emergency_resources",
     "pw_status",
     "pw_lookup",
+    // Names and street names from the (public) dose reference, for pasted logs.
+    "pw_names",
     "knowledge_search",
     "knowledge_status",
     "companion_chat",
@@ -458,6 +460,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         // --- reference ---
         "pw_status" => done(commands::pw_status(db)),
         "pw_lookup" => done(commands::pw_lookup(db, arg(&args, "name")?)),
+        "pw_names" => done(commands::pw_names(db)),
         "knowledge_search" => ok(commands::knowledge_search(
             app.state(),
             arg(&args, "query")?,
@@ -703,6 +706,50 @@ mod tests {
         // Turning the portal off resets the light; the pairing itself persists.
         portal.stop();
         assert!(!portal.status().paired);
+    }
+
+    /// Not a test: a real portal on a throwaway journal, for driving the phone UI by
+    /// hand or with a headless browser. Serves until killed. Prints the port and a
+    /// device token. `cargo test --lib portal::tests::dev_portal -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dev_portal() {
+        let (app, port, token) = serving();
+        let db = app.state::<Db>();
+        // The real bundled dose reference, so interactions and street names behave as shipped.
+        let subs = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        db.with_mut(|c| crate::db::pw_replace_all(c, &subs)).unwrap();
+        db.with(|c| {
+            let day = |d: i64, h: i64| {
+                let t = std::time::SystemTime::now() - std::time::Duration::from_secs((d * 86400) as u64);
+                let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                let midnight = secs - secs % 86400;
+                let ts = midnight + h * 3600;
+                c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1, 'unixepoch')", [ts], |r| r.get::<_, String>(0))
+                    .unwrap()
+            };
+            let mk = |kind: &str, title: &str, start: String, end: Option<String>, notes: &str, rating: Option<i64>| {
+                let e = crate::db::create_experience(c, &serde_json::from_value(json!({ "kind": kind, "title": title, "started_at": start })).unwrap()).unwrap();
+                crate::db::update_experience(c, e.id, &serde_json::from_value(json!({ "title": title, "notes": notes, "rating": rating, "started_at": start, "ended_at": end, "intention": if kind == "session" { "Dance, stay with friends." } else { "" }, "setting": "" })).unwrap()).unwrap();
+                e.id
+            };
+            let dose = |id: i64, s: &str, amt: f64, unit: &str, at: String| {
+                crate::db::log_dose(c, &serde_json::from_value(json!({ "experience_id": id, "substance_name": s, "amount": amt, "unit": unit, "route": "oral", "taken_at": at })).unwrap()).unwrap();
+            };
+            let a = mk("session", "Festival day 2", day(40, 20), Some(day(39, 3)), "Long, warm night. Came up anxious, settled after an hour.\n\nWater every hour worked.", Some(7));
+            dose(a, "MDMA", 120.0, "mg", day(40, 20));
+            dose(a, "MDMA", 80.0, "mg", day(40, 22));
+            crate::db::add_timeline_event(c, &serde_json::from_value(json!({ "experience_id": a, "at": day(40, 21), "note": "Coming up, a bit anxious", "intensity": 5 })).unwrap()).unwrap();
+            let b = mk("session", "", day(6, 21), Some(day(6, 21)), "", None);
+            dose(b, "Ketamine", 40.0, "mg", day(6, 21));
+            mk("note", "Couldn't sleep", day(3, 2), None, "Thinking about the weekend. Want to plan it more carefully this time.", None);
+            let d = mk("session", "", day(1, 22), Some(day(1, 22)), "", None);
+            dose(d, "Cannabis", 0.3, "g", day(1, 22));
+            Ok(())
+        })
+        .unwrap();
+        println!("DEV_PORTAL port={port} token={token}");
+        std::thread::sleep(std::time::Duration::from_secs(3600));
     }
 
     /// Revoking a device shuts it out on its very next request, while the portal

@@ -6,6 +6,8 @@
 // where there is no `invoke` and every call becomes a `fetch` carrying a token.
 
 const TOKEN_KEY = "fieldnotes.portalToken";
+/** Every phone request is short — the Companion runs as a polled job — so this is generous. */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /** True when we're running inside the Tauri desktop shell rather than a browser. */
 export function inTauri(): boolean {
@@ -42,24 +44,35 @@ export function forgetToken(): void {
  */
 export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) throw new Error("This phone isn't paired. Scan the QR code in the desktop app.");
+  if (!token) throw new Error("This phone isn't paired. On your server, open Settings → Devices & server → Pair a device.");
 
   let res: Response;
+  // A sleeping server or a dropped tailnet can leave a request hanging with the
+  // button saying "Saving…" forever. Give up after a while — and say honestly that
+  // a write may still have landed, so nobody re-logs a dose that's already there.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
   try {
     res = await fetch(`/api/${cmd}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(args ?? {}),
+      signal: ctl.signal,
     });
   } catch {
-    // The desktop has to be awake and on the tailnet to answer. Say so plainly —
+    if (ctl.signal.aborted) {
+      throw new Error("That took too long to answer. It may or may not have saved — check the entry before trying again.");
+    }
+    // The server has to be awake and on the tailnet to answer. Say so plainly —
     // a silent failure while someone is logging a dose is the worst outcome here.
-    throw new Error("Can't reach the desktop app. Is it awake and on your tailnet?");
+    throw new Error("Can't reach your Field Notes server. Is it awake and on your tailnet?");
+  } finally {
+    clearTimeout(timer);
   }
 
   if (res.status === 401) {
     forgetToken();
-    throw new Error("This phone is no longer paired. Scan the QR code again.");
+    throw new Error("This phone is no longer paired. Pair it again on your server: Settings → Devices & server.");
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

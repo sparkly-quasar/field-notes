@@ -11,6 +11,43 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.13.0
+
+- **Paste a trip log, on the phone or the desktop.** Copy a log from anywhere —
+  a notes app, a message — and paste it in (**＋ → Paste a trip log** on the
+  phone, **Paste a trip log** in the Journal on the desktop). Lines like
+  `8:43am - 35mg mesc`, `22:10 nothing yet` or `T+1:30 peak` become the
+  timeline, with doses recognised — street names included ("mesc", "molly",
+  "ket") — and times past midnight kept in order. You see every line before
+  anything is saved, and can fix any of it. It's read on the device, with no
+  AI involved, and every dose gets the usual interaction check.
+- **A phone app that's easier to find your way around.** Five tabs — Today,
+  Journal, **＋**, Check, Talk. Everything new starts from **＋**: log a dose,
+  start a session, log a past session, paste a log, or write a note.
+- **Log a past session properly.** Say when it started, then add what you took
+  and what happened — each new line starts just after the last, so there's
+  almost no fiddling with times — and finish with when it ended, a rating and a
+  write-up.
+- **Reading back is easier.** The journal is grouped by month, searchable, and
+  filterable by substance or by entries still waiting for a write-up. An entry
+  reads like a page: the facts, the timeline with T+ times, intention, setting,
+  write-up.
+- **Editing happens where your thumb is.** Tapping any line opens its editor at
+  the bottom of the screen, not somewhere below the fold. Doses can now be
+  renamed, not just re-timed.
+- **Help on every screen.** A Help button in the corner shows emergency and
+  support lines, even when the phone can't reach your server. And when a dose
+  makes a session's combination dangerous, the phone now says so the way the
+  desktop does.
+- **Harder to lose something by accident.** Deleting waits a few seconds with
+  **Undo** instead of asking "are you sure?", and Delete sits well away from
+  Save.
+- **Fixed:** amounts typed with a comma ("1,5") were silently dropped — they're
+  now saved as 1.5. Phone numbers in the emergency list dialled the wrong number
+  when the entry listed more than one. The same interaction warning could show
+  twice. The phone's layout now clears the notch and the home indicator, and
+  follows your light/dark setting.
+
 ## v0.12.0
 
 - **Keep your journal on one computer, and use it from all of them.** A

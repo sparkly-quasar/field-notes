@@ -123,6 +123,49 @@ non-negotiables, each with a test:
 
 ---
 
+## Built for v0.13.0 — phone redesign + paste a trip log
+
+**Phone redesign** (`src/routes/m/+page.svelte`, rewritten) from a three-lens UX
+review run 2026-09-26: task flows/IA, impaired-state accessibility, and reading/
+editing. Decisions:
+- **IA:** Today · Journal · ＋ · Check · Talk. ＋ opens a "New" sheet (dose, live
+  session, past session, paste a log, journal note). Combo + Look up merged as Check.
+- **Vocabulary, one word per thing:** entry / session / journal note / moment /
+  write-up. ("Note" used to mean three things.)
+- **Bottom sheets for every edit** (they open at the thumb; editors used to render
+  below the whole timeline, off-screen). Entry actions in a sticky bar.
+- **Deferred delete + Undo (8s)** instead of `confirm()`; Delete separated from Save,
+  entry delete is two deliberate taps.
+- **Every dose goes through `quickLog`**, so doses into existing entries get the
+  12-hour wider check and `stretchToCover` too. After a dose, `crisisScan("", id)`
+  runs as on the desktop — combinations only; **journal text is still never
+  scanned** (crisis policy unchanged).
+- **Help button on every screen**, `emergency_resources` cached in localStorage for
+  when the server is unreachable. `telOf()` dials the first phone number in a
+  contact, not every digit in it (the old `replace(/[^\d+]/g,"")` produced 911112).
+- **Data integrity:** `num()` accepts comma decimals and refuses NaN (was silently
+  saved as null); blank times are refused rather than becoming "now"; `portal.ts`
+  times out after 20s with "may or may not have saved" wording (no blind retry).
+- Tokens with a light scheme, safe-area insets, ≥44px targets, visible labels,
+  `aria-live` toasts, `aria-pressed`/`aria-current`, reduced-motion.
+- `allWarnings` dedup is now order-insensitive per pair (desktop benefits too).
+
+**Paste a trip log** (`src/lib/tripimport.ts` + `src/lib/TripImport.svelte`, on
+both screens). **Deterministic** — no model — so it works on the phone and every
+line is shown before saving. Clock times (am/pm, 24h, bracketed), T+/`+1h30`/`90
+min in` offsets, midnight rollover, continuation lines, `n/10` intensity. Doses are
+an amount+unit plus a name; names resolve against the user's catalogue then the
+dose reference's 577 names and street names via the new read-only `pw_names`
+command (portal-allowlisted; reference data only). A unique *main*-name prefix
+wins before street names ("mesc" → Mescaline, not TMA's "Mescalamphetamine");
+street names that are ordinary words ("pot", "beans", "tabs") never match
+mid-sentence. `saveTripLog` (quicklog.ts) creates an ended session and runs the
+wider check per dose.
+
+**Dev harness:** `cargo test --lib portal::tests::dev_portal -- --ignored
+--nocapture` serves a real portal on a seeded throwaway journal (with the real dose
+reference) for driving the phone UI in a browser.
+
 ## Shipped in v0.12.0 — one computer as the server
 
 **The ask:** a Mac mini that's always on runs the journal; the laptop stores and
