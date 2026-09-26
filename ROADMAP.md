@@ -168,8 +168,16 @@ a sync engine.
     prefetched whenever the list loads so that cache exists when it's needed.
     `crisis_scan_names` is the crisis scan over a name list, shared by both paths.
 
-**Not built, on purpose:** copying a laptop's existing local entries up to the
-server (they stay local and hidden while connected); queued edits (see above);
+- **Sync journal to server** (`upload_local`, owner's request 2026-09-25) — copies
+  the laptop's own entries up: custom substances first, then each entry whole
+  (create → doses → timeline → `update_experience` last, so a blank title stays
+  blank). `remote_synced` records (local id, server) and **survives disconnect**,
+  so re-running or reconnecting never duplicates; a failure mid-entry deletes the
+  half-copied entry on the server. Local copies are kept — nothing is deleted.
+- **Settings naming:** "Use another computer as your server" (client) and
+  "Server Mode" (serve on launch / open at login / keychain) — owner's wording.
+
+**Not built, on purpose:** queued edits (see above);
 the phone's own offline outbox (still Phase 3b).
 
 ## Shipped in v0.11.5

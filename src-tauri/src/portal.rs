@@ -598,6 +598,7 @@ mod tests {
             "remote_call",
             "remote_flush",
             "remote_discard",
+            "remote_upload_local",
             // Writes a file to this computer's disk.
             "save_markdown_file",
         ];

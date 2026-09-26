@@ -1944,6 +1944,14 @@ pub fn remote_discard(app: AppHandle, seq: i64) -> Result<crate::remote::RemoteS
     crate::remote::discard_failed(&app, seq)
 }
 
+/// "Sync journal to server": copy this computer's own entries up. Only new ones.
+#[tauri::command]
+pub async fn remote_upload_local(app: AppHandle) -> Result<crate::remote::UploadResult, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::remote::upload_local(&app))
+        .await
+        .map_err(err)?
+}
+
 /// Send queued entries now, rather than waiting for the background loop.
 #[tauri::command]
 pub async fn remote_flush(app: AppHandle) -> Result<crate::remote::RemoteStatus, String> {

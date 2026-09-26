@@ -17,14 +17,18 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   computer that stays on — a desktop at home — can now be your Field Notes
   server. Your laptop connects to it over Tailscale and reads and writes the same
   journal, and your phone pairs with it the way it always has. Settings →
-  **Devices & server** on the server, **Use another computer as your journal**
+  **Devices & server** on the server, **Use another computer as your server**
   on the laptop.
+- **Bring your existing journal with you.** Once the laptop is connected,
+  **Sync journal to server** copies the entries it already had — doses,
+  timelines, write-ups and any substances you added — to the server. They stay
+  on the laptop too, and syncing again only copies what's new.
 - **Every device has its own key, and pairings survive a restart.** Pair each
   device with a name ("Phone", "Laptop"), see when it was last active, and
   un-pair one without touching the others. Restarting Field Notes no longer
   means re-scanning the QR code.
-- **A server that looks after itself.** Optional, for the computer that is the
-  server: turn device access on whenever Field Notes opens (on the same tailnet
+- **Server Mode: a server that looks after itself.** Optional, for the computer
+  that is the server: turn device access on whenever Field Notes opens (on the same tailnet
   address as before, so nothing needs re-pairing), open Field Notes at login,
   and — if your journal is encrypted — save the password in the system keychain
   so it unlocks on its own after a reboot. Settings explains the trade-off

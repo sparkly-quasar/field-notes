@@ -99,6 +99,15 @@ CREATE TABLE IF NOT EXISTS remote_outbox (
     failed   TEXT
 );
 CREATE TABLE IF NOT EXISTS remote_idmap (temp_id INTEGER PRIMARY KEY, real_id INTEGER NOT NULL);
+-- This computer's own entries already copied to a server (upload_local), per server,
+-- so syncing again only sends what's new. Survives a disconnect on purpose: a
+-- reconnect must not copy everything a second time.
+CREATE TABLE IF NOT EXISTS remote_synced (
+    local_id  INTEGER NOT NULL,
+    server    TEXT NOT NULL,
+    server_id INTEGER NOT NULL,
+    PRIMARY KEY (local_id, server)
+);
 ";
 
 #[derive(Default)]
@@ -132,6 +141,9 @@ pub struct RemoteStatus {
     pub failed: Vec<Failed>,
     /// The server no longer recognises this computer (it was un-paired there).
     pub unpaired: bool,
+    /// Entries in this computer's own journal that haven't been copied to the
+    /// server yet — what "Sync journal to server" would send.
+    pub local_unsynced: i64,
 }
 
 enum HttpErr {
@@ -329,11 +341,15 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> RemoteStatus {
         Ok(RemoteStatus {
             connected: ep.is_some(),
             server_name: ep.as_ref().map(|(b, _)| short_name(b)),
-            server: ep.map(|(b, _)| b),
+            server: ep.clone().map(|(b, _)| b),
             online: remote.online.load(Ordering::SeqCst),
             pending: pending_count(c)?,
             failed,
             unpaired: cfg(c, "unpaired")?.is_some(),
+            local_unsynced: match &ep {
+                Some((base, _)) => unsynced_local(c, base)?.len() as i64,
+                None => 0,
+            },
         })
     })
     .unwrap_or(RemoteStatus {
@@ -344,6 +360,7 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> RemoteStatus {
         pending: 0,
         failed: vec![],
         unpaired: false,
+        local_unsynced: 0,
     })
 }
 
@@ -418,6 +435,140 @@ pub fn discard_failed<R: Runtime>(app: &AppHandle<R>, seq: i64) -> Result<Remote
     })?;
     notify(app);
     Ok(status(app))
+}
+
+// ---------- syncing this computer's own journal up ----------
+
+/// This computer's own entries not yet copied to `server`, oldest first.
+fn unsynced_local(conn: &Connection, server: &str) -> rusqlite::Result<Vec<i64>> {
+    ensure(conn)?;
+    let mut stmt = conn.prepare(
+        "SELECT id FROM experiences
+         WHERE id NOT IN (SELECT local_id FROM remote_synced WHERE server = ?1)
+         ORDER BY started_at, id",
+    )?;
+    let ids = stmt.query_map([server], |r| r.get(0))?.collect();
+    ids
+}
+
+#[derive(Debug, Serialize)]
+pub struct UploadResult {
+    /// Entries copied this time.
+    pub copied: i64,
+    /// Substances you'd added to this computer's catalogue that the server didn't have.
+    pub substances: i64,
+    pub status: RemoteStatus,
+}
+
+/// One request that must succeed, with the server's own words if it doesn't.
+fn send(base: &str, token: &str, cmd: &str, args: Value) -> Result<Value, String> {
+    http(base, token, cmd, &args).map_err(|e| match e {
+        HttpErr::Net(_) => "Lost the connection to the server.".to_string(),
+        HttpErr::Locked => "The server's journal is locked.".to_string(),
+        HttpErr::Status(401, _) => "The server no longer recognises this computer.".to_string(),
+        HttpErr::Status(_, msg) => msg,
+    })
+}
+
+/// Copy one local entry to the server, whole: the entry, its doses and timeline,
+/// then its write-up, rating and times. Returns the server's ID.
+fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, String> {
+    let e = &d.experience;
+    let created = send(base, token, "create_experience", json!({ "input": {
+        "kind": e.kind, "title": e.title, "intention": e.intention,
+        "setting": e.setting, "started_at": e.started_at,
+    }}))?;
+    let sid = created["id"].as_i64().ok_or("The server didn't return an ID.")?;
+
+    let rest = (|| {
+        for dose in &d.doses {
+            send(base, token, "log_dose", json!({ "input": {
+                "experience_id": sid, "substance_name": dose.substance_name, "amount": dose.amount,
+                "unit": dose.unit, "route": dose.route, "taken_at": dose.taken_at, "note": dose.note,
+            }}))?;
+        }
+        for ev in &d.timeline {
+            send(base, token, "add_timeline_event", json!({ "input": {
+                "experience_id": sid, "at": ev.at, "note": ev.note, "mood": ev.mood, "intensity": ev.intensity,
+            }}))?;
+        }
+        // Last, so the entry ends up exactly as written here — including a blank
+        // title the first dose would otherwise have filled in on the server.
+        send(base, token, "update_experience", json!({ "id": sid, "update": {
+            "title": e.title, "intention": e.intention, "setting": e.setting, "notes": e.notes,
+            "rating": e.rating, "started_at": e.started_at, "ended_at": e.ended_at,
+        }}))?;
+        Ok::<(), String>(())
+    })();
+
+    if let Err(msg) = rest {
+        // Don't leave half an entry on the server: take it back out, so running the
+        // sync again copies it cleanly instead of duplicating it.
+        let _ = send(base, token, "delete_experience", json!({ "id": sid }));
+        return Err(msg);
+    }
+    Ok(sid)
+}
+
+/// "Sync journal to server": copy this computer's own entries — the ones hidden
+/// while it's connected — to the server. They stay here too. Entries already
+/// copied are skipped, so this can be run again at any time and only sends what's
+/// new. Needs the server: nothing about this is queued.
+pub fn upload_local<R: Runtime>(app: &AppHandle<R>) -> Result<UploadResult, String> {
+    let db = app.state::<Db>();
+    let (base, token) = db.with(endpoint)?.ok_or("This computer isn't connected to a server.")?;
+    let unreachable = |why: &str| format!("{why} Syncing needs the connection — try again once it's back.");
+
+    // Queued entries first, so the server's journal reads in the order things happened.
+    if flush(app)? != Flushed::Clear {
+        return Err(unreachable("Can't reach your server."));
+    }
+
+    // Your own additions to the substance catalogue, so the copied doses keep their
+    // classifications (and the interaction checker keeps seeing them) on the server.
+    let mine: Vec<db::Substance> = db.with(db::list_substances)?.into_iter().filter(|s| s.user_added).collect();
+    let mut substances = 0;
+    if !mine.is_empty() {
+        let theirs = send(&base, &token, "list_substances", json!({})).map_err(|e| unreachable(&e))?;
+        let known: std::collections::HashSet<String> = theirs
+            .as_array()
+            .map(|a| a.iter().filter_map(|s| s["name"].as_str().map(str::to_lowercase)).collect())
+            .unwrap_or_default();
+        for sub in mine.iter().filter(|s| !known.contains(&s.name.to_lowercase())) {
+            send(&base, &token, "add_substance", json!({ "input": {
+                "name": sub.name, "aliases": sub.aliases, "category": sub.category,
+                "classes": sub.classes, "dose_note": sub.dose_note, "notes": sub.notes,
+            }}))?;
+            substances += 1;
+        }
+    }
+
+    let ids = db.with(|c| unsynced_local(c, &base))?;
+    let mut copied = 0;
+    for id in ids {
+        let detail = db.with(|c| db::get_experience(c, id))?;
+        match upload_one(&base, &token, &detail) {
+            Ok(sid) => {
+                db.with(|c| {
+                    c.execute(
+                        "INSERT OR REPLACE INTO remote_synced (local_id, server, server_id) VALUES (?1, ?2, ?3)",
+                        params![id, base, sid],
+                    )
+                })?;
+                copied += 1;
+            }
+            Err(msg) => {
+                notify(app);
+                return Err(format!(
+                    "Copied {copied} {} before stopping: {msg} Run the sync again to carry on — nothing is copied twice.",
+                    if copied == 1 { "entry" } else { "entries" }
+                ));
+            }
+        }
+    }
+    app.state::<Remote>().mark(true);
+    notify(app);
+    Ok(UploadResult { copied, substances, status: status(app) })
 }
 
 #[derive(Debug, PartialEq)]
@@ -1105,6 +1256,57 @@ mod tests {
         front.sort();
         back.sort();
         assert_eq!(front, back);
+    }
+
+    /// "Sync journal to server": a laptop's own entries arrive on the server whole —
+    /// doses, timeline, write-up, a blank title kept blank — and a second sync sends
+    /// nothing, even after disconnecting and reconnecting.
+    #[test]
+    fn syncing_copies_this_computers_journal_once() {
+        let server = computer("sync-server");
+        let laptop = computer("sync-laptop");
+        let (s, l) = (server.handle(), laptop.handle());
+
+        // Written on the laptop before it ever knew about the server.
+        l.state::<Db>()
+            .with(|c| {
+                let e = db::create_experience(c, &serde_json::from_value(json!({ "started_at": "2026-08-01 20:00:00" })).unwrap())?;
+                db::log_dose(c, &serde_json::from_value(json!({ "experience_id": e.id, "substance_name": "Caffeine", "amount": 100.0, "taken_at": "2026-08-01 20:05:00" })).unwrap())?;
+                db::add_timeline_event(c, &serde_json::from_value(json!({ "experience_id": e.id, "at": "2026-08-01 20:30:00", "note": "focused" })).unwrap())?;
+                db::update_experience(c, e.id, &serde_json::from_value(json!({ "title": "", "notes": "a good evening", "rating": 4, "started_at": "2026-08-01 20:00:00", "ended_at": "2026-08-01 23:00:00" })).unwrap())?;
+                db::create_experience(c, &serde_json::from_value(json!({ "kind": "note", "title": "Thoughts", "started_at": "2026-08-02 09:00:00" })).unwrap())
+            })
+            .unwrap();
+
+        let port = crate::portal::start(s).unwrap().port.unwrap();
+        let (_, token) = s.state::<crate::devices::Devices>().pair("Laptop").unwrap();
+        let link = format!("http://127.0.0.1:{port}/m#t={token}");
+        connect(l, &link).unwrap();
+        assert_eq!(status(l).local_unsynced, 2);
+
+        let r = upload_local(l).expect("syncs");
+        assert_eq!(r.copied, 2);
+        assert_eq!(r.status.local_unsynced, 0);
+
+        let sdb = s.state::<Db>();
+        let all = sdb.with(db::list_experiences).unwrap();
+        assert_eq!(all.len(), 2);
+        let session = all.iter().find(|e| e.experience.kind == "session").unwrap();
+        let d = sdb.with(|c| db::get_experience(c, session.experience.id)).unwrap();
+        assert_eq!(d.doses.len(), 1);
+        assert_eq!(d.timeline.len(), 1);
+        assert_eq!(d.experience.notes, "a good evening");
+        assert_eq!(d.experience.rating, Some(4));
+        assert_eq!(d.experience.title, "", "a title left blank stays blank");
+        assert!(d.experience.ended_at.is_some());
+
+        // Again, and after a disconnect/reconnect: nothing new, nothing doubled.
+        assert_eq!(upload_local(l).unwrap().copied, 0);
+        disconnect(l, false).unwrap();
+        connect(l, &link).unwrap();
+        assert_eq!(status(l).local_unsynced, 0);
+        assert_eq!(upload_local(l).unwrap().copied, 0);
+        assert_eq!(sdb.with(db::list_experiences).unwrap().len(), 2);
     }
 
     #[test]
