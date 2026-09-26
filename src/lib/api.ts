@@ -251,6 +251,8 @@ export interface PwStatus {
 export const pwUpdate = () => invoke<number>("pw_update");
 export const pwStatus = () => invoke<PwStatus>("pw_status");
 export const pwLookup = (name: string) => invoke<PwInfo | null>("pw_lookup", { name });
+/** Every dose-reference substance with its street names — for matching pasted logs. */
+export const pwNames = () => invoke<{ name: string; aliases: string[] }[]>("pw_names");
 
 // ---- Knowledge corpus (DoseWiki prose, searched offline with BM25) ----
 // Reference prose only. Doses and interactions come from pwLookup/checkCombo,

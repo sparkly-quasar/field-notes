@@ -122,6 +122,7 @@
     rememberDoseShape,
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
+  import TripImport from "$lib/TripImport.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -847,6 +848,7 @@
   // ---- import a past experience from pasted text ----
   async function openImport() {
     showImport = !showImport;
+    showPaste = false;
     if (showImport) {
       importParsed = null;
       importErr = null;
@@ -1149,6 +1151,18 @@
   }
 
   // reload the detail but preserve the warning banner we just set
+  // ---- paste a trip log (deterministic; shared with the phone) ----
+  let showPaste = $state(false);
+  async function pastedLog(r: { id: number; warnings: Warning[] }) {
+    showPaste = false;
+    await loadJournal();
+    await openExperienceKeepWarnings(r.id);
+    lastWarnings = r.warnings;
+    // Same escalation as logging a dose by hand: has this combination become dangerous?
+    const c = await crisisScan("", r.id).catch(() => null);
+    if (c && c.level !== "none") { crisis = c; crisisResourcesShown = false; }
+  }
+
   async function openExperienceKeepWarnings(id: number) {
     selected = await getExperience(id);
   }
@@ -2231,6 +2245,7 @@
           <div class="exp-head">
             <h2>Journal</h2>
             <span class="row-actions">
+              <button class="ghost small-btn" onclick={() => { showPaste = !showPaste; showImport = false; }}>Paste a trip log</button>
               {#if !remote.connected}
                 <button class="ghost small-btn" onclick={openImport}>Import from text</button>
               {/if}
@@ -2362,6 +2377,11 @@
             </div>
           {/if}
 
+          {#if showPaste}
+            <div class="import-panel">
+              <TripImport oncancel={() => (showPaste = false)} onsaved={pastedLog} />
+            </div>
+          {/if}
           {#if showImport}
             <div class="import-panel">
               {#if !aiReady}

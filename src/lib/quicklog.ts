@@ -20,6 +20,7 @@
  */
 
 import {
+  addTimelineEvent,
   checkCombo,
   createExperience,
   endExperience,
@@ -97,7 +98,7 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
  * journal shows an entry that ended an hour before something in it was taken,
  * and every t+ offset in that entry is measured from the wrong moment.
  */
-async function stretchToCover(id: number, at: string) {
+export async function stretchToCover(id: number, at: string) {
   const e = await getExperience(id);
   const before = new Date(at) < new Date(e.started_at);
   const after = e.ended_at != null && new Date(at) > new Date(e.ended_at);
@@ -123,7 +124,7 @@ async function stretchToCover(id: number, at: string) {
  * in the journal, so this can flag a pair that was hours apart. That is the
  * right way to be wrong: a warning you can dismiss beats silence you can't.
  */
-async function allWarnings(substance: string, at: string, own: Warning[]): Promise<Warning[]> {
+export async function allWarnings(substance: string, at: string, own: Warning[]): Promise<Warning[]> {
   const t = new Date(at).getTime();
   const nearby = (await listExperiences())
     .filter((e) => Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000)
@@ -132,9 +133,13 @@ async function allWarnings(substance: string, at: string, own: Warning[]): Promi
   const names = [...new Set([substance, ...nearby].map((n) => n.trim()).filter(Boolean))];
   const wider = names.length > 1 ? await checkCombo(names) : [];
 
+  // A pair is the same pair in either order: the entry's own check may report
+  // "Heroin + Alcohol" where the wider one says "Alcohol + Heroin", and showing the
+  // same danger twice reads as two dangers.
   const seen = new Set<string>();
   return [...own, ...wider].filter((w) => {
-    const key = `${w.severity}|${w.a}|${w.b}|${w.message}`;
+    const pair = [w.a, w.b].map((n) => n.trim().toLowerCase()).sort().join("|");
+    const key = `${w.severity}|${pair}|${w.message}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -202,4 +207,66 @@ export function rememberDoseShape(substance: string, shape: DoseShape): void {
   } catch {
     // A phone with storage disabled just doesn't get the convenience.
   }
+}
+
+/**
+ * Save a pasted trip log (see tripimport.ts) as one past session: the entry, then
+ * every line in order — doses through `log_dose`, the rest as timeline moments — then
+ * ended at its last line so it reads as history rather than a session left open.
+ *
+ * Every dose gets the same wider interaction check as a quick log. The warnings are
+ * returned all together, deduplicated, because a log pasted in one go is read in one go.
+ */
+export interface TripLine {
+  kind: "dose" | "moment";
+  /** ISO 8601, UTC. */
+  at: string;
+  text: string;
+  substance: string;
+  amount: number | null;
+  unit: string;
+  route: string;
+  intensity: number | null;
+}
+
+export async function saveTripLog(title: string, lines: TripLine[]): Promise<QuickLogResult> {
+  if (!lines.length) throw new Error("Nothing to import.");
+  const sorted = [...lines].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  for (const l of sorted) {
+    if (l.kind === "dose" && !l.substance.trim()) throw new Error("A dose line has no substance — name it, or make it a moment.");
+  }
+  const start = sorted[0].at;
+  const end = sorted[sorted.length - 1].at;
+  const { id } = await createExperience({ title: title.trim(), started_at: start });
+
+  const all: Warning[] = [];
+  for (const l of sorted) {
+    if (l.kind === "dose") {
+      const res = await logDose({
+        experience_id: id,
+        substance_name: l.substance.trim(),
+        amount: l.amount,
+        unit: l.unit,
+        route: l.route,
+        taken_at: l.at,
+        // Keep the words around the dose when there were any worth keeping.
+        note: l.text.split(/\s+/).length > 4 ? l.text : "",
+      });
+      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings)));
+    } else if (l.text.trim()) {
+      await addTimelineEvent({ experience_id: id, at: l.at, note: l.text.trim(), intensity: l.intensity });
+    }
+  }
+  await endExperience(id, end, null, "");
+
+  const seen = new Set<string>();
+  const warnings = all.filter((w) => {
+    const pair = [w.a, w.b].map((n) => n.trim().toLowerCase()).sort().join("|");
+    const key = `${w.severity}|${pair}|${w.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const entry = await getExperience(id);
+  return { id, title: entry.title, warnings };
 }

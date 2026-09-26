@@ -88,6 +88,9 @@ from your phone.
   correct it, add one you forgot, or open the entry to change its title, times,
   rating and write-up. Private by design: see
   [Architecture](#architecture) for how.
+- **Paste a trip log** — copy a log from your notes app (`8:43am - 35mg mesc`,
+  `T+1:30 peak`…) and it becomes a timed session, doses recognised by name or
+  street name. Read on the device, no AI; every line shown before it's saved.
 - **One journal, all your computers** (optional) — let a computer that stays on
   be your Field Notes server, and connect a laptop to it over Tailscale: same
   journal, everywhere. Each device gets its own revocable key. If the server

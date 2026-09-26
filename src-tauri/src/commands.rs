@@ -171,6 +171,12 @@ pub(crate) fn refresh_dose_reference(app: &AppHandle, db: &Db) {
     }
 }
 
+/// Names and street names from the dose reference, for matching pasted logs.
+#[tauri::command]
+pub fn pw_names(db: State<'_, Db>) -> Result<Vec<db::PwName>, String> {
+    db.with(db::pw_names)
+}
+
 #[tauri::command]
 pub fn pw_lookup(db: State<'_, Db>, name: String) -> Result<Option<PwInfo>, String> {
     db.with(|c| db::pw_lookup(c, &name))

@@ -777,6 +777,26 @@ pub fn pw_lookup(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInf
     Ok(data.and_then(|d| serde_json::from_str(&d).ok()))
 }
 
+/// Every substance in the dose reference with its street names — so a pasted log
+/// that says "mesc" or "molly" can be matched to a real entry. Reference data only.
+pub fn pw_names(conn: &Connection) -> rusqlite::Result<Vec<PwName>> {
+    let mut stmt = conn.prepare("SELECT data FROM pw_substances ORDER BY name")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for data in rows {
+        if let Ok(info) = serde_json::from_str::<PwInfo>(&data?) {
+            out.push(PwName { name: info.name, aliases: info.common_names });
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Serialize)]
+pub struct PwName {
+    pub name: String,
+    pub aliases: Vec<String>,
+}
+
 /// (number of cached substances, most recent fetch timestamp).
 pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM pw_substances", [], |r| r.get(0))?;
