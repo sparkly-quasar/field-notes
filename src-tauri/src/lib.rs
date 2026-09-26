@@ -220,6 +220,7 @@ pub fn run() {
             commands::remote_disconnect,
             commands::remote_discard,
             commands::remote_flush,
+            commands::remote_upload_local,
             commands::remote_call,
             commands::crisis_scan,
             commands::knowledge_search,

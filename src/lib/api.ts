@@ -562,6 +562,13 @@ export interface RemoteStatus {
   pending: number;
   failed: RemoteFailed[];
   unpaired: boolean;
+  /** Entries in this computer's own journal not yet copied to the server. */
+  local_unsynced: number;
+}
+export interface UploadResult {
+  copied: number;
+  substances: number;
+  status: RemoteStatus;
 }
 export interface TailscaleStatus {
   installed: boolean;
@@ -598,6 +605,7 @@ export const remoteConnect = (link: string) => invoke<RemoteStatus>("remote_conn
 export const remoteDisconnect = (discard: boolean) => invoke<RemoteStatus>("remote_disconnect", { discard });
 export const remoteDiscard = (seq: number) => invoke<RemoteStatus>("remote_discard", { seq });
 export const remoteFlush = () => invoke<RemoteStatus>("remote_flush");
+export const remoteUploadLocal = () => invoke<UploadResult>("remote_upload_local");
 export const saveMarkdownFile = (dest: string, markdown: string) =>
   invoke<void>("save_markdown_file", { dest, markdown });
 

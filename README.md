@@ -92,9 +92,10 @@ from your phone.
   be your Field Notes server, and connect a laptop to it over Tailscale: same
   journal, everywhere. Each device gets its own revocable key. If the server
   can't be reached, new entries save on the laptop and are sent when it's back,
-  and the interaction checker keeps working in the meantime. The server can
-  start serving at login and — opt-in — unlock from the system keychain after a
-  reboot.
+  and the interaction checker keeps working in the meantime. **Sync journal to
+  server** brings the entries a laptop already had along with it. In **Server
+  Mode**, the server can start serving at login and — opt-in — unlock from the
+  system keychain after a reboot.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.
 - **Contribute upstream** (consent-gated) — export substances you've catalogued

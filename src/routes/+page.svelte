@@ -99,6 +99,7 @@
     remoteDisconnect,
     remoteDiscard,
     remoteFlush,
+    remoteUploadLocal,
     saveMarkdownFile,
     setRemoteMode,
     type DeviceInfo,
@@ -263,6 +264,7 @@
   // touches the journal goes there while connected; see `remote.rs`.
   let remote = $state<RemoteStatus>({
     connected: false, server: null, server_name: null, online: false, pending: 0, failed: [], unpaired: false,
+    local_unsynced: 0,
   });
   let remoteLink = $state("");
   let remoteBusy = $state(false);
@@ -1752,6 +1754,29 @@
     }
   }
 
+  let syncBusy = $state(false);
+  let syncMsg = $state<string | null>(null);
+
+  /** Copy this computer's own entries to the server. Only new ones, every time. */
+  async function syncToServer() {
+    remoteErr = syncMsg = null;
+    syncBusy = true;
+    try {
+      const r = await remoteUploadLocal();
+      remote = r.status;
+      const parts = [`${r.copied} ${r.copied === 1 ? "entry" : "entries"}`];
+      if (r.substances) parts.push(`${r.substances} ${r.substances === 1 ? "substance" : "substances"}`);
+      syncMsg = `Copied ${parts.join(" and ")} to ${serverName}.`;
+      await loadJournal();
+      await loadSubstances();
+    } catch (e) {
+      remoteErr = typeof e === "string" ? e : String(e);
+      remote = await remoteStatus().catch(() => remote);
+    } finally {
+      syncBusy = false;
+    }
+  }
+
   const QUEUED_LABEL: Record<string, string> = {
     create_experience: "A new entry",
     log_dose: "A dose",
@@ -2858,7 +2883,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
 
       <section class="card">
-        <h2>Use another computer as your journal <span class="off-badge" class:on={remote.connected}>{remote.connected ? "on" : "off"}</span></h2>
+        <h2>Use another computer as your server <span class="off-badge" class:on={remote.connected}>{remote.connected ? "on" : "off"}</span></h2>
         {#if !remote.connected}
           <p class="muted small">
             Keep one journal on a computer that stays on — a desktop at home, say — and have this one read
@@ -2870,7 +2895,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             If the server can't be reached, new sessions, doses and timeline notes still save here and are
             sent the moment it's back; the interaction checker and crisis resources keep working on this
             computer. Editing and deleting wait for the connection. Entries already on this computer stay
-            here, hidden while you're connected — they aren't copied over.
+            here, hidden while you're connected — once connected, <strong>Sync journal to server</strong>
+            copies them over.
           </p>
           {#if portal.running}
             <p class="muted small">⚠️ This computer is serving its own journal right now. Turn off device access below first.</p>
@@ -2903,6 +2929,25 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if remote.pending > 0}
             <p class="small">{remote.pending} new {remote.pending === 1 ? "entry is" : "entries are"} waiting to be sent.</p>
           {/if}
+          <div class="sec-block">
+            <h3>Sync journal to server</h3>
+            {#if remote.local_unsynced > 0}
+              <p class="muted small">
+                This computer has <strong>{remote.local_unsynced}</strong> {remote.local_unsynced === 1 ? "entry" : "entries"} of
+                its own that {remote.local_unsynced === 1 ? "isn't" : "aren't"} on {serverName} — hidden while you're connected.
+                Copy {remote.local_unsynced === 1 ? "it" : "them"} there, with doses, timelines, write-ups and any substances
+                you added. {remote.local_unsynced === 1 ? "It stays" : "They stay"} on this computer too, and syncing again
+                only copies what's new.
+              </p>
+              <button class="primary small-btn" disabled={syncBusy || !remote.online} onclick={syncToServer}>
+                {syncBusy ? "Syncing…" : `Sync journal to ${serverName}`}
+              </button>
+              {#if !remote.online}<p class="muted small">Needs the connection to {serverName}.</p>{/if}
+            {:else}
+              <p class="muted small">✓ Everything in this computer's own journal is on {serverName}.</p>
+            {/if}
+            {#if syncMsg}<p class="notice good-notice">{syncMsg}</p>{/if}
+          </div>
           {#if remote.failed.length}
             <div class="sec-block">
               <h3>Couldn't be saved on {serverName}</h3>
@@ -3036,7 +3081,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <p class="small"><strong>{pairing.device.name}</strong> — pair it one of two ways:</p>
             <ul class="muted small pair-ways">
               <li><strong>A phone:</strong> scan the code with its camera.</li>
-              <li><strong>A computer:</strong> copy the link and paste it into Field Notes there, under Settings → Use another computer as your journal. (Send it to yourself some private way — it's a key.)</li>
+              <li><strong>A computer:</strong> copy the link and paste it into Field Notes there, under Settings → Use another computer as your server. (Send it to yourself some private way — it's a key.)</li>
             </ul>
             <div class="row-actions">
               {#if showQr && portalQrSvg}
@@ -3072,7 +3117,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {/if}
 
         <div class="sec-block">
-          <h3>Keep serving</h3>
+          <h3>Server Mode</h3>
           <p class="muted small">
             For a computer that <em>is</em> your server — one that stays on so your other devices can
             always reach it. Leave these off on a laptop you carry around.
