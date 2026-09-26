@@ -86,7 +86,33 @@
     type Warning,
     type ChatMsg,
     type AiStatus,
+    portalPair,
+    portalDevices,
+    portalRevoke,
+    serverPrefs,
+    setServerPrefs,
+    keychainStatus,
+    keychainRemember,
+    keychainForget,
+    remoteStatus,
+    remoteConnect,
+    remoteDisconnect,
+    remoteDiscard,
+    remoteFlush,
+    saveMarkdownFile,
+    setRemoteMode,
+    type DeviceInfo,
+    type PairResult,
+    type ServerPrefs,
+    type KeychainStatus,
+    type RemoteStatus,
+    type RemoteFailed,
   } from "$lib/api";
+  import {
+    enable as autostartEnable,
+    disable as autostartDisable,
+    isEnabled as autostartIsEnabled,
+  } from "@tauri-apps/plugin-autostart";
   import {
     quickLog,
     recentSubstances,
@@ -216,8 +242,32 @@
   let contribDraft = $state<ContributionDraft | null>(null);
   let contribMsg = $state<string | null>(null);
 
-  // Phone portal — off by default, and it stays off until the user says otherwise.
-  let portal = $state<PortalStatus>({ running: false, port: null, pair_url: null, paired: false });
+  // Device access (the portal) — off by default, and it stays off until the user says otherwise.
+  let portal = $state<PortalStatus>({ running: false, port: null, paired: false });
+  let devices = $state<DeviceInfo[]>([]);
+  let pairName = $state("");
+  // The device just paired on this screen, with its token — shown once, then gone.
+  let pairing = $state<PairResult | null>(null);
+  let pairedId = $state<number | null>(null);
+  let pairLinkCopied = $state(false);
+  // Serving for your other devices: start with the app, open at login, and the
+  // opt-in keychain password so a reboot doesn't leave everything locked out.
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null });
+  let loginStart = $state(false);
+  let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
+  let kcPass = $state("");
+  let kcErr = $state<string | null>(null);
+  let kcBusy = $state(false);
+
+  // Another computer as this one's journal (the client half). Everything that
+  // touches the journal goes there while connected; see `remote.rs`.
+  let remote = $state<RemoteStatus>({
+    connected: false, server: null, server_name: null, online: false, pending: 0, failed: [], unpaired: false,
+  });
+  let remoteLink = $state("");
+  let remoteBusy = $state(false);
+  let remoteErr = $state<string | null>(null);
+  const serverName = $derived(remote.server_name ?? "your server");
   let portalQrSvg = $state<string | null>(null);
   let ts = $state<TailscaleStatus | null>(null);
   let portalErr = $state<string | null>(null);
@@ -402,12 +452,27 @@
     });
     // The backend fires this the first time a phone uses the token, so the answer to
     // "did the scan work?" arrives on its own rather than being hunted for.
-    const unPaired = listen("portal-paired", () => {
+    const unPaired = listen<number>("portal-paired", async (e) => {
       portal = { ...portal, paired: true };
+      pairedId = e.payload;
+      devices = await portalDevices();
+    });
+    // The backend's view of the server connection: online or not, and what's still
+    // waiting to be sent. When entries land, reload so their temporary numbers give
+    // way to the server's.
+    const unRemote = listen<RemoteStatus>("remote-status", async (e) => {
+      const was = remote;
+      remote = e.payload;
+      setRemoteMode(remote.connected);
+      if (acknowledged && remote.connected && (was.pending !== remote.pending || was.online !== remote.online)) {
+        await loadJournal();
+        await refreshSelected().catch(() => {});
+      }
     });
     return () => {
       un.then((f) => f());
       unPaired.then((f) => f());
+      unRemote.then((f) => f());
       if (lsTimer) clearInterval(lsTimer);
       if (updateTimer) clearInterval(updateTimer);
     };
@@ -474,7 +539,19 @@
       localStorage.setItem(COMPANION_CHOICE_KEY, "1");
     }
     acknowledged = true;
+    await loadRemote();
     await Promise.all([loadJournal(), loadSubstances()]);
+  }
+
+  /** Which journal are we talking to? Must run before anything reads the journal —
+   *  the answer lives inside the (now unlocked) local database. */
+  async function loadRemote() {
+    try {
+      remote = await remoteStatus();
+    } catch (_) {
+      // Leave it as it was — local.
+    }
+    setRemoteMode(remote.connected);
   }
 
   async function doUnlock() {
@@ -986,7 +1063,9 @@
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (!path) return;
-      await exportExperienceFile(selected.id, path);
+      // Connected to a server: it rendered the note; write it here.
+      if (remote.connected) await saveMarkdownFile(path, note.markdown);
+      else await exportExperienceFile(selected.id, path);
       exportMsg = "Entry exported as Markdown.";
     } catch (e) {
       exportErr = typeof e === "string" ? e : String(e);
@@ -1472,24 +1551,28 @@
     const q = kbBrowse.trim().toLowerCase();
     return q ? kbEntries.filter((e) => e.title.toLowerCase().includes(q)) : kbEntries;
   });
-  // ---- Phone portal ----
+  // ---- Devices & server ----
   async function loadPortal() {
     portal = await portalStatus();
     ts = await portalTailscale();
+    devices = await portalDevices();
+    sprefs = await serverPrefs();
+    kc = await keychainStatus();
+    loginStart = await autostartIsEnabled().catch(() => false);
+    await loadRemote();
     if (!portal.running) { portalQrSvg = null; showQr = false; }
   }
 
-  /** What the phone should actually open. Over the tailnet if Tailscale can carry
-   *  it there; otherwise the loopback URL, which only this machine can reach — so
-   *  the QR is honest about the portal being desktop-only until Tailscale is set up. */
-  function pairTarget(): string | null {
-    if (!portal.pair_url) return null;
-    const token = portal.pair_url.match(/#t=([a-f0-9]+)/)?.[1];
-    // Prefer the URL the backend actually published on — a QR built from a guessed port
-    // sends the phone to whatever else is serving there.
+  /** The link a device opens. Over the tailnet if Tailscale can carry it there;
+   *  otherwise the loopback URL, which only this machine can reach — so the QR is
+   *  honest about the portal being this-computer-only until Tailscale is set up. */
+  function pairLink(token: string): string | null {
+    // Prefer the URL the backend actually published on — a link built from a guessed
+    // port sends the device to whatever else is serving there.
     const base = ts?.url ?? tailscaleUrl;
-    if (base && token) return `${base}#t=${token}`;
-    return portal.pair_url;
+    if (base) return `${base}#t=${token}`;
+    if (portal.port) return `http://127.0.0.1:${portal.port}/m#t=${token}`;
+    return null;
   }
 
   async function togglePortal() {
@@ -1504,11 +1587,55 @@
     }
   }
 
+  async function doPair() {
+    portalErr = null;
+    try {
+      pairing = await portalPair(pairName.trim() || "Phone");
+      pairName = "";
+      pairedId = null;
+      pairLinkCopied = false;
+      portalQrSvg = null;
+      showQr = false;
+      devices = await portalDevices();
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   async function revealQr() {
-    const target = pairTarget();
+    const target = pairing && pairLink(pairing.token);
     if (!target) return;
     portalQrSvg = await portalQr(target);
     showQr = true;
+  }
+
+  async function copyPairLink() {
+    const target = pairing && pairLink(pairing.token);
+    if (!target) return;
+    await navigator.clipboard.writeText(target);
+    pairLinkCopied = true;
+  }
+
+  /** Finished pairing: drop the token from the screen for good. */
+  function donePairing() {
+    pairing = null;
+    portalQrSvg = null;
+    showQr = false;
+    pairLinkCopied = false;
+  }
+
+  async function revokeDevice(d: DeviceInfo) {
+    if (!confirm(`Un-pair “${d.name}”? It stops reaching this journal immediately. You can pair it again later.`)) return;
+    devices = await portalRevoke(d.id);
+    if (pairing?.device.id === d.id) donePairing();
+  }
+
+  function whenSeen(unix: number | null): string {
+    if (!unix) return "never connected";
+    const mins = Math.round((Date.now() / 1000 - unix) / 60);
+    if (mins < 2) return "active just now";
+    if (mins < 60) return `last seen ${mins} min ago`;
+    return `last seen ${new Date(unix * 1000).toLocaleString()}`;
   }
 
   /** Publish (or stop publishing) the portal to the tailnet. This is the step that
@@ -1520,7 +1647,7 @@
     serving = true;
     try {
       ts = ts?.serving ? await portalUnserve() : await portalServe();
-      // The pairing URL changes with it, so any QR on screen is now stale.
+      // The pairing link changes with it, so any QR on screen is now stale.
       portalQrSvg = null;
       showQr = false;
     } catch (e) {
@@ -1528,6 +1655,113 @@
     } finally {
       serving = false;
     }
+  }
+
+  async function toggleServeOnLaunch() {
+    portalErr = null;
+    try {
+      sprefs = await setServerPrefs(!sprefs.serve_on_launch);
+      portal = await portalStatus();
+      ts = await portalTailscale();
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleLoginStart() {
+    portalErr = null;
+    try {
+      if (loginStart) await autostartDisable();
+      else await autostartEnable();
+      loginStart = await autostartIsEnabled();
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function rememberPassword() {
+    kcErr = null;
+    kcBusy = true;
+    try {
+      kc = await keychainRemember(kcPass);
+      kcPass = "";
+    } catch (e) {
+      kcErr = typeof e === "string" ? e : String(e);
+    } finally {
+      kcBusy = false;
+    }
+  }
+
+  async function forgetPassword() {
+    kcErr = null;
+    try {
+      kc = await keychainForget();
+    } catch (e) {
+      kcErr = typeof e === "string" ? e : String(e);
+    }
+  }
+
+  async function switchJournal() {
+    selected = null;
+    await Promise.all([loadJournal(), loadSubstances()]);
+  }
+
+  async function connectRemote() {
+    remoteErr = null;
+    remoteBusy = true;
+    try {
+      remote = await remoteConnect(remoteLink);
+      remoteLink = "";
+      setRemoteMode(true);
+      await switchJournal();
+    } catch (e) {
+      remoteErr = typeof e === "string" ? e : String(e);
+    } finally {
+      remoteBusy = false;
+    }
+  }
+
+  async function disconnectRemote() {
+    remoteErr = null;
+    let discard = false;
+    if (remote.pending > 0) {
+      const n = remote.pending;
+      if (!confirm(`${n} new ${n === 1 ? "entry hasn't" : "entries haven't"} reached ${serverName} yet. Disconnecting now throws ${n === 1 ? "it" : "them"} away. Disconnect anyway?`)) return;
+      discard = true;
+    } else if (!confirm(`Stop using ${serverName} as this computer's journal? Nothing on ${serverName} changes — this computer just goes back to its own journal.`)) {
+      return;
+    }
+    try {
+      remote = await remoteDisconnect(discard);
+      setRemoteMode(false);
+      await switchJournal();
+    } catch (e) {
+      remoteErr = typeof e === "string" ? e : String(e);
+    }
+  }
+
+  async function syncNow() {
+    remoteErr = null;
+    remoteBusy = true;
+    try {
+      remote = await remoteFlush();
+      await loadJournal();
+      await refreshSelected().catch(() => {});
+    } finally {
+      remoteBusy = false;
+    }
+  }
+
+  const QUEUED_LABEL: Record<string, string> = {
+    create_experience: "A new entry",
+    log_dose: "A dose",
+    add_timeline_event: "A timeline note",
+    end_experience: "Ending a session",
+  };
+
+  async function discardFailed(f: RemoteFailed) {
+    if (!confirm(`Throw this away? ${QUEUED_LABEL[f.cmd] ?? f.cmd} that ${serverName} refused won't be saved anywhere.`)) return;
+    remote = await remoteDiscard(f.seq);
   }
 
   // ---- Upstream contribution ----
@@ -1675,7 +1909,19 @@
   </div>
 {:else}
   {#snippet aiSetup()}
-    {#if !ai}
+    {#if remote.connected}
+      {#if !remote.online}
+        <p class="muted small">The Companion runs on {serverName}, which can't be reached right now.</p>
+      {:else if !ai}
+        <p class="muted small">Checking {serverName}…</p>
+      {:else if !ai.installed}
+        <p class="muted small">The Companion runs on {serverName}. Set it up there — open Field Notes on {serverName} and go to the Companion tab.</p>
+      {:else if !ai.running}
+        <button class="primary small-btn" disabled={aiBusy} onclick={doStart}>{aiBusy ? "Starting…" : `Start Ollama on ${serverName}`}</button>
+      {:else}
+        <p class="muted small">{serverName} has no model yet — download one in Field Notes on {serverName}.</p>
+      {/if}
+    {:else if !ai}
       <p class="muted small">Checking for local AI…</p>
     {:else if !ai.installed}
       <button class="primary small-btn" disabled={aiBusy} onclick={doInstall}>{aiBusy ? "Installing Ollama…" : "Install Ollama"}</button>
@@ -1753,6 +1999,17 @@
 
     <header>
       <h1>Field Notes</h1>
+      {#if remote.connected}
+        <button
+          class="remote-pill"
+          class:off={!remote.online}
+          title={remote.online ? `Your journal lives on ${remote.server}` : `Can't reach ${remote.server}`}
+          onclick={() => goTab("data")}
+        >
+          <span class="remote-dot" class:off={!remote.online} aria-hidden="true"></span>
+          {remote.online ? `Journal on ${serverName}` : `${serverName} unreachable`}{remote.pending ? ` · ${remote.pending} waiting` : ""}{remote.failed.length ? ` · ${remote.failed.length} not saved` : ""}
+        </button>
+      {/if}
       <nav>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
@@ -1949,7 +2206,9 @@
           <div class="exp-head">
             <h2>Journal</h2>
             <span class="row-actions">
-              <button class="ghost small-btn" onclick={openImport}>Import from text</button>
+              {#if !remote.connected}
+                <button class="ghost small-btn" onclick={openImport}>Import from text</button>
+              {/if}
               <button class="ghost small-btn" onclick={openNewNote}>+ Note</button>
               <button class="ghost small-btn" onclick={openNewExp}>+ Session</button>
               <!-- Leads, because it's the thing most often being recorded. A
@@ -1957,6 +2216,13 @@
               <button class="primary small-btn" onclick={openQuickLog}>+ Dose</button>
             </span>
           </div>
+          {#if remote.connected && !remote.online}
+            <p class="notice warn-notice small">
+              Can't reach {serverName}. This is the journal as it was when it was last reachable, plus
+              anything new you've logged since{remote.pending ? ` (${remote.pending} waiting to be sent)` : ""}.
+              New entries save here and go to {serverName} when it's back.
+            </p>
+          {/if}
 
           {#if showQuickLog}
             <div class="quick-log">
@@ -2225,7 +2491,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             </div>
           {/if}
 
-          {#if upgradeAvailable}
+          {#if upgradeAvailable && !remote.connected}
             <div class="upgrade-notice">
               <p>
                 <strong>A better model is available.</strong> <code>{aiModel}</code> often declines to
@@ -2255,6 +2521,12 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 Installed: {(ai?.models ?? []).join(", ") || "none"}. The active model above is used by both
                 the Companion and text-import. Download another to switch between them — everything runs locally.
               </p>
+              {#if remote.connected}
+                <p class="muted small">
+                  The Companion runs on {serverName}, using its models — to add one, open Field Notes on
+                  {serverName}.
+                </p>
+              {:else}
               <div class="pull-row">
                 <input placeholder="Model tag to download, e.g. qwen3:8b" bind:value={aiPullTag} list="rec-models" />
                 <datalist id="rec-models">
@@ -2275,6 +2547,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 lower-memory machine the Companion will be slower and less capable. You can turn it
                 off in Settings.
               </p>
+              {/if}
               {#if aiErr}<p class="notice bad-notice">{aiErr}</p>{/if}
               {#if aiLog.length}<pre class="ai-log">{aiLog.slice(-14).join("\n")}</pre>{/if}
             </div>
@@ -2492,7 +2765,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {/if}
       </section>
 
-      {#if contribCands.some((c) => !c.in_dosewiki)}
+      {#if !remote.connected && contribCands.some((c) => !c.in_dosewiki)}
         <section class="card">
           <h2>Missing from DoseWiki</h2>
           <p class="muted small">
@@ -2585,34 +2858,109 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
 
       <section class="card">
-        <h2>Phone access <span class="off-badge" class:on={portal.running}>{portal.running ? "on" : "off"}</span></h2>
+        <h2>Use another computer as your journal <span class="off-badge" class:on={remote.connected}>{remote.connected ? "on" : "off"}</span></h2>
+        {#if !remote.connected}
+          <p class="muted small">
+            Keep one journal on a computer that stays on — a desktop at home, say — and have this one read
+            and write there over your <strong>tailnet</strong>, the same way a phone does. Pair this
+            computer on the server (Settings → Devices &amp; server → Pair a device), copy the link it
+            shows, and paste it here.
+          </p>
+          <p class="muted small">
+            If the server can't be reached, new sessions, doses and timeline notes still save here and are
+            sent the moment it's back; the interaction checker and crisis resources keep working on this
+            computer. Editing and deleting wait for the connection. Entries already on this computer stay
+            here, hidden while you're connected — they aren't copied over.
+          </p>
+          {#if portal.running}
+            <p class="muted small">⚠️ This computer is serving its own journal right now. Turn off device access below first.</p>
+          {:else}
+            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); connectRemote(); }}>
+              <input
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Pairing link from the server — https://…/m#t=…"
+                bind:value={remoteLink}
+              />
+              <button class="primary small-btn" type="submit" disabled={remoteBusy || !remoteLink.trim()}>
+                {remoteBusy ? "Connecting…" : "Connect"}
+              </button>
+            </form>
+            <p class="muted small">The link is a key to your journal — it's hidden as you paste it, and stored only inside this computer's journal.</p>
+          {/if}
+        {:else}
+          <p class="small remote-line">
+            <span class="remote-dot" class:off={!remote.online} aria-hidden="true"></span>
+            {#if remote.unpaired}
+              <strong>{serverName} no longer recognises this computer.</strong> It was un-paired there — pair it again and reconnect.
+            {:else if remote.online}
+              Your journal lives on <strong>{serverName}</strong> <span class="muted">({remote.server})</span>.
+            {:else}
+              <strong>Can't reach {serverName} right now.</strong> New entries save here and are sent when it's back.
+            {/if}
+          </p>
+          {#if remote.pending > 0}
+            <p class="small">{remote.pending} new {remote.pending === 1 ? "entry is" : "entries are"} waiting to be sent.</p>
+          {/if}
+          {#if remote.failed.length}
+            <div class="sec-block">
+              <h3>Couldn't be saved on {serverName}</h3>
+              <p class="muted small">The server refused these. They're kept here so nothing disappears quietly.</p>
+              <ul class="device-list">
+                {#each remote.failed as f (f.seq)}
+                  <li>
+                    <span><strong>{QUEUED_LABEL[f.cmd] ?? f.cmd}</strong><br /><span class="muted small">{f.error}</span></span>
+                    <button class="ghost small-btn" onclick={() => discardFailed(f)}>Discard</button>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if remoteErr}<p class="notice bad-notice">{remoteErr}</p>{/if}
+          <div class="row-actions">
+            <button class="small-btn" disabled={remoteBusy} onclick={syncNow}>{remoteBusy ? "Checking…" : "Sync now"}</button>
+            <button class="ghost small-btn" onclick={disconnectRemote}>Disconnect</button>
+          </div>
+        {/if}
+        {#if remoteErr && !remote.connected}<p class="notice bad-notice">{remoteErr}</p>{/if}
+      </section>
+
+      <section class="card">
+        <h2>Devices &amp; server <span class="off-badge" class:on={portal.running}>{portal.running ? "on" : "off"}</span></h2>
+        {#if remote.connected}
+          <p class="muted small">
+            This computer uses {serverName} as its journal, so it doesn't serve one of its own. Pair your
+            phone with {serverName} instead.
+          </p>
+        {:else}
         <p class="muted small">
           Optional. Field Notes is an offline, on-device app and it stays that way unless you turn this
-          on: it lets a phone on your <strong>tailnet</strong> reach this journal while the app is
-          running here — the desktop is the workstation, the phone is what's actually in your hand.
+          on: it lets your phone — or another computer — on your <strong>tailnet</strong> reach this
+          journal while the app is running here.
         </p>
         <p class="muted small">
           The server listens on <strong>127.0.0.1 only</strong>, so nothing is exposed to your local
-          network; Tailscale is what carries it to your phone, encrypted. Every request needs the
-          paired token, and the portal won't serve a locked journal. Your data still never reaches a
-          third party.
+          network; Tailscale is what carries it to your devices, encrypted. Every device has its own key,
+          which you can revoke on its own, and nothing is served while the journal is locked. Your data
+          still never reaches a third party.
         </p>
 
         <div class="prereq" class:missing={ts != null && !ts.installed}>
           <p class="small">
             <strong>Before this is useful, you need <button class="link-inline" onclick={() => openUrl("https://tailscale.com/download")}>Tailscale</button></strong>
             — a free app that privately links your own devices — installed and signed into the same
-            account on <em>both</em> this computer and your phone. It's what carries the connection.
+            account on this computer <em>and</em> on each device you pair. It's what carries the connection.
             Without it the portal still turns on, but only this machine can reach it.
           </p>
           {#if ts != null}
             <p class="small prereq-status">
               {#if !ts.installed}
                 Not detected on this computer yet — <button class="link-inline" onclick={() => openUrl("https://tailscale.com/download")}>install Tailscale</button>, then reopen this tab.
-              {:else if !tailscaleUrl}
+              {:else if !tailscaleUrl && !ts.host}
                 Installed here, but not signed in yet — sign in, then reopen this tab.
               {:else}
-                ✓ Tailscale is ready on this computer. Set it up on your phone too if you haven't.
+                ✓ Tailscale is ready on this computer. Set it up on your other devices too if you haven't.
               {/if}
             </p>
           {/if}
@@ -2625,7 +2973,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           onclick={togglePortal}
           disabled={!portal.running && ts != null && !ts.installed}
         >
-          {portal.running ? "Turn off phone access" : "Turn on phone access"}
+          {portal.running ? "Turn off device access" : "Turn on device access"}
         </button>
         {#if !portal.running && ts != null && !ts.installed}
           <p class="muted small">Install and sign into Tailscale first — there's no point serving this where only this machine can reach it.</p>
@@ -2633,31 +2981,26 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
         {#if portal.running}
           <div class="sec-block">
-            <h3>Pair a phone</h3>
-            {#if portal.paired}
-              <p class="paired" role="status">
-                <span class="paired-dot" aria-hidden="true"></span>Paired successfully
-              </p>
-            {/if}
+            <h3>Your tailnet</h3>
             {#if !ts?.installed}
               <p class="muted small">
                 ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
-                Install Tailscale on this computer and your phone, then come back.
+                Install Tailscale on this computer and your devices, then come back.
               </p>
             {:else if !tailscaleUrl}
               <p class="muted small">⚠️ Tailscale is installed but isn't logged in — sign in, then reopen this tab.</p>
             {:else if ts.serving}
               <p class="muted small">
-                Published to your tailnet. Your phone can reach <strong>{ts.url ?? tailscaleUrl}</strong> —
-                and nothing else can: it's your tailnet, encrypted end to end, and every request still
-                needs the paired token.
+                Published to your tailnet at <strong>{ts.url ?? tailscaleUrl}</strong> — and nothing else can
+                reach it: it's your tailnet, encrypted end to end, and every request still needs a paired
+                device's key.
               </p>
               <button class="small-btn" disabled={serving} onclick={toggleServe}>
                 {serving ? "Working…" : "Stop publishing to my tailnet"}
               </button>
             {:else}
               <p class="muted small">
-                One more step: publish the portal to your tailnet, so your phone can reach it.
+                One more step: publish the portal to your tailnet, so your devices can reach it.
                 Tailscale carries it, encrypted — this does not open anything to the internet or to
                 your local network. You can undo it here at any time.
               </p>
@@ -2665,23 +3008,117 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 {serving ? "Publishing…" : "Publish to my tailnet"}
               </button>
             {/if}
+          </div>
+        {/if}
 
+        <div class="sec-block">
+          <h3>Pair a device</h3>
+          {#if !pairing}
+            <p class="muted small">
+              Give it a name you'll recognise later — you can un-pair each device separately.
+            </p>
+            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); doPair(); }}>
+              <input placeholder="e.g. Phone, Laptop" maxlength="60" bind:value={pairName} />
+              <button class="small-btn" type="submit">Pair</button>
+            </form>
+          {:else}
+            {#if pairedId === pairing.device.id}
+              <p class="paired" role="status">
+                <span class="paired-dot" aria-hidden="true"></span>{pairing.device.name} is connected
+              </p>
+            {/if}
+            {#if !ts?.serving}
+              <p class="muted small">
+                ⚠️ Not published to your tailnet yet, so this link only works on this computer. Publish
+                first, then the link and code here update to your tailnet address.
+              </p>
+            {/if}
+            <p class="small"><strong>{pairing.device.name}</strong> — pair it one of two ways:</p>
+            <ul class="muted small pair-ways">
+              <li><strong>A phone:</strong> scan the code with its camera.</li>
+              <li><strong>A computer:</strong> copy the link and paste it into Field Notes there, under Settings → Use another computer as your journal. (Send it to yourself some private way — it's a key.)</li>
+            </ul>
+            <div class="row-actions">
+              {#if showQr && portalQrSvg}
+                <button class="small-btn" onclick={() => (showQr = false)}>Hide code</button>
+              {:else}
+                <button class="small-btn" onclick={revealQr}>Show QR code…</button>
+              {/if}
+              <button class="small-btn" onclick={copyPairLink}>{pairLinkCopied ? "Link copied ✓" : "Copy link"}</button>
+              <button class="ghost small-btn" onclick={donePairing}>Done</button>
+            </div>
             {#if showQr && portalQrSvg}
               <div class="qr">{@html portalQrSvg}</div>
-              <p class="muted small">
-                Scan it with the phone's camera. <strong>This code is a key</strong> — it pairs whoever
-                scans it. Don't leave it on screen, and don't photograph it.
-              </p>
-              <button class="small-btn" onclick={() => (showQr = false)}>Hide</button>
-            {:else}
-              <button class="small-btn" onclick={revealQr}>Show pairing QR code…</button>
             {/if}
+            <p class="muted small">
+              <strong>This is a key</strong> — whoever has it can read and write this journal. Don't leave
+              it on screen, and don't photograph it. It's shown only until you press Done.
+            </p>
+          {/if}
+        </div>
+
+        {#if devices.length}
+          <div class="sec-block">
+            <h3>Paired devices</h3>
+            <ul class="device-list">
+              {#each devices as d (d.id)}
+                <li>
+                  <span><strong>{d.name}</strong><br /><span class="muted small">{whenSeen(d.last_seen)}</span></span>
+                  <button class="ghost small-btn" onclick={() => revokeDevice(d)}>Un-pair</button>
+                </li>
+              {/each}
+            </ul>
           </div>
+        {/if}
+
+        <div class="sec-block">
+          <h3>Keep serving</h3>
+          <p class="muted small">
+            For a computer that <em>is</em> your server — one that stays on so your other devices can
+            always reach it. Leave these off on a laptop you carry around.
+          </p>
+          <label class="share">
+            <input type="checkbox" checked={sprefs.serve_on_launch} onchange={toggleServeOnLaunch} />
+            Turn on device access whenever Field Notes opens (and republish to my tailnet at the same address)
+          </label>
+          <label class="share">
+            <input type="checkbox" checked={loginStart} onchange={toggleLoginStart} />
+            Open Field Notes when I log in to this computer
+          </label>
+          {#if kc.applicable}
+            {#if kc.remembered}
+              <p class="small">
+                ✓ Your journal password is saved in this computer's keychain, so the journal unlocks by itself
+                when Field Notes opens.
+              </p>
+              <button class="ghost small-btn" onclick={forgetPassword}>Forget the saved password</button>
+            {:else}
+              <p class="muted small">
+                Your journal is encrypted, so after a restart it stays locked — and serves nothing — until
+                someone types the password here. You can save the password in this computer's keychain
+                instead. <strong>The trade-off:</strong> anyone who can log in to this computer's user account
+                could then open the journal. Encryption still protects the file if the disk or a backup is
+                taken.
+              </p>
+              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); rememberPassword(); }}>
+                <input type="password" autocomplete="current-password" placeholder="Journal password" bind:value={kcPass} />
+                <button class="small-btn" type="submit" disabled={kcBusy || !kcPass}>Save in keychain</button>
+              </form>
+            {/if}
+            {#if kcErr}<p class="notice bad-notice">{kcErr}</p>{/if}
+          {/if}
+        </div>
         {/if}
       </section>
 
       <section class="card">
         <h2>Encryption at rest</h2>
+        {#if remote.connected}
+          <p class="muted small">
+            While connected to {serverName}, this computer keeps only the connection's key, the last copy it
+            saw, and anything waiting to be sent — encrypting it protects those.
+          </p>
+        {/if}
         {#if db.encrypted}
           <p class="muted small">
             This journal is <strong>encrypted</strong>. Its contents are unreadable on disk without your
@@ -2720,6 +3157,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
       <section class="card">
         <h2>Backup &amp; restore</h2>
+        {#if remote.connected}
+          <p class="muted small">Your journal lives on {serverName} — back it up there.</p>
+        {:else}
         <p class="muted small">
           A backup is a single-file copy of your whole journal. {db.encrypted
             ? "It keeps its encryption — you'll need this password to restore or open it elsewhere."
@@ -2745,10 +3185,14 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <button class="ghost small-btn" disabled={secBusy} onclick={doImportBackup}>Restore from backup…</button>
         </div>
         <p class="muted small">Restoring replaces the journal on this device with the backup's contents. An encrypted backup opens the unlock screen so you can enter its password.</p>
+        {/if}
       </section>
 
       <section class="card">
         <h2>Obsidian vault sync</h2>
+        {#if remote.connected}
+          <p class="muted small">Your journal lives on {serverName} — sync your vault from Field Notes there.</p>
+        {:else}
         <p class="muted small">
           Keep a copy of your journal in an Obsidian vault as Markdown notes — one per experience, with a
           readable summary you can annotate. The sync itself is fully offline.
@@ -2775,6 +3219,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           Export overwrites this app's own notes in that folder (app → vault). Import pulls experiences back in;
           for anything already here, the vault's copy wins (vault → app). Hand-written notes are left untouched.
         </p>
+        {/if}
       </section>
 
       <section class="card">
@@ -3219,6 +3664,16 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .notice.good-notice { border-color: var(--note); background: color-mix(in srgb, var(--note) 12%, transparent); }
   .notice.warn-notice { border-color: var(--caution); background: color-mix(in srgb, var(--caution) 14%, transparent); }
 
+  .remote-form { display: flex; gap: 0.5rem; align-items: center; margin: 0.4rem 0; }
+  .remote-form input { flex: 1; min-width: 0; padding: 0.45rem 0.6rem; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .device-list { list-style: none; padding: 0; margin: 0.4rem 0; display: flex; flex-direction: column; gap: 0.4rem; }
+  .device-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 8px; }
+  .pair-ways { margin: 0.2rem 0 0.5rem; padding-left: 1.2rem; }
+  .remote-line { display: flex; align-items: baseline; gap: 0.45rem; }
+  .remote-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; background: #3fa46a; flex: none; }
+  .remote-dot.off { background: #d08a2e; }
+  .remote-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+  .remote-pill.off { border-color: #d08a2e; }
   .unlock-form { display: flex; flex-direction: column; gap: 0.7rem; margin: 1.2rem 0 0.8rem; }
   .unlock-form input { padding: 0.6rem 0.7rem; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 1rem; }
   .dont-show { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.9rem; margin: 1rem 0; cursor: pointer; }

@@ -1346,6 +1346,18 @@ pub fn export_experience_file(db: State<'_, Db>, id: i64, dest: String) -> Resul
     std::fs::write(Path::new(&dest), markdown).map_err(err)
 }
 
+/// Save an entry's Markdown, already rendered, to a path the user picked in a save
+/// dialog. For a computer whose journal lives on a server: the server renders the
+/// note (`export_experience_markdown`), and this writes it here. Markdown only.
+#[tauri::command]
+pub fn save_markdown_file(dest: String, markdown: String) -> Result<(), String> {
+    let path = Path::new(&dest);
+    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+        return Err("Entries are exported as Markdown (.md) files.".into());
+    }
+    std::fs::write(path, markdown).map_err(err)
+}
+
 // ---------- the phone portal (optional; off by default) ----------
 //
 // These are desktop-only by construction: `portal.rs` does not put them on its

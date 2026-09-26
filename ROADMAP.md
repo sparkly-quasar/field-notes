@@ -123,6 +123,55 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.12.0 — one computer as the server
+
+**The ask:** a Mac mini that's always on runs the journal; the laptop stores and
+syncs everything there; the phone pairs with the Mac mini as before. Built as an
+extension of the phone portal — the laptop is just another client of it — not as
+a sync engine.
+
+- **Per-device pairing** (`devices.rs`). The single in-memory token is gone. Each
+  device gets its own 256-bit token, named, shown once, stored **only as SHA-256**
+  in `devices.json` beside the journal, and revocable on its own. Pairings survive
+  restarts — a server that reboots can't make everything re-pair.
+  - ⚠️ **Why the registry is *outside* SQLCipher:** rule 2 checks the token before
+    anything else, including the lock. Inside the encrypted DB, a locked server
+    would have to answer strangers before it could tell who they are. Names and
+    hashes aren't journal data.
+- **Serve on launch** (`prefs.rs`, `server.json`) — start device access when the
+  journal opens (at launch or on unlock) and republish to the tailnet on the
+  **same HTTPS port** as before (`was_ours` reclaims our own stale handler; never
+  someone else's). Plus **open at login** (`tauri-plugin-autostart`).
+- **Keychain unlock** (`keychain.rs`) — **owner's decision 2026-09-25: offered, opt-in.**
+  The passphrase can be saved in the OS keychain so the server unlocks itself
+  after a reboot. The Settings copy states the trade-off (anyone who can log in to
+  that account can open the journal; encryption still covers a pulled disk or a
+  copied file). It's verified against the journal before saving, kept in step on
+  a password change, and forgotten on disabling encryption or wiping.
+- **Client mode** (`remote.rs`). A desktop connects with the server's pairing link
+  (https only, loopback excepted). `api.ts` sends the `ROUTED` commands to
+  `remote_call`; a test keeps the TS and Rust lists identical, and another checks
+  every routed command is on the server's `EXPOSED` list. A client refuses to
+  serve (no chained servers). Backup, Obsidian, text import and contribution
+  drafts are hidden in client mode — they belong on the server.
+- **Offline: new entries queue** — **owner's decision 2026-09-25**, the same rule
+  as Phase 3b below. `create_experience`, `log_dose`, `add_timeline_event` and
+  `end_experience` go to an outbox **inside the laptop's own journal** (so it's
+  under SQLCipher, which answers Phase 3b's storage concern for this client);
+  edits and deletes are refused offline. Offline IDs are negative and translated
+  to the server's on send. 5xx (Tailscale's 502 when the server app is down) and
+  503 (locked) mean "retry"; 401 means un-paired; any other refusal is kept,
+  **visibly**, with a Discard button — never dropped or retried forever.
+  - The **safety layers don't go dark offline** — the Phase 3b blocker doesn't
+    arise here, because the laptop runs the same Rust. A queued dose is checked
+    against the cached session + everything queued since; open sessions are
+    prefetched whenever the list loads so that cache exists when it's needed.
+    `crisis_scan_names` is the crisis scan over a name list, shared by both paths.
+
+**Not built, on purpose:** copying a laptop's existing local entries up to the
+server (they stay local and hidden while connected); queued edits (see above);
+the phone's own offline outbox (still Phase 3b).
+
 ## Shipped in v0.11.5
 
 **Offhand dose tracking, on both screens.** v0.11.4 put a quick log on the phone;

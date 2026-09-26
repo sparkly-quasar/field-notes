@@ -195,6 +195,7 @@ pub fn run() {
             commands::obsidian_import,
             commands::export_experience_markdown,
             commands::export_experience_file,
+            commands::save_markdown_file,
             commands::contribution_candidates,
             commands::contribution_draft,
             commands::contribution_save,

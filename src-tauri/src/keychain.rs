@@ -41,3 +41,19 @@ pub fn forget() -> Result<(), String> {
 pub fn remembered() -> bool {
     get().is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    /// Touches the real OS keychain, so it's opt-in:
+    /// `cargo test --lib keychain -- --ignored`. Uses its own account name and
+    /// cleans up after itself; never touches a real remembered passphrase.
+    #[test]
+    #[ignore]
+    fn the_system_keychain_round_trips() {
+        let e = keyring::Entry::new(super::SERVICE, "field-notes-selftest").unwrap();
+        e.set_password("correct horse").unwrap();
+        assert_eq!(e.get_password().unwrap(), "correct horse");
+        e.delete_credential().unwrap();
+        assert!(matches!(e.get_password(), Err(keyring::Error::NoEntry)));
+    }
+}

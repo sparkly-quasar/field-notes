@@ -62,6 +62,8 @@ pub const ROUTED: &[&str] = &[
     "check_combo",
     "crisis_scan",
     "companion_chat",
+    "companion_warm",
+    "compute_status",
     "ai_status",
     "ollama_up",
     "ollama_models",
@@ -655,6 +657,8 @@ fn offline<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: Value, why: &str) ->
         }
         "ollama_up" => Ok(json!(false)),
         "ollama_models" => Ok(json!([])),
+        "companion_warm" => Ok(Value::Null),
+        "compute_status" => Err(why.to_string()),
         "companion_chat" | "ai_status" | "ai_start" => {
             Err(format!("{why} The Companion runs on the server, so it's unavailable until it's back."))
         }
@@ -1086,6 +1090,21 @@ mod tests {
         let d = call(l, "get_experience", json!({ "id": temp })).unwrap();
         assert!(d["id"].as_i64().unwrap() > 0);
         assert_eq!(d["doses"][0]["substance_name"], "Caffeine");
+    }
+
+    /// The frontend decides what to send to `remote_call`; the backend refuses
+    /// anything else. The two lists must agree, or a command silently runs against
+    /// the local (cache-only) journal instead of the server.
+    #[test]
+    fn the_frontend_routes_exactly_what_the_backend_accepts() {
+        let ts = include_str!("../../src/lib/api.ts");
+        let start = ts.find("const ROUTED = new Set([").expect("ROUTED in api.ts");
+        let block = &ts[start..start + ts[start..].find("]);").unwrap()];
+        let mut front: Vec<&str> = block.split('"').skip(1).step_by(2).collect();
+        let mut back: Vec<&str> = ROUTED.to_vec();
+        front.sort();
+        back.sort();
+        assert_eq!(front, back);
     }
 
     #[test]

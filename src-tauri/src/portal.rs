@@ -173,7 +173,12 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
         return Ok(portal.status());
     }
     if !app.state::<Db>().is_unlocked() {
-        return Err("Unlock the journal before turning on phone access.".into());
+        return Err("Unlock the journal before turning on device access.".into());
+    }
+    // A computer whose journal lives on another one has nothing of its own to serve —
+    // its local journal is only a cache and an outbox. Chaining servers isn't a thing.
+    if crate::remote::is_connected(app) {
+        return Err("This computer uses another one as its journal, so it can't serve one too. Disconnect first.".into());
     }
 
     let (server, port) = bind()?;
@@ -387,6 +392,11 @@ pub const EXPOSED: &[&str] = &[
     "companion_chat",
     "companion_chat_start",
     "companion_chat_poll",
+    // Read-only: load the model ahead of the first message, and report whether this
+    // machine can run it comfortably. A laptop using this computer as its server
+    // shows the *server's* answer, since that's where the model runs.
+    "companion_warm",
+    "compute_status",
     "ai_status",
     "ollama_up",
     "ollama_models",
@@ -496,6 +506,11 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             });
             ok(json!({ "job": id }))
         }
+        "companion_warm" => done(crate::ollama::warm(&arg::<String>(&args, "model")?)),
+        "compute_status" => ok(crate::compute::status(
+            &arg::<String>(&args, "model")?,
+            arg(&args, "measuredTps")?,
+        )),
         "companion_chat_poll" => match app.state::<CompanionJobs>().take(arg(&args, "id")?) {
             Err(()) => Err(DispatchError::Failed("unknown or expired job".into())),
             Ok(None) => ok(json!({ "status": "running" })),
@@ -583,6 +598,8 @@ mod tests {
             "remote_call",
             "remote_flush",
             "remote_discard",
+            // Writes a file to this computer's disk.
+            "save_markdown_file",
         ];
         for c in forbidden {
             assert!(!EXPOSED.contains(&c), "`{c}` must not be reachable from the phone");

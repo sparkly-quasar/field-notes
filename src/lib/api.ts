@@ -13,7 +13,54 @@ import { inTauri, portalInvoke } from "./portal";
  * which. Keep it that way: this is the only file that may import `invoke`.
  */
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return inTauri() ? tauriInvoke<T>(cmd, args) : portalInvoke<T>(cmd, args);
+  if (!inTauri()) return portalInvoke<T>(cmd, args);
+  // A desktop whose journal lives on another computer: journal commands go to the
+  // backend's `remote_call`, which sends them to the server — or, if it's out of
+  // reach, queues new entries and answers from what this computer knows.
+  if (remoteMode && ROUTED.has(cmd)) return tauriInvoke<T>("remote_call", { cmd, args: args ?? {} });
+  return tauriInvoke<T>(cmd, args);
+}
+
+/**
+ * What a connected desktop sends to its server. Must match `ROUTED` in
+ * `src-tauri/src/remote.rs` — a Rust test reads this file to check.
+ */
+const ROUTED = new Set([
+  "list_experiences",
+  "get_experience",
+  "export_experience_markdown",
+  "usage_by_substance",
+  "list_substances",
+  "create_experience",
+  "end_experience",
+  "log_dose",
+  "add_timeline_event",
+  "add_substance",
+  "update_experience",
+  "update_dose",
+  "update_timeline_event",
+  "delete_experience",
+  "delete_dose",
+  "delete_timeline_event",
+  "delete_substance",
+  "check_combo",
+  "crisis_scan",
+  "companion_chat",
+  "companion_warm",
+  "compute_status",
+  "ai_status",
+  "ollama_up",
+  "ollama_models",
+  "ai_start",
+]);
+
+let remoteMode = false;
+/** Switch the transport. Set from `remote_status` once the local journal is open. */
+export function setRemoteMode(on: boolean) {
+  remoteMode = on;
+}
+export function isRemoteMode() {
+  return remoteMode;
 }
 
 export interface Substance {
@@ -477,11 +524,44 @@ export const exportExperienceFile = (id: number, dest: string) =>
 export interface PortalStatus {
   running: boolean;
   port: number | null;
-  /** Contains the bearer token. Only ever rendered on the desktop's own screen. */
-  pair_url: string | null;
-  /** A phone has used this token since the portal was turned on. Not a live
-   *  connection check — it stays true after the phone walks away. */
+  /** A paired device has made a request since the portal was turned on. Not a
+   *  live connection check — it stays true after the device walks away. */
   paired: boolean;
+}
+export interface DeviceInfo {
+  id: number;
+  name: string;
+  /** Unix seconds. */
+  created_at: number;
+  last_seen: number | null;
+}
+export interface PairResult {
+  device: DeviceInfo;
+  /** Shown once — as a QR code or a link — and never again. */
+  token: string;
+}
+export interface ServerPrefs {
+  serve_on_launch: boolean;
+  served_https: number | null;
+}
+export interface KeychainStatus {
+  /** The journal is encrypted, so there's a password to remember at all. */
+  applicable: boolean;
+  remembered: boolean;
+}
+export interface RemoteFailed {
+  seq: number;
+  cmd: string;
+  error: string;
+}
+export interface RemoteStatus {
+  connected: boolean;
+  server: string | null;
+  server_name: string | null;
+  online: boolean;
+  pending: number;
+  failed: RemoteFailed[];
+  unpaired: boolean;
 }
 export interface TailscaleStatus {
   installed: boolean;
@@ -495,10 +575,31 @@ export interface TailscaleStatus {
 export const portalStatus = () => invoke<PortalStatus>("portal_status");
 export const portalEnable = () => invoke<PortalStatus>("portal_enable");
 export const portalDisable = () => invoke<PortalStatus>("portal_disable");
-export const portalQr = (url?: string) => invoke<string>("portal_qr", { url });
+export const portalQr = (url: string) => invoke<string>("portal_qr", { url });
 export const portalTailscale = () => invoke<TailscaleStatus>("portal_tailscale");
 export const portalServe = () => invoke<TailscaleStatus>("portal_serve");
 export const portalUnserve = () => invoke<TailscaleStatus>("portal_unserve");
+export const portalPair = (name: string) => invoke<PairResult>("portal_pair", { name });
+export const portalDevices = () => invoke<DeviceInfo[]>("portal_devices");
+export const portalRevoke = (id: number) => invoke<DeviceInfo[]>("portal_revoke", { id });
+
+// ---- this computer as the server ----
+export const serverPrefs = () => invoke<ServerPrefs>("server_prefs");
+export const setServerPrefs = (serveOnLaunch: boolean) =>
+  invoke<ServerPrefs>("set_server_prefs", { serveOnLaunch });
+export const keychainStatus = () => invoke<KeychainStatus>("keychain_status");
+export const keychainRemember = (passphrase: string) =>
+  invoke<KeychainStatus>("keychain_remember", { passphrase });
+export const keychainForget = () => invoke<KeychainStatus>("keychain_forget");
+
+// ---- another computer as the server ----
+export const remoteStatus = () => invoke<RemoteStatus>("remote_status");
+export const remoteConnect = (link: string) => invoke<RemoteStatus>("remote_connect", { link });
+export const remoteDisconnect = (discard: boolean) => invoke<RemoteStatus>("remote_disconnect", { discard });
+export const remoteDiscard = (seq: number) => invoke<RemoteStatus>("remote_discard", { seq });
+export const remoteFlush = () => invoke<RemoteStatus>("remote_flush");
+export const saveMarkdownFile = (dest: string, markdown: string) =>
+  invoke<void>("save_markdown_file", { dest, markdown });
 
 // ---- erase all data / uninstall ----
 export const dataDir = () => invoke<string>("data_dir");

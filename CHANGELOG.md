@@ -11,6 +11,31 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.12.0
+
+- **Keep your journal on one computer, and use it from all of them.** A
+  computer that stays on — a desktop at home — can now be your Field Notes
+  server. Your laptop connects to it over Tailscale and reads and writes the same
+  journal, and your phone pairs with it the way it always has. Settings →
+  **Devices & server** on the server, **Use another computer as your journal**
+  on the laptop.
+- **Every device has its own key, and pairings survive a restart.** Pair each
+  device with a name ("Phone", "Laptop"), see when it was last active, and
+  un-pair one without touching the others. Restarting Field Notes no longer
+  means re-scanning the QR code.
+- **A server that looks after itself.** Optional, for the computer that is the
+  server: turn device access on whenever Field Notes opens (on the same tailnet
+  address as before, so nothing needs re-pairing), open Field Notes at login,
+  and — if your journal is encrypted — save the password in the system keychain
+  so it unlocks on its own after a reboot. Settings explains the trade-off
+  before you choose it.
+- **Losing the connection doesn't lose a dose.** If the laptop can't reach the
+  server, new sessions, doses, timeline notes and ending a session save on the
+  laptop and are sent, in order, when it's back — the header says how many are
+  waiting. The interaction checker and crisis resources keep working on the
+  laptop meanwhile, against the session as it stands. Editing and deleting wait
+  for the connection, so two copies can never disagree.
+
 ## v0.11.5
 
 - **Logging a dose is now the shortest path, on the desktop too.** The Journal
