@@ -381,6 +381,9 @@ pub const EXPOSED: &[&str] = &[
     "delete_dose",
     "delete_timeline_event",
     "delete_substance",
+    // Only ever removes an entry that is an exact copy of another. A laptop runs it
+    // here at the end of "Sync journal to server".
+    "remove_duplicate_entries",
     "check_combo",
     "interaction_classes",
     "crisis_scan",
@@ -445,6 +448,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         "delete_dose" => done(commands::delete_dose(db, arg(&args, "id")?)),
         "delete_timeline_event" => done(commands::delete_timeline_event(db, arg(&args, "id")?)),
         "delete_substance" => done(commands::delete_substance(db, arg(&args, "id")?)),
+        "remove_duplicate_entries" => done(commands::remove_duplicate_entries(db)),
 
         // --- safety: the same deterministic layers the desktop uses ---
         "check_combo" => ok(commands::check_combo(db, arg(&args, "names")?)),

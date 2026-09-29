@@ -40,6 +40,14 @@ pub fn open(path: &Path, key: Option<&str>) -> rusqlite::Result<Connection> {
     if has_kind == 0 {
         conn.execute_batch("ALTER TABLE experiences ADD COLUMN kind TEXT NOT NULL DEFAULT 'session'")?;
     }
+    // One-time cleanup (v0.13.3): "Sync journal to server" in v0.12–v0.13.2 could
+    // copy an entry the server already had, leaving it in the journal twice. The
+    // first open after updating removes exact copies; later syncs check first.
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version < 1 {
+        remove_duplicate_experiences(&conn)?;
+        conn.pragma_update(None, "user_version", 1)?;
+    }
     Ok(conn)
 }
 
@@ -741,6 +749,76 @@ pub fn delete_substance(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+// ---------- duplicates ----------
+
+/// What makes two entries "the same entry": everything the user wrote — kind,
+/// title, intention, setting, write-up, rating, times, every dose and timeline
+/// note — and nothing the database assigned (IDs, `created_at`). Takes the JSON
+/// shape of an [`ExperienceDetail`], so an entry here and one on a server (which
+/// arrives as JSON) compare the same way.
+///
+/// Deliberately strict: a copy that differs in any word is *not* a duplicate. Only
+/// the formatting noise that a round trip between computers can introduce is
+/// ignored — surrounding whitespace, `\r\n`, `T` vs space and a trailing `Z` or
+/// fractional seconds in timestamps, and the order doses and notes come back in.
+pub fn fingerprint(d: &serde_json::Value) -> String {
+    fn text(v: &serde_json::Value) -> String {
+        match v {
+            serde_json::Value::Null => String::new(),
+            serde_json::Value::String(s) => s.replace("\r\n", "\n").trim().to_string(),
+            serde_json::Value::Number(n) => n.as_f64().map(|f| format!("{f}")).unwrap_or_default(),
+            other => other.to_string(),
+        }
+    }
+    fn time(v: &serde_json::Value) -> String {
+        let t = text(v).replace('T', " ");
+        let t = t.trim_end_matches('Z');
+        t.split('.').next().unwrap_or(t).to_string()
+    }
+    let rows = |key: &str, row: &dyn Fn(&serde_json::Value) -> String| -> Vec<String> {
+        let mut v: Vec<String> = d[key].as_array().map(|a| a.iter().map(row).collect()).unwrap_or_default();
+        v.sort();
+        v
+    };
+    let doses = rows("doses", &|x| {
+        [time(&x["taken_at"]), text(&x["substance_name"]).to_lowercase(), text(&x["amount"]),
+         text(&x["unit"]), text(&x["route"]), text(&x["note"])].join("\u{1f}")
+    });
+    let timeline = rows("timeline", &|x| {
+        [time(&x["at"]), text(&x["note"]), text(&x["mood"]), text(&x["intensity"])].join("\u{1f}")
+    });
+    serde_json::json!([
+        text(&d["kind"]), text(&d["title"]), text(&d["intention"]), text(&d["setting"]),
+        text(&d["notes"]), text(&d["rating"]), time(&d["started_at"]), time(&d["ended_at"]),
+        doses, timeline,
+    ])
+    .to_string()
+}
+
+/// Remove entries that are exact copies of another entry (see [`fingerprint`]),
+/// keeping the oldest of each set. Returns how many were removed. Safe to run at
+/// any time: an entry with anything of its own — one more dose, one changed word —
+/// is never touched.
+pub fn remove_duplicate_experiences(conn: &Connection) -> rusqlite::Result<usize> {
+    let ids: Vec<i64> = conn
+        .prepare("SELECT id FROM experiences ORDER BY id")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    let mut seen = std::collections::HashSet::new();
+    let mut extra = Vec::new();
+    for id in ids {
+        let detail = get_experience(conn, id)?;
+        let v = serde_json::to_value(&detail).unwrap_or_default();
+        if !seen.insert(fingerprint(&v)) {
+            extra.push(id);
+        }
+    }
+    for id in &extra {
+        delete_experience(conn, *id)?;
+    }
+    Ok(extra.len())
+}
+
 // ---------- DoseWiki reference cache ----------
 
 /// Replace the whole cache with a freshly loaded set, in one transaction.
@@ -1076,6 +1154,52 @@ mod tests {
         let c = open(&path, None).unwrap();
         let exp = get_experience_row(&c, 1).unwrap();
         assert_eq!(exp.kind, "session", "existing rows keep their meaning");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_exact_copies_are_removed_as_duplicates() {
+        let c = mem();
+        let entry = |note: &str, at: &str| {
+            let e = create_experience(&c, &ExperienceInput {
+                kind: "session".into(), title: "Evening".into(), intention: String::new(),
+                setting: String::new(), started_at: at.into(),
+            }).unwrap();
+            log_dose(&c, &DoseInput {
+                experience_id: e.id, substance_name: "Caffeine".into(), amount: Some(100.0),
+                unit: "mg".into(), route: String::new(), taken_at: at.into(), note: note.into(),
+            }).unwrap();
+            e.id
+        };
+        let first = entry("", "2026-08-01 20:00:00");
+        entry("", "2026-08-01T20:00:00Z"); // the same, formatted by another computer
+        entry("", "2026-08-01 20:00:00");
+        let differs = entry("strong cup", "2026-08-01 20:00:00");
+
+        assert_eq!(remove_duplicate_experiences(&c).unwrap(), 2);
+        let left: Vec<i64> = list_experiences(&c).unwrap().iter().map(|e| e.experience.id).collect();
+        assert!(left.contains(&first), "the oldest copy is kept");
+        assert!(left.contains(&differs), "an entry with a word of its own is not a duplicate");
+        assert_eq!(left.len(), 2);
+        assert_eq!(remove_duplicate_experiences(&c).unwrap(), 0);
+    }
+
+    #[test]
+    fn duplicates_are_cleared_once_on_the_first_open_after_updating() {
+        let dir = std::env::temp_dir().join(format!("fn-dedupe-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.db");
+        {
+            let c = open(&path, None).unwrap();
+            c.pragma_update(None, "user_version", 0).unwrap(); // as left by v0.13.2
+            for _ in 0..2 {
+                c.execute("INSERT INTO experiences (title, started_at) VALUES ('twice', '2026-09-01 10:00:00')", []).unwrap();
+            }
+        }
+        let c = open(&path, None).unwrap();
+        assert_eq!(list_experiences(&c).unwrap().len(), 1);
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1786,6 +1786,10 @@
       const parts = [`${r.copied} ${r.copied === 1 ? "entry" : "entries"}`];
       if (r.substances) parts.push(`${r.substances} ${r.substances === 1 ? "substance" : "substances"}`);
       syncMsg = `Copied ${parts.join(" and ")} to ${serverName}.`;
+      if (r.skipped)
+        syncMsg += ` ${r.skipped} ${r.skipped === 1 ? "entry was" : "entries were"} already there, so ${r.skipped === 1 ? "it wasn't" : "they weren't"} copied again.`;
+      if (r.removed)
+        syncMsg += ` Removed ${r.removed} duplicate ${r.removed === 1 ? "entry" : "entries"} from ${serverName}.`;
       await loadJournal();
       await loadSubstances();
     } catch (e) {

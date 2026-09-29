@@ -163,6 +163,7 @@ pub fn run() {
             commands::update_dose,
             commands::update_timeline_event,
             commands::delete_experience,
+            commands::remove_duplicate_entries,
             commands::delete_dose,
             commands::delete_timeline_event,
             commands::delete_substance,

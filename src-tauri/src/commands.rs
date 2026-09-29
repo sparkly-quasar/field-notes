@@ -120,6 +120,12 @@ pub fn delete_experience(db: State<'_, Db>, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_experience(c, id))
 }
 
+/// Remove exact duplicate entries, keeping the oldest of each. Returns how many.
+#[tauri::command]
+pub fn remove_duplicate_entries(db: State<'_, Db>) -> Result<usize, String> {
+    db.with(db::remove_duplicate_experiences)
+}
+
 #[tauri::command]
 pub fn delete_dose(db: State<'_, Db>, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_dose(c, id))

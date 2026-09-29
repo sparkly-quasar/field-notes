@@ -569,6 +569,10 @@ export interface RemoteStatus {
 }
 export interface UploadResult {
   copied: number;
+  /** Not sent: the server already had an identical entry. */
+  skipped: number;
+  /** Duplicate entries removed from the server's journal afterwards. */
+  removed: number;
   substances: number;
   status: RemoteStatus;
 }

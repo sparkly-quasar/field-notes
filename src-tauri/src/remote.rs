@@ -108,6 +108,13 @@ CREATE TABLE IF NOT EXISTS remote_synced (
     server_id INTEGER NOT NULL,
     PRIMARY KEY (local_id, server)
 );
+-- Half-copied entries a failed sync couldn't take back off the server (the
+-- connection was already gone). Removed at the start of the next sync.
+CREATE TABLE IF NOT EXISTS remote_orphans (
+    server    TEXT NOT NULL,
+    server_id INTEGER NOT NULL,
+    PRIMARY KEY (server, server_id)
+);
 ";
 
 #[derive(Default)]
@@ -116,6 +123,8 @@ pub struct Remote {
     last_failure: Mutex<Option<Instant>>,
     /// One flush at a time, or two threads would send the same queued dose twice.
     flushing: Mutex<()>,
+    /// One "Sync journal to server" at a time, or two would copy the same entries.
+    syncing: Mutex<()>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -455,6 +464,10 @@ fn unsynced_local(conn: &Connection, server: &str) -> rusqlite::Result<Vec<i64>>
 pub struct UploadResult {
     /// Entries copied this time.
     pub copied: i64,
+    /// Entries not copied because the server already had an identical one.
+    pub skipped: i64,
+    /// Duplicate entries removed from the server's journal after syncing.
+    pub removed: i64,
     /// Substances you'd added to this computer's catalogue that the server didn't have.
     pub substances: i64,
     pub status: RemoteStatus,
@@ -471,14 +484,16 @@ fn send(base: &str, token: &str, cmd: &str, args: Value) -> Result<Value, String
 }
 
 /// Copy one local entry to the server, whole: the entry, its doses and timeline,
-/// then its write-up, rating and times. Returns the server's ID.
-fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, String> {
+/// then its write-up, rating and times. Returns the server's ID — or the reason it
+/// failed, plus the half-copied entry's ID if it couldn't be taken back out.
+fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, (String, Option<i64>)> {
     let e = &d.experience;
     let created = send(base, token, "create_experience", json!({ "input": {
         "kind": e.kind, "title": e.title, "intention": e.intention,
         "setting": e.setting, "started_at": e.started_at,
-    }}))?;
-    let sid = created["id"].as_i64().ok_or("The server didn't return an ID.")?;
+    }}))
+    .map_err(|e| (e, None))?;
+    let sid = created["id"].as_i64().ok_or(("The server didn't return an ID.".to_string(), None))?;
 
     let rest = (|| {
         for dose in &d.doses {
@@ -503,9 +518,10 @@ fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, 
 
     if let Err(msg) = rest {
         // Don't leave half an entry on the server: take it back out, so running the
-        // sync again copies it cleanly instead of duplicating it.
-        let _ = send(base, token, "delete_experience", json!({ "id": sid }));
-        return Err(msg);
+        // sync again copies it cleanly instead of duplicating it. If even that
+        // can't get through, say so, and the next sync removes it first.
+        let gone = send(base, token, "delete_experience", json!({ "id": sid })).is_ok();
+        return Err((msg, (!gone).then_some(sid)));
     }
     Ok(sid)
 }
@@ -514,7 +530,14 @@ fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, 
 /// while it's connected — to the server. They stay here too. Entries already
 /// copied are skipped, so this can be run again at any time and only sends what's
 /// new. Needs the server: nothing about this is queued.
+///
+/// Every entry waiting to be synced is checked against the server's journal
+/// first: one the server already has — identical in everything written, however
+/// it got there — is recorded as synced and not sent again. Afterwards the server
+/// is asked to remove any exact duplicates it holds.
 pub fn upload_local<R: Runtime>(app: &AppHandle<R>) -> Result<UploadResult, String> {
+    let remote = app.state::<Remote>();
+    let _one_at_a_time = remote.syncing.lock().unwrap();
     let db = app.state::<Db>();
     let (base, token) = db.with(endpoint)?.ok_or("This computer isn't connected to a server.")?;
     let unreachable = |why: &str| format!("{why} Syncing needs the connection — try again once it's back.");
@@ -543,21 +566,61 @@ pub fn upload_local<R: Runtime>(app: &AppHandle<R>) -> Result<UploadResult, Stri
         }
     }
 
-    let ids = db.with(|c| unsynced_local(c, &base))?;
-    let mut copied = 0;
-    for id in ids {
-        let detail = db.with(|c| db::get_experience(c, id))?;
-        match upload_one(&base, &token, &detail) {
+    // Half-copied entries an earlier sync couldn't take back out.
+    let orphans: Vec<i64> = db.with(|c| {
+        ensure(c)?;
+        let mut stmt = c.prepare("SELECT server_id FROM remote_orphans WHERE server = ?1")?;
+        let ids = stmt.query_map([&base], |r| r.get(0))?.collect();
+        ids
+    })?;
+    for sid in orphans {
+        send(&base, &token, "delete_experience", json!({ "id": sid })).map_err(|e| unreachable(&e))?;
+        db.with(|c| c.execute("DELETE FROM remote_orphans WHERE server = ?1 AND server_id = ?2", params![base, sid]))?;
+    }
+
+    let local: Vec<db::ExperienceDetail> = db.with(|c| {
+        unsynced_local(c, &base)?.into_iter().map(|id| db::get_experience(c, id)).collect()
+    })?;
+    let mut on_server = if local.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        server_fingerprints(&base, &token, &local).map_err(|e| unreachable(&e))?
+    };
+
+    let record = |id: i64, sid: i64| {
+        db.with(|c| {
+            c.execute(
+                "INSERT OR REPLACE INTO remote_synced (local_id, server, server_id) VALUES (?1, ?2, ?3)",
+                params![id, base, sid],
+            )
+        })
+    };
+    let (mut copied, mut skipped) = (0, 0);
+    for detail in &local {
+        let id = detail.experience.id;
+        let fp = db::fingerprint(&serde_json::to_value(detail).unwrap_or_default());
+        // Already there — copied by an earlier sync this computer has forgotten, or
+        // written on the server too, or a second copy in this journal. Don't send it.
+        if let Some(&sid) = on_server.get(&fp) {
+            record(id, sid)?;
+            skipped += 1;
+            continue;
+        }
+        match upload_one(&base, &token, detail) {
             Ok(sid) => {
-                db.with(|c| {
-                    c.execute(
-                        "INSERT OR REPLACE INTO remote_synced (local_id, server, server_id) VALUES (?1, ?2, ?3)",
-                        params![id, base, sid],
-                    )
-                })?;
+                record(id, sid)?;
+                on_server.insert(fp, sid);
                 copied += 1;
             }
-            Err(msg) => {
+            Err((msg, orphan)) => {
+                if let Some(sid) = orphan {
+                    db.with(|c| {
+                        c.execute(
+                            "INSERT OR IGNORE INTO remote_orphans (server, server_id) VALUES (?1, ?2)",
+                            params![base, sid],
+                        )
+                    })?;
+                }
                 notify(app);
                 return Err(format!(
                     "Copied {copied} {} before stopping: {msg} Run the sync again to carry on — nothing is copied twice.",
@@ -566,9 +629,43 @@ pub fn upload_local<R: Runtime>(app: &AppHandle<R>) -> Result<UploadResult, Stri
             }
         }
     }
-    app.state::<Remote>().mark(true);
+
+    // Clear out duplicates already on the server — from an older version's sync, or
+    // from another computer. Best effort: a server that predates this just says no.
+    let removed = http(&base, &token, "remove_duplicate_entries", &json!({}))
+        .ok()
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    remote.mark(true);
     notify(app);
-    Ok(UploadResult { copied, substances, status: status(app) })
+    Ok(UploadResult { copied, skipped, removed, substances, status: status(app) })
+}
+
+/// The server's entries that could match one of `local`, by fingerprint → server ID.
+/// Only entries of the same kind started on the same day are fetched in full.
+fn server_fingerprints(
+    base: &str,
+    token: &str,
+    local: &[db::ExperienceDetail],
+) -> Result<std::collections::HashMap<String, i64>, String> {
+    let day = |kind: &str, at: &str| format!("{kind}|{}", at.get(..10).unwrap_or(at));
+    let wanted: std::collections::HashSet<String> =
+        local.iter().map(|d| day(&d.experience.kind, &d.experience.started_at)).collect();
+    let list = send(base, token, "list_experiences", json!({}))?;
+    let mut out = std::collections::HashMap::new();
+    for e in list.as_array().into_iter().flatten() {
+        let (Some(sid), Some(kind), Some(at)) = (e["id"].as_i64(), e["kind"].as_str(), e["started_at"].as_str()) else {
+            continue;
+        };
+        if !wanted.contains(&day(kind, at)) {
+            continue;
+        }
+        let detail = send(base, token, "get_experience", json!({ "id": sid }))?;
+        // Keep the oldest if the server itself has copies.
+        out.entry(db::fingerprint(&detail)).and_modify(|v: &mut i64| *v = (*v).min(sid)).or_insert(sid);
+    }
+    Ok(out)
 }
 
 #[derive(Debug, PartialEq)]
@@ -1306,6 +1403,50 @@ mod tests {
         connect(l, &link).unwrap();
         assert_eq!(status(l).local_unsynced, 0);
         assert_eq!(upload_local(l).unwrap().copied, 0);
+        assert_eq!(sdb.with(db::list_experiences).unwrap().len(), 2);
+    }
+
+    /// The bug this guards against: a laptop whose journal already holds entries the
+    /// server has (written on both, or copied by a sync this laptop has since
+    /// forgotten) must not send them again — and duplicates already on the server
+    /// from an older version are cleared away when syncing.
+    #[test]
+    fn syncing_never_copies_an_entry_the_server_already_has() {
+        let server = computer("dedupe-server");
+        let laptop = computer("dedupe-laptop");
+        let (s, l) = (server.handle(), laptop.handle());
+
+        let write = |c: &Connection, title: &str, note: &str| -> rusqlite::Result<i64> {
+            let e = db::create_experience(c, &serde_json::from_value(json!({ "title": title, "started_at": "2026-08-01 20:00:00" })).unwrap())?;
+            db::log_dose(c, &serde_json::from_value(json!({ "experience_id": e.id, "substance_name": "Caffeine", "amount": 100.0, "taken_at": "2026-08-01 20:05:00" })).unwrap())?;
+            db::add_timeline_event(c, &serde_json::from_value(json!({ "experience_id": e.id, "at": "2026-08-01 20:30:00", "note": note })).unwrap())?;
+            Ok(e.id)
+        };
+        // The same evening on both computers, twice on the server already (an older
+        // sync), plus one entry that exists only on the laptop.
+        s.state::<Db>().with(|c| { write(c, "Evening", "focused")?; write(c, "Evening", "focused") }).unwrap();
+        l.state::<Db>().with(|c| { write(c, "Evening", "focused")?; write(c, "Evening", "focused")?; write(c, "Evening", "scattered") }).unwrap();
+
+        let port = crate::portal::start(s).unwrap().port.unwrap();
+        let (_, token) = s.state::<crate::devices::Devices>().pair("Laptop").unwrap();
+        connect(l, &format!("http://127.0.0.1:{port}/m#t={token}")).unwrap();
+        assert_eq!(status(l).local_unsynced, 3);
+
+        let r = upload_local(l).expect("syncs");
+        assert_eq!(r.copied, 1, "only the entry the server didn't have");
+        assert_eq!(r.skipped, 2, "both local copies of the shared evening are recognised");
+        assert_eq!(r.removed, 1, "the server's own duplicate is cleared");
+        assert_eq!(r.status.local_unsynced, 0);
+
+        let sdb = s.state::<Db>();
+        let all = sdb.with(db::list_experiences).unwrap();
+        assert_eq!(all.len(), 2, "one 'focused' evening and one 'scattered': {all:?}");
+
+        // Forget every sync record (as a reconnect under a new address would) and
+        // sync again: still nothing doubled.
+        l.state::<Db>().with(|c| c.execute("DELETE FROM remote_synced", [])).unwrap();
+        let r = upload_local(l).unwrap();
+        assert_eq!((r.copied, r.skipped), (0, 3));
         assert_eq!(sdb.with(db::list_experiences).unwrap().len(), 2);
     }
 
