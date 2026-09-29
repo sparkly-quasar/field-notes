@@ -11,6 +11,22 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.13.3
+
+- **Fixed: "Sync journal to server" could copy entries twice.** If the server
+  already had an entry — written on both computers, or copied by an earlier
+  sync the laptop had lost track of — syncing sent it again. Now every entry
+  waiting to be synced is checked against the server's journal first, and one
+  that's already there is skipped. The sync tells you how many it skipped.
+- **Duplicates are cleaned up.** The first time Field Notes opens after this
+  update, it removes entries that are exact copies of another one, keeping the
+  original. Every sync also clears exact copies from the server afterwards. Only
+  true copies are removed — an entry with anything of its own, even one more
+  dose or one changed word, is always kept.
+- A sync that lost the connection partway through, and couldn't take its
+  half-copied entry back off the server, now removes it at the start of the
+  next sync.
+
 ## v0.13.2
 
 - **Capsule and pill are now units**, alongside mg, µg, g, ml and tab. A pasted
