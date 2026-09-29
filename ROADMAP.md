@@ -217,6 +217,13 @@ a sync engine.
   blank). `remote_synced` records (local id, server) and **survives disconnect**,
   so re-running or reconnecting never duplicates; a failure mid-entry deletes the
   half-copied entry on the server. Local copies are kept — nothing is deleted.
+  **v0.13.3:** entries are checked against the server by content before sending
+  (`db::fingerprint` — everything written, not IDs), so an entry the server
+  already has is recorded as synced and skipped even when `remote_synced` doesn't
+  know it; half-copied entries that couldn't be deleted go to `remote_orphans`
+  and are removed next sync; exact duplicates are removed once on the first open
+  after updating (`user_version` 1) and on the server after each sync
+  (`remove_duplicate_entries`, exposed).
 - **Settings naming:** "Use another computer as your server" (client) and
   "Server Mode" (serve on launch / open at login / keychain) — owner's wording.
 

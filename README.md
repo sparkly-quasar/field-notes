@@ -96,7 +96,8 @@ from your phone.
   journal, everywhere. Each device gets its own revocable key. If the server
   can't be reached, new entries save on the laptop and are sent when it's back,
   and the interaction checker keeps working in the meantime. **Sync journal to
-  server** brings the entries a laptop already had along with it. In **Server
+  server** brings the entries a laptop already had along with it, skipping any
+  the server already has. In **Server
   Mode**, the server can start serving at login and — opt-in — unlock from the
   system keychain after a reboot.
 - **Substance catalogue & log** — keep your own substance list with notes, and
