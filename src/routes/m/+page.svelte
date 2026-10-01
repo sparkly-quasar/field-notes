@@ -69,6 +69,7 @@
   } from "$lib/api";
   import { acceptPairing, captureToken, hasToken, inTauri, isIos, isStandalone, pairingLink } from "$lib/portal";
   import TripImport from "$lib/TripImport.svelte";
+  import UsageStats from "$lib/UsageStats.svelte";
   import {
     quickLog,
     recentSubstances,
@@ -198,6 +199,8 @@
   // check: combo + reference
   let checkMode = $state<"combo" | "lookup">("combo");
   let comboText = $state("");
+  /** Journal tab: the list, or usage stats (roadmap #2). */
+  let journalMode = $state<"entries" | "stats">("entries");
   let comboWarnings = $state<Warning[] | null>(null);
   let substances = $state<Substance[]>([]);
   let refQuery = $state("");
@@ -1376,6 +1379,20 @@
       {:else}
         <section class="pane">
           <h1>Journal</h1>
+          <div class="seg" role="tablist" aria-label="Journal view">
+            <button role="tab" aria-selected={journalMode === "entries"} class:on={journalMode === "entries"} onclick={() => (journalMode = "entries")}>Entries</button>
+            <button role="tab" aria-selected={journalMode === "stats"} class:on={journalMode === "stats"} onclick={() => (journalMode = "stats")}>Stats</button>
+          </div>
+        </section>
+        {#if journalMode === "stats"}
+          <section class="pane">
+            <UsageStats
+              onOpen={(id) => { journalMode = "entries"; openEntry(id); }}
+              onCheck={(names) => { comboText = names.join(", "); checkMode = "combo"; goTo("check"); runCombo(); }}
+            />
+          </section>
+        {:else}
+        <section class="pane">
           <label class="sr" for="search">Search the journal</label>
           <input id="search" type="search" placeholder="Search titles, write-ups, substances" bind:value={search} autocapitalize="none" enterkeyhint="search" />
           <div class="chips" role="group" aria-label="Show">
@@ -1425,6 +1442,7 @@
             </ul>
           {/if}
         </section>
+        {/if}
       {/if}
     {/if}
 

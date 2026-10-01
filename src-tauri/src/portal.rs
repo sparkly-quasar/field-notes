@@ -366,6 +366,8 @@ pub const EXPOSED: &[&str] = &[
     // disk and must never appear here.
     "export_experience_markdown",
     "usage_by_substance",
+    // Read-only aggregation over the same rows as `usage_by_substance`.
+    "usage_stats",
     "list_substances",
     "db_status",
     "companion_enabled",
@@ -421,6 +423,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             done(commands::export_experience_markdown(db, arg(&args, "id")?))
         }
         "usage_by_substance" => done(commands::usage_by_substance(db)),
+        "usage_stats" => done(commands::usage_stats(db, arg(&args, "since")?)),
         "list_substances" => done(commands::list_substances(db)),
         "db_status" => ok(commands::db_status(db)),
         "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
@@ -1008,5 +1011,13 @@ mod tests {
         assert!(EXPOSED.contains(&"companion_chat_start"));
         assert!(EXPOSED.contains(&"companion_chat_poll"));
         assert!(EXPOSED.contains(&"companion_chat"));
+    }
+
+    /// Usage stats is read-only, so it belongs on the phone: allowlisted on
+    /// purpose, and routed for a desktop whose journal is on a server.
+    #[test]
+    fn usage_stats_is_reachable_from_a_phone_and_a_client() {
+        assert!(EXPOSED.contains(&"usage_stats"));
+        assert!(crate::remote::ROUTED.contains(&"usage_stats"));
     }
 }

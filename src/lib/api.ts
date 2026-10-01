@@ -30,6 +30,7 @@ const ROUTED = new Set([
   "get_experience",
   "export_experience_markdown",
   "usage_by_substance",
+  "usage_stats",
   "list_substances",
   "create_experience",
   "end_experience",
@@ -328,6 +329,56 @@ export const addTimelineEvent = (input: TimelineInput) =>
   invoke<TimelineEvent>("add_timeline_event", { input });
 export const usageBySubstance = () => invoke<SubstanceUsage[]>("usage_by_substance");
 
+// ---- usage stats (roadmap #2; shape mirrors src-tauri/src/stats.rs) ----
+export interface StatsRange { min: number | null; max: number | null }
+export interface StatsBands {
+  route: string;
+  threshold: number | null;
+  light: StatsRange;
+  common: StatsRange;
+  strong: StatsRange;
+  heavy: number | null;
+}
+export interface StatsDosePoint {
+  dose_id: number;
+  experience_id: number;
+  taken_at: string;
+  amount: number | null;
+  route: string;
+}
+export interface StatsUnitSeries {
+  unit: string;
+  points: StatsDosePoint[];
+  without_amount: number;
+  bands: StatsBands | null;
+}
+export interface StatsSubstance {
+  key: string;
+  name: string;
+  sessions: number;
+  doses: number;
+  last_used: string;
+  gaps_days: number[];
+  series: StatsUnitSeries[];
+  routes: [string, number][];
+}
+export interface StatsSession {
+  experience_id: number;
+  title: string;
+  started_at: string;
+  rating: number | null;
+  substances: string[];
+}
+export interface UsageStats {
+  sessions: StatsSession[];
+  substances: StatsSubstance[];
+  pairs: { a: string; b: string; sessions: number }[];
+  total_sessions: number;
+  total_doses: number;
+}
+/** Read-only. `since` is an ISO time; omit for all time. */
+export const usageStats = (since: string | null) => invoke<UsageStats>("usage_stats", { since });
+
 export interface ChatMsg {
   role: "user" | "assistant" | "system";
   content: string;
@@ -358,8 +409,11 @@ export interface ParsedExperience {
 }
 export const parseExperience = (model: string, text: string) =>
   invoke<ParsedExperience>("parse_experience", { model, text });
-export const importExperience = (parsed: ParsedExperience) =>
-  invoke<Experience>("import_experience", { parsed });
+/** `start` is the start the user confirmed. Pass `parsed` as the model returned it
+ *  (its own `started_at` included): the backend decides from that whether the
+ *  times need rebasing onto `start`. */
+export const importExperience = (parsed: ParsedExperience, start: string | null) =>
+  invoke<Experience>("import_experience", { parsed, start });
 
 export interface AiStatus {
   installed: boolean;

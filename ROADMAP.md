@@ -640,7 +640,13 @@ using the model switch and reading the screens as a first-timer would.
 
 </details>
 
-0. **Backend timestamp normalization for imports.** Shipped in v0.10.0, text import
+0. ✅ **Built 2026-10-01, unreleased.** `normalize_import` in `commands.rs` now owns
+   the rule (chrono added); `rebaseTimestamps` is gone from `+page.svelte`, and
+   `import_experience` takes the confirmed `start` separately so the model's own
+   `started_at` still tells it whether the report was dated. Unparseable times fall back
+   to the start instead of reaching the journal as text. Five tests. Original plan below.
+
+   **Backend timestamp normalization for imports.** Shipped in v0.10.0, text import
    rebases fabricated dose/timeline times onto the confirmed start **in the frontend**
    (`rebaseTimestamps` in `+page.svelte`), because that's where the `t+` date math
    already lives and the backend has no date library. That's solid for the common case
@@ -749,7 +755,17 @@ using the model switch and reading the screens as a first-timer would.
    by definition. Phase 3b is what makes the asleep case survivable — ship 3a first and
    see how often that actually bites before committing to it.
 
-2. **Usage stats: a page of patterns from your own journal.** A read-only view that
+2. ✅ **v1 built 2026-10-01, unreleased.** `stats.rs` (`usage_stats`, in `EXPOSED` and
+   `ROUTED`, nine tests), `src/lib/stats.ts` (bucketing), and one responsive component,
+   `src/lib/UsageStats.svelte`, used by the desktop **Stats** tab and the phone's
+   **Journal → Entries | Stats** switch. Everything in "What goes on the page" is in
+   except the "later" ideas. **One change from the plan below:** day/week/hour bucketing
+   happens on the frontend, in the viewer's time zone (a phone and its server need not
+   agree), via the one shared `stats.ts`; all grouping rules stay in Rust. **Not built,
+   waiting on the owner:** export, and Companion access. In client mode the page needs
+   the server (it isn't cached offline).
+
+   **Usage stats: a page of patterns from your own journal.** A read-only view that
    turns the doses already in the journal into a few honest pictures: how much, how
    often, and how far apart. It works on **both the desktop and the phone (`/m`)** from
    day one, not desktop first with a phone port later. No new data is collected; this
@@ -950,13 +966,9 @@ emotional presence.
 **Current release: v0.13.3** (updated 2026-10-01). The phone redesign, one computer as
 the server, client-mode offline queueing, and sync-to-server are all shipped. In order:
 
-1. **#0 — backend timestamp normalization for imports.** Small and self-contained;
-   moves the import rebase rule out of `+page.svelte` into `import_experience` so there
-   is one rule, with tests. Do it first.
-2. **#2 — usage stats.** The next real feature. Build the `usage_stats` aggregation and
-   its tests first (the unit and grouping rules are where it goes wrong), then the
-   desktop view, then the phone's Journal → Stats switch. Export and Companion access
-   stay undecided until the owner decides; ship without them.
+1. **#0 and #2 v1 are built (2026-10-01), not yet released.** Next: try the Stats page
+   on a real journal, then cut a release. Then the owner decides on stats export and
+   Companion access.
 3. **#1 Phase 3b — on hold.** See the note at the end of this section.
 
 The plain-entries write-up below is kept for the decisions it records (above all the

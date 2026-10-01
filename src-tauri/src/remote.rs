@@ -46,6 +46,7 @@ pub const ROUTED: &[&str] = &[
     "get_experience",
     "export_experience_markdown",
     "usage_by_substance",
+    "usage_stats",
     "list_substances",
     "create_experience",
     "end_experience",

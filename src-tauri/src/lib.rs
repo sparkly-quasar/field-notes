@@ -21,6 +21,7 @@ mod portal;
 mod prefs;
 pub mod pw;
 mod remote;
+mod stats;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -159,6 +160,7 @@ pub fn run() {
             commands::log_dose,
             commands::add_timeline_event,
             commands::usage_by_substance,
+            commands::usage_stats,
             commands::update_experience,
             commands::update_dose,
             commands::update_timeline_event,
