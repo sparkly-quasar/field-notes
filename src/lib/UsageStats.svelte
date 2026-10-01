@@ -171,6 +171,24 @@
       return d.getTime();
     });
   });
+  /** Columns that start a month and have room for its name (no "JanFeb"). */
+  const monthLabels = $derived.by(() => {
+    const out = new Set<number>();
+    let last = -10;
+    heatWeeks.forEach((w, i) => {
+      const starts = i === 0 || new Date(w).getMonth() !== new Date(heatWeeks[i - 1]).getMonth();
+      if (starts && i - last >= 3) {
+        out.add(i);
+        last = i;
+      } else if (starts && out.has(last) && last === 0) {
+        // A month that starts right after the first column wins the label.
+        out.delete(last);
+        out.add(i);
+        last = i;
+      }
+    });
+    return out;
+  });
   const heatMax = $derived(Math.max(1, ...days.values()));
   function cellDay(week: number, dow: number) {
     const d = new Date(week);
@@ -371,7 +389,7 @@
               <text x="0" y={18 + i * (CELL + GAP) + CELL - 3} class="axis">{d}</text>
             {/each}
             {#each heatWeeks as w, wi}
-              {#if wi === 0 || new Date(w).getMonth() !== new Date(heatWeeks[wi - 1]).getMonth()}
+              {#if monthLabels.has(wi)}
                 <text x={20 + wi * (CELL + GAP)} y="10" class="axis">{new Date(w).toLocaleDateString(undefined, { month: "short" })}</text>
               {/if}
               {#each Array(7) as _, dow}

@@ -3787,6 +3787,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .sec-block { border-top: 1px solid var(--line); margin-top: 1.1rem; padding-top: 1.1rem; display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
   .sec-block h3 { margin: 0; font-size: 0.98rem; }
   .sec-block input { padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 16rem; max-width: 24rem; }
+  /* That sizing is for password fields; a checkbox in the same block stays a checkbox. */
+  .sec-block input[type="checkbox"] { min-width: 0; padding: 0; }
   .vault-pick { display: flex; gap: 0.6rem; align-items: center; margin: 0.9rem 0; flex-wrap: wrap; }
   .vault-pick input { flex: 1; min-width: 14rem; padding: 0.5rem 0.65rem; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); }
   .model-sel { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.6rem; max-width: 55%; }
