@@ -69,6 +69,7 @@
   } from "$lib/api";
   import { acceptPairing, captureToken, hasToken, inTauri, isIos, isStandalone, pairingLink } from "$lib/portal";
   import TripImport from "$lib/TripImport.svelte";
+  import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import {
     quickLog,
@@ -1701,7 +1702,7 @@
               <button class="chip" onclick={() => (dWhen = c.value())}>{c.label}</button>
             {/each}
           </div>
-          <input id="d-when" type="datetime-local" bind:value={dWhen} />
+          <DateTimeField id="d-when" bind:value={dWhen} variant="phone" />
           {#if target && t0Of(target) && dWhen}
             <p class="hint">{rel(new Date(dWhen).toISOString(), t0Of(target))} from the first dose</p>
           {/if}
@@ -1735,7 +1736,7 @@
               <button class="chip" onclick={() => (mWhen = c.value())}>{c.label}</button>
             {/each}
           </div>
-          <input id="m-when" type="datetime-local" bind:value={mWhen} />
+          <DateTimeField id="m-when" bind:value={mWhen} variant="phone" />
           <div class="sheet-actions">
             <button class="primary" disabled={busy || !mText.trim()} onclick={submitMoment}>{busyKey === "moment" ? "Saving…" : "Add moment"}</button>
           </div>
@@ -1777,7 +1778,7 @@
               <button class="chip" onclick={() => (pWhen = toLocalInput(p.at()))}>{p.label}</button>
             {/each}
           </div>
-          <input id="p-when" type="datetime-local" bind:value={pWhen} />
+          <DateTimeField id="p-when" bind:value={pWhen} variant="phone" />
           <label for="p-title">Title (optional)</label>
           <input id="p-title" bind:value={pTitle} />
           <p class="hint">Leave it blank and it takes the name of the first substance.</p>
@@ -1807,7 +1808,7 @@
             </div>
           </div>
           <label for="e-when">When</label>
-          <input id="e-when" type="datetime-local" bind:value={eWhen} />
+          <DateTimeField id="e-when" bind:value={eWhen} variant="phone" />
           <label for="e-note">Note (optional)</label>
           <input id="e-note" bind:value={eNote} />
           <div class="sheet-actions pair">
@@ -1825,7 +1826,7 @@
           <p class="label">Intensity (optional)</p>
           {@render scale(evIntensity, (v) => (evIntensity = v), "Intensity 0 to 10")}
           <label for="ev-when">When</label>
-          <input id="ev-when" type="datetime-local" bind:value={evWhen} />
+          <DateTimeField id="ev-when" bind:value={evWhen} variant="phone" />
           <div class="sheet-actions pair">
             <button onclick={closeSheet}>Cancel</button>
             <button class="primary" disabled={busy || !evText.trim()} onclick={saveMoment}>{busyKey === "editMoment" ? "Saving…" : "Save"}</button>
@@ -1839,10 +1840,10 @@
           <label for="en-title">Title</label>
           <input id="en-title" bind:value={enTitle} />
           <label for="en-start">{open.kind === "note" ? "Date" : "Started"}</label>
-          <input id="en-start" type="datetime-local" bind:value={enStart} />
+          <DateTimeField id="en-start" bind:value={enStart} variant="phone" />
           {#if open.kind === "session"}
             <label for="en-end">Ended</label>
-            <input id="en-end" type="datetime-local" bind:value={enEnd} />
+            <DateTimeField id="en-end" bind:value={enEnd} variant="phone" />
             <p class="hint">Leave it blank and the session stays live.</p>
             <p class="label">Rating (optional)</p>
             {@render scale(enRating, (v) => (enRating = v), "Rating 0 to 10")}
@@ -1878,7 +1879,7 @@
               <button class="chip" onclick={() => (endAt = shift(isoToLocalInput(lastAt(open!)), 60))}>An hour after</button>
             </div>
           {/if}
-          <input id="end-at" type="datetime-local" bind:value={endAt} />
+          <DateTimeField id="end-at" bind:value={endAt} variant="phone" />
           <p class="label">Rating (optional)</p>
           {@render scale(endRating, (v) => (endRating = v), "Rating 0 to 10")}
           <label for="end-notes">Write-up (optional — you can do it later)</label>
