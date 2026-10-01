@@ -165,6 +165,14 @@ all data lives in the OS app-data directory
 `~/.local/share/com.fieldnotes.journal` on Linux), separate from the app itself,
 so updating never touches it.
 
+## Support Field Notes
+
+Field Notes is free, with no ads, accounts or tracking. If it's been useful to
+you, please consider [chipping in toward keeping it going](https://github.com/sponsors/sparkly-quasar).
+
+Not in a position to give money? Reporting bugs, suggesting features, and
+passing Field Notes along to a harm reduction group help too.
+
 ## Architecture
 
 - **Tauri 2 + Svelte (TypeScript)** desktop app (Windows + macOS + Linux), built
