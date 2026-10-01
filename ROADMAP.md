@@ -947,8 +947,20 @@ emotional presence.
 
 ## Suggested next increment
 
-**v0.4.0 and v0.4.1 are shipped and public** — the knowledge corpus, contribution
-drafts, the phone portal (Phase 3a), the combo-checker fix, and the phone Companion fix.
+**Current release: v0.13.3** (updated 2026-10-01). The phone redesign, one computer as
+the server, client-mode offline queueing, and sync-to-server are all shipped. In order:
+
+1. **#0 — backend timestamp normalization for imports.** Small and self-contained;
+   moves the import rebase rule out of `+page.svelte` into `import_experience` so there
+   is one rule, with tests. Do it first.
+2. **#2 — usage stats.** The next real feature. Build the `usage_stats` aggregation and
+   its tests first (the unit and grouping rules are where it goes wrong), then the
+   desktop view, then the phone's Journal → Stats switch. Export and Companion access
+   stay undecided until the owner decides; ship without them.
+3. **#1 Phase 3b — on hold.** See the note at the end of this section.
+
+The plain-entries write-up below is kept for the decisions it records (above all the
+2026-07-14 crisis-scan decision), not because it's pending.
 
 ### Plain journal entries (not a drug session) — ✅ shipped in v0.5.0
 
@@ -979,7 +991,9 @@ be possible to write a plain text entry, in the same journal, alongside the sess
 - **Downstream, mostly free:** Obsidian export writes them as ordinary Markdown notes;
   the Companion can read them for context; the substance log ignores them by definition.
 
-**Then stop and let 3a be used before building 3b.** Offline capture is a *separate
+**Phase 3b stays on hold until 3a has been used enough to know.** Since v0.12 a
+*laptop* client queues offline under SQLCipher with the safety checks intact, so the
+only gap left is the **phone** while the server is asleep. Offline capture is a *separate
 project*, not a follow-up commit: it's gated on the WASM port of `interactions.rs` and
 `crisis.rs` (so the safety checks don't go dark offline — that's a blocker, not polish)
 and on a real decision about phone-side encryption. The "known constraint" above —
