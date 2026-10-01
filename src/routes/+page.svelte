@@ -449,6 +449,7 @@
     interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
     updateTimer = setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+    getVersion().then((v) => (appVersion = v)).catch(() => {});
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
     companionOff = localStorage.getItem(COMPANION_OFF_KEY) === "1";
     companionChoiceMade = localStorage.getItem(COMPANION_CHOICE_KEY) === "1";
@@ -512,6 +513,30 @@
       update = found;
     } catch (_) {
       // offline, or no published release with an updater manifest yet — ignore
+    }
+  }
+
+  /** The Settings button. Same check as the timer, but it says what it found,
+   *  including when it couldn't reach the update server. */
+  let manualCheck = $state<"idle" | "checking" | "current" | "found" | "failed">("idle");
+  let manualCheckErr = $state("");
+  let appVersion = $state("");
+  async function checkForUpdateNow() {
+    if (updateBusy) return;
+    manualCheck = "checking";
+    try { appVersion = await getVersion(); } catch {}
+    try {
+      const found = await check();
+      update = found;
+      if (found) {
+        updateDismissed = false;
+        manualCheck = "found";
+      } else {
+        manualCheck = "current";
+      }
+    } catch (e) {
+      manualCheckErr = typeof e === "string" ? e : String(e);
+      manualCheck = "failed";
     }
   }
 
@@ -3288,6 +3313,31 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           />
           Skip the disclaimer splash on startup
         </label>
+      </section>
+
+      <section class="card">
+        <h2>Updates</h2>
+        <p class="muted small">
+          Field Notes checks for a new version when it opens and every few hours while it
+          runs. The check asks GitHub for the latest version number; nothing about your
+          journal is sent.
+        </p>
+        <div class="row-actions">
+          <button class="small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
+            {manualCheck === "checking" ? "Checking…" : "Check for updates"}
+          </button>
+          {#if manualCheck === "found" && update}
+            <button class="primary small-btn" disabled={updateBusy} onclick={installUpdate}>Install v{update.version} &amp; restart</button>
+          {/if}
+        </div>
+        <p class="muted small" role="status">
+          {#if updateBusy}{updateMsg}
+          {:else if manualCheck === "current"}You're on the latest version{appVersion ? ` (v${appVersion})` : ""}.
+          {:else if manualCheck === "found" && update}Version {update.version} is available{appVersion ? ` (you have v${appVersion})` : ""}.
+          {:else if manualCheck === "failed"}Couldn't check right now: {manualCheckErr}. You may be offline.
+          {:else if appVersion}You have v{appVersion}.
+          {/if}
+        </p>
       </section>
 
       <section class="card">
