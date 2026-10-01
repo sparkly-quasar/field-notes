@@ -20,6 +20,11 @@ pub struct ServerPrefs {
     /// `portal_serve`, cleared by `portal_unserve`. Not user-editable.
     #[serde(default)]
     pub served_https: Option<u16>,
+    /// Paired phones may install a Field Notes update on this computer (and
+    /// restart it). Off by default; only settable at the computer. See
+    /// `server_update.rs` for the guards that apply even when it's on.
+    #[serde(default)]
+    pub phone_can_update: bool,
 }
 
 pub struct Prefs {

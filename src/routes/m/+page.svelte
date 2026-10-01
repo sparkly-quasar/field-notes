@@ -25,6 +25,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
+    serverUpdateStatus,
+    serverUpdateInstall,
+    type ServerUpdateStatus,
     listExperiences,
     getExperience,
     createExperience,
@@ -278,12 +281,68 @@
       refresh();
       loadAi();
       loadResources();
+      loadServerUpdate();
     }
     return () => {
       vv?.removeEventListener("resize", onVv);
       vv?.removeEventListener("scroll", onVv);
     };
   });
+
+  // ---------- updating the server (server_update.rs) ----------
+
+  let srvUpd = $state<ServerUpdateStatus | null>(null);
+  let srvUpdStage = $state<"idle" | "confirm" | "installing" | "restarting" | "done">("idle");
+  let srvUpdHidden = $state(false);
+  let srvUpdTarget = $state("");
+
+  /** The server checks in the background and answers with what it last knew;
+   *  when it says it's still checking, ask again shortly. */
+  async function loadServerUpdate(retries = 2) {
+    if (inTauri() || srvUpdStage !== "idle") return;
+    try {
+      srvUpd = await serverUpdateStatus();
+    } catch {
+      return; // an older server without this command, or out of reach: say nothing
+    }
+    if (srvUpd?.checking && retries > 0) setTimeout(() => loadServerUpdate(retries - 1), 6000);
+  }
+
+  async function installServerUpdate() {
+    if (!srvUpd?.available) return;
+    srvUpdTarget = srvUpd.available.version;
+    srvUpdStage = "installing";
+    try {
+      srvUpd = await serverUpdateInstall();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+      srvUpdStage = "idle";
+      return;
+    }
+    // Wait for it to go away and come back on the new version (up to ~5 minutes),
+    // then reload: this page is served by the server, so the new version's page
+    // comes with it.
+    for (let i = 0; i < 60; i++) {
+      await new Promise((res) => setTimeout(res, 5000));
+      try {
+        const st = await serverUpdateStatus();
+        srvUpd = st;
+        if (st.current === srvUpdTarget) {
+          srvUpdStage = "done";
+          setTimeout(() => location.reload(), 1500);
+          return;
+        }
+        if (!st.installing && st.error) {
+          srvUpdStage = "idle";
+          return;
+        }
+      } catch {
+        srvUpdStage = "restarting";
+      }
+    }
+    srvUpdStage = "idle";
+    err = "The server hasn't come back yet. If it doesn't, check the computer: it may be waiting for someone.";
+  }
 
   // ---------- plumbing ----------
 
@@ -334,6 +393,7 @@
 
   function goTo(v: View) {
     view = v;
+    if (v === "today") loadServerUpdate();
     if (v === "talk") loadAi();
     if (v === "journal" && !open) refresh();
   }
@@ -1238,6 +1298,42 @@
 
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
+      {#if srvUpdStage !== "idle" || (srvUpd?.available && !srvUpdHidden)}
+        <section class="pane update-card" role="status">
+          {#if srvUpdStage === "installing"}
+            <p><strong>Installing v{srvUpdTarget} on the server…</strong></p>
+            <p class="muted">Field Notes on the computer will restart. This phone reconnects by itself.</p>
+          {:else if srvUpdStage === "restarting"}
+            <p><strong>The server is restarting…</strong></p>
+            <p class="muted">This usually takes a minute or two.</p>
+          {:else if srvUpdStage === "done"}
+            <p><strong>The server is on v{srvUpdTarget}.</strong> Reloading…</p>
+          {:else if srvUpd?.available}
+            <p>
+              <strong>Field Notes v{srvUpd.available.version}</strong> is ready to install on the server
+              (it's on v{srvUpd.current}).
+            </p>
+            {#if srvUpdStage === "confirm"}
+              <p class="muted">
+                Field Notes on the computer will restart, and every paired device loses access for a minute or two.
+              </p>
+              <div class="pair">
+                <button class="primary" onclick={installServerUpdate}>Install now</button>
+                <button onclick={() => (srvUpdStage = "idle")}>Cancel</button>
+              </div>
+            {:else if srvUpd.blocked}
+              <p class="muted">{srvUpd.blocked}</p>
+              <button class="ghost small" onclick={() => (srvUpdHidden = true)}>Hide</button>
+            {:else}
+              <div class="pair">
+                <button class="primary" onclick={() => (srvUpdStage = "confirm")}>Install on the server…</button>
+                <button onclick={() => (srvUpdHidden = true)}>Not now</button>
+              </div>
+            {/if}
+            {#if srvUpd.error}<p class="muted">{srvUpd.error}</p>{/if}
+          {/if}
+        </section>
+      {/if}
       {#if session}
         {@const live = session}
         <section class="pane live-card">
