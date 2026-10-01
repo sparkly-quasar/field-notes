@@ -640,7 +640,7 @@ using the model switch and reading the screens as a first-timer would.
 
 </details>
 
-0. ✅ **Built 2026-10-01, unreleased.** `normalize_import` in `commands.rs` now owns
+0. ✅ **Shipped in v0.14.0.** `normalize_import` in `commands.rs` now owns
    the rule (chrono added); `rebaseTimestamps` is gone from `+page.svelte`, and
    `import_experience` takes the confirmed `start` separately so the model's own
    `started_at` still tells it whether the report was dated. Unparseable times fall back
@@ -755,7 +755,7 @@ using the model switch and reading the screens as a first-timer would.
    by definition. Phase 3b is what makes the asleep case survivable — ship 3a first and
    see how often that actually bites before committing to it.
 
-2. ✅ **v1 built 2026-10-01, unreleased.** `stats.rs` (`usage_stats`, in `EXPOSED` and
+2. ✅ **v1 shipped in v0.14.0.** `stats.rs` (`usage_stats`, in `EXPOSED` and
    `ROUTED`, nine tests), `src/lib/stats.ts` (bucketing), and one responsive component,
    `src/lib/UsageStats.svelte`, used by the desktop **Stats** tab and the phone's
    **Journal → Entries | Stats** switch. Everything in "What goes on the page" is in
@@ -963,12 +963,13 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.13.3** (updated 2026-10-01). The phone redesign, one computer as
-the server, client-mode offline queueing, and sync-to-server are all shipped. In order:
+**Current release: v0.14.0** (2026-10-01): usage stats, import timestamps in the
+backend, the whole-word combo-matching fix, split date/time fields, a manual update
+check, and phone-installed server updates. Next:
 
-1. **#0 and #2 v1 are built (2026-10-01), not yet released.** Next: try the Stats page
-   on a real journal, then cut a release. Then the owner decides on stats export and
-   Companion access.
+1. **Real-device checks the release couldn't do:** tap a dose time on iPhone and in
+   the Mac app (no calendar should open); install the *next* release from a phone.
+2. **Owner decisions still open:** stats export, and Companion access to stats.
 3. **#1 Phase 3b — on hold.** See the note at the end of this section.
 
 The plain-entries write-up below is kept for the decisions it records (above all the
