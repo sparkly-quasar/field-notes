@@ -106,6 +106,9 @@ from your phone.
   ranges, spacing between sessions, how often, a calendar, and what you've taken
   together. Descriptive only: no streaks, scores or warnings, and a toggle hides
   substance names for screen-sharing.
+- **Updates** — automatic, a **Check for updates** button in Settings, and
+  (opt-in, set at the computer) a paired phone can install an update on the
+  computer it connects to.
 - **Contribute upstream** (consent-gated) — export substances you've catalogued
   that DoseWiki doesn't cover as a draft to submit by hand. Never automatic,
   never includes journal data.
