@@ -9,6 +9,7 @@
   back between the two variable names.
 -->
 <script lang="ts">
+  import DateTimeField from "./DateTimeField.svelte";
   import { listSubstances, pwNames, type Warning } from "$lib/api";
   import { parseTripLog, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
   import { saveTripLog, UNITS, type TripLine } from "$lib/quicklog";
@@ -175,7 +176,7 @@
       <input id="ti-day" type="date" bind:value={day} />
     {:else}
       <label for="ti-start">{timing === "offset" ? "When was T+0 — the first line?" : "When did it start? (No times in the log, so every line is placed here.)"}</label>
-      <input id="ti-start" type="datetime-local" bind:value={startAt} />
+      <DateTimeField id="ti-start" bind:value={startAt} variant="phone" />
     {/if}
 
     <label for="ti-title">Title (optional)</label>

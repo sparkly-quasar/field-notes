@@ -126,6 +126,7 @@
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
+  import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -2084,7 +2085,7 @@
           {#if editExp}
             <div class="edit-form">
               <label>Title<input bind:value={eTitle} /></label>
-              <label>Date<input type="datetime-local" bind:value={eStart} /></label>
+              <label>Date<DateTimeField bind:value={eStart} /></label>
               <label>Entry<textarea bind:value={eNotes} rows="10"></textarea></label>
               <div class="row-actions">
                 <button class="primary small-btn" onclick={saveExp}>Save</button>
@@ -2113,7 +2114,7 @@
           {#if editExp}
             <div class="edit-form">
               <label>Title<input bind:value={eTitle} /></label>
-              <label>Started<input type="datetime-local" bind:value={eStart} /></label>
+              <label>Started<DateTimeField bind:value={eStart} /></label>
               <label>Intention<input bind:value={eIntention} /></label>
               <label>Setting<input bind:value={eSetting} /></label>
               <label>Notes<textarea id="exp-writeup" bind:value={eNotes} rows="3"></textarea></label>
@@ -2152,7 +2153,7 @@
                       <input type="number" step="any" bind:value={edAmt} class="narrow" />
                       <input bind:value={edUnit} class="narrow" />
                       <input bind:value={edRoute} class="narrow" />
-                      <input type="datetime-local" bind:value={edTime} />
+                      <DateTimeField bind:value={edTime} />
                       <button class="primary small-btn" onclick={saveDose}>Save</button>
                       <button class="ghost small-btn" onclick={() => (editingDoseId = null)}>Cancel</button>
                     </div>
@@ -2177,7 +2178,7 @@
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
-            <input type="datetime-local" bind:value={dTime} title="Time taken" />
+            <DateTimeField bind:value={dTime} title="Time taken" />
             <button class="primary small-btn" onclick={submitDose}>Log dose</button>
           </div>
           {#if dRef}
@@ -2212,7 +2213,7 @@
                       <input bind:value={etNote} />
                       <input bind:value={etMood} class="narrow" placeholder="mood" />
                       <input type="number" min="0" max="10" bind:value={etIntensity} class="narrow" placeholder="0-10" />
-                      <input type="datetime-local" bind:value={etTime} />
+                      <DateTimeField bind:value={etTime} />
                       <button class="primary small-btn" onclick={saveTimeline}>Save</button>
                       <button class="ghost small-btn" onclick={() => (editingTimelineId = null)}>Cancel</button>
                     </div>
@@ -2320,7 +2321,7 @@
                     </button>
                   {/each}
                 </div>
-                <input type="datetime-local" bind:value={qlWhen} title="When you took it" />
+                <DateTimeField bind:value={qlWhen} title="When you took it" />
                 <button class="primary small-btn" disabled={!qlSub.trim()} onclick={submitQuickLog}>
                   Log it
                 </button>
@@ -2355,9 +2356,9 @@
                 title="Leave blank and the session takes the name of the first substance you log."
                 bind:value={neTitle}
               />
-              <input type="datetime-local" bind:value={neStart} title={nePast ? "When it started" : "Start time"} />
+              <DateTimeField bind:value={neStart} title={nePast ? "When it started" : "Start time"} />
               {#if nePast}
-                <input type="datetime-local" bind:value={neEnd} title="When it ended (optional)" />
+                <DateTimeField bind:value={neEnd} title="When it ended (optional)" />
               {/if}
               <input placeholder="Intention (optional)" bind:value={neIntention} />
               <input placeholder="Set & setting (optional)" bind:value={neSetting} />
@@ -2375,7 +2376,7 @@
               <input placeholder="Title (optional)" bind:value={nnTitle} />
               <textarea rows="6" placeholder="Write anything." bind:value={nnBody}></textarea>
               <div class="row-actions">
-                <input type="datetime-local" bind:value={nnDate} title="Date" />
+                <DateTimeField bind:value={nnDate} title="Date" />
                 <button class="primary small-btn" onclick={submitNewNote}>Save note</button>
               </div>
             </div>
@@ -2422,7 +2423,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 <p class="muted small">Review what was found, then import. You can edit or delete anything afterward.</p>
                 <div class="new-exp">
                   <input placeholder="Title" bind:value={importTitle} />
-                  <input type="datetime-local" bind:value={importStart} title="Start time" />
+                  <DateTimeField bind:value={importStart} title="Start time" />
                 </div>
                 {#if importParsed.intention || importParsed.setting || importParsed.notes}
                   <dl class="import-summary">
