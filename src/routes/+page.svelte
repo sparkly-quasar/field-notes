@@ -126,6 +126,7 @@
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
+  import UsageStats from "$lib/UsageStats.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -133,7 +134,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { exit } from "@tauri-apps/plugin-process";
 
-  type Tab = "journal" | "companion" | "substances" | "bysub" | "data";
+  type Tab = "journal" | "companion" | "substances" | "bysub" | "stats" | "data";
 
   const HIDE_DISCLAIMER_KEY = "fieldnotes.hideDisclaimer";
 
@@ -876,43 +877,11 @@
     }
   }
 
-  // When the model had no real calendar date to work from (started_at came back
-  // null), it still tends to stamp doses with a *fabricated* absolute date that
-  // nonetheless carries the right spacing between them (e.g. from "T+2:00"). Shift
-  // those onto the start the user just confirmed so the times read correctly and the
-  // t+ offsets line up — while leaving a genuinely dated report untouched.
-  function rebaseTimestamps(parsed: ParsedExperience, startIso: string): ParsedExperience {
-    if (parsed.started_at) return parsed; // a real date was extracted — trust it
-    const ms = (s?: string | null) => {
-      const t = s ? Date.parse(s) : NaN;
-      return Number.isNaN(t) ? null : t;
-    };
-    const stamps = [
-      ...parsed.doses.map((d) => ms(d.taken_at)),
-      ...parsed.timeline.map((e) => ms(e.at)),
-    ].filter((t): t is number => t != null);
-    const base = Date.parse(startIso);
-    if (!stamps.length || Number.isNaN(base)) return parsed;
-    const shift = base - Math.min(...stamps);
-    const remap = (s?: string | null) => {
-      const t = ms(s);
-      return t == null ? (s ?? null) : new Date(t + shift).toISOString();
-    };
-    return {
-      ...parsed,
-      doses: parsed.doses.map((d) => ({ ...d, taken_at: remap(d.taken_at) })),
-      timeline: parsed.timeline.map((e) => ({ ...e, at: remap(e.at) })),
-    };
-  }
-
   async function confirmImport() {
     if (!importParsed) return;
     const startIso = localInputToIso(importStart);
-    const exp = await importExperience({
-      ...rebaseTimestamps(importParsed, startIso),
-      title: importTitle,
-      started_at: startIso,
-    });
+    // The backend rebases a T+ report's times onto this start (normalize_import).
+    const exp = await importExperience({ ...importParsed, title: importTitle }, startIso);
     importParsed = null;
     importText = "";
     showImport = false;
@@ -2061,6 +2030,7 @@
       <nav>
         <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
         <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
+        <button class:active={tab === "stats"} onclick={() => goTab("stats")}>Stats</button>
         <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substance Directory</button>
         {#if !companionOff}
           <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
@@ -2890,6 +2860,14 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {:else}
           <p class="muted">No doses logged yet.</p>
         {/if}
+      </section>
+    {/if}
+
+    {#if tab === "stats"}
+      <section class="card">
+        <h2>Stats</h2>
+        <p class="muted small">Patterns from the doses in your journal. Nothing here is a judgement or a warning; it's what you logged, laid out.</p>
+        <UsageStats onOpen={async (id) => { await goTab("journal"); await openExperience(id); }} />
       </section>
     {/if}
 

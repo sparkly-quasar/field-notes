@@ -50,4 +50,7 @@ sha2 = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 # Opt-in: open at login, for a computer acting as the server.
 tauri-plugin-autostart = "2"
+# Text import owns its timestamp rules (`normalize_import` in commands.rs): parse what
+# the model extracted, drop what doesn't parse, rebase a T+ report onto its start.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }

@@ -13,6 +13,8 @@ use crate::ollama::{self, AiStatus, ChatMsg};
 use crate::portal::{self, Portal};
 use crate::pw::{self, PwInfo};
 use crate::{Db, Knowledge};
+use crate::stats::{self, parse_ts};
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -91,6 +93,12 @@ pub fn log_dose(db: State<'_, Db>, input: DoseInput) -> Result<LogDoseResult, St
 #[tauri::command]
 pub fn add_timeline_event(db: State<'_, Db>, input: TimelineInput) -> Result<TimelineEvent, String> {
     db.with(|c| db::add_timeline_event(c, &input))
+}
+
+/// Usage stats (roadmap #2) for doses at or after `since`, or all time. Read-only.
+#[tauri::command]
+pub fn usage_stats(db: State<'_, Db>, since: Option<String>) -> Result<stats::UsageStats, String> {
+    db.with(|c| stats::usage_stats(c, since.as_deref()))
 }
 
 #[tauri::command]
@@ -323,8 +331,64 @@ pub async fn parse_experience(model: String, text: String) -> Result<ollama::Par
 
 /// Commit a (reviewed) parsed experience to the journal: experience + doses +
 /// timeline. Missing timestamps fall back to the experience start.
+/// The one rule for an imported experience's times, applied before anything is
+/// written:
+///
+/// - A dose or timeline time that doesn't parse is dropped, so it falls back to
+///   the session start instead of reaching the journal as text like "T+2:00".
+/// - `start` is the start the user confirmed in the review step; it wins over
+///   whatever the model extracted.
+/// - When the model found **no real date** (`started_at` missing or unparseable),
+///   it still tends to stamp doses with a made-up date that carries the right
+///   spacing (from "T+2:00" and the like). Those are shifted so the earliest lands
+///   on the start, spacing kept. A report that was genuinely dated is left alone.
+pub(crate) fn normalize_import(
+    mut parsed: ollama::ParsedExperience,
+    start: Option<String>,
+) -> ollama::ParsedExperience {
+    let dated = parsed.started_at.as_deref().and_then(parse_ts).is_some();
+    let start = start
+        .filter(|s| parse_ts(s).is_some())
+        .or_else(|| parsed.started_at.clone().filter(|_| dated));
+
+    let mut stamps: Vec<&mut Option<String>> = parsed
+        .doses
+        .iter_mut()
+        .map(|d| &mut d.taken_at)
+        .chain(parsed.timeline.iter_mut().map(|t| &mut t.at))
+        .collect();
+    for s in stamps.iter_mut() {
+        if s.as_deref().and_then(parse_ts).is_none() {
+            **s = None;
+        }
+    }
+
+    if !dated {
+        if let Some(base) = start.as_deref().and_then(parse_ts) {
+            let times: Vec<DateTime<Utc>> =
+                stamps.iter().filter_map(|s| s.as_deref().and_then(parse_ts)).collect();
+            if let Some(earliest) = times.iter().min() {
+                let shift = base - *earliest;
+                for s in stamps.iter_mut() {
+                    if let Some(t) = s.as_deref().and_then(parse_ts) {
+                        **s = Some((t + shift).to_rfc3339_opts(SecondsFormat::Secs, true));
+                    }
+                }
+            }
+        }
+    }
+
+    parsed.started_at = start;
+    parsed
+}
+
 #[tauri::command]
-pub fn import_experience(db: State<'_, Db>, parsed: ollama::ParsedExperience) -> Result<Experience, String> {
+pub fn import_experience(
+    db: State<'_, Db>,
+    parsed: ollama::ParsedExperience,
+    start: Option<String>,
+) -> Result<Experience, String> {
+    let parsed = normalize_import(parsed, start);
     let guard = db.conn.lock().unwrap();
     let conn = guard.as_ref().ok_or_else(Db::locked_err)?;
     let started = match parsed.started_at.as_deref() {
@@ -1779,6 +1843,76 @@ pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn import(started_at: Option<&str>, doses: &[Option<&str>], timeline: &[Option<&str>]) -> ollama::ParsedExperience {
+        ollama::ParsedExperience {
+            started_at: started_at.map(String::from),
+            doses: doses
+                .iter()
+                .map(|t| ollama::ParsedDose { substance: "LSD".into(), taken_at: t.map(String::from), ..Default::default() })
+                .collect(),
+            timeline: timeline
+                .iter()
+                .map(|t| ollama::ParsedTimeline { note: "peak".into(), at: t.map(String::from), ..Default::default() })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_t_plus_report_lands_on_the_confirmed_start_with_its_spacing_kept() {
+        // No real date found: the model invented 2024-01-01 from "T+0 / T+1:30 / T+2:00".
+        let p = normalize_import(
+            import(None, &[Some("2024-01-01T00:00:00Z"), Some("2024-01-01T01:30:00Z")], &[Some("2024-01-01T02:00:00Z")]),
+            Some("2026-09-20T20:00:00Z".into()),
+        );
+        assert_eq!(p.started_at.as_deref(), Some("2026-09-20T20:00:00Z"));
+        assert_eq!(p.doses[0].taken_at.as_deref(), Some("2026-09-20T20:00:00Z"));
+        assert_eq!(p.doses[1].taken_at.as_deref(), Some("2026-09-20T21:30:00Z"));
+        assert_eq!(p.timeline[0].at.as_deref(), Some("2026-09-20T22:00:00Z"));
+    }
+
+    #[test]
+    fn a_genuinely_dated_report_is_left_alone() {
+        let p = normalize_import(
+            import(Some("2025-06-01T19:00:00Z"), &[Some("2025-06-01T19:15:00Z")], &[Some("2025-06-01T21:00:00+02:00")]),
+            Some("2025-06-01T19:00:00Z".into()),
+        );
+        assert_eq!(p.doses[0].taken_at.as_deref(), Some("2025-06-01T19:15:00Z"));
+        assert_eq!(p.timeline[0].at.as_deref(), Some("2025-06-01T21:00:00+02:00"), "kept verbatim");
+    }
+
+    #[test]
+    fn a_time_that_does_not_parse_falls_back_to_the_start() {
+        let p = normalize_import(
+            import(None, &[Some("T+2:00"), Some("")], &[Some("around the peak")]),
+            Some("2026-09-20T20:00:00Z".into()),
+        );
+        assert!(p.doses.iter().all(|d| d.taken_at.is_none()));
+        assert!(p.timeline[0].at.is_none());
+        assert_eq!(p.started_at.as_deref(), Some("2026-09-20T20:00:00Z"));
+    }
+
+    #[test]
+    fn unparseable_times_do_not_count_toward_the_rebase() {
+        let p = normalize_import(
+            import(None, &[Some("nonsense"), Some("2024-01-01 03:00"), Some("2024-01-01T04:00")], &[]),
+            Some("2026-09-20T20:00:00Z".into()),
+        );
+        assert!(p.doses[0].taken_at.is_none());
+        assert_eq!(p.doses[1].taken_at.as_deref(), Some("2026-09-20T20:00:00Z"));
+        assert_eq!(p.doses[2].taken_at.as_deref(), Some("2026-09-20T21:00:00Z"));
+    }
+
+    #[test]
+    fn without_a_confirmed_start_the_extracted_one_is_used() {
+        let p = normalize_import(import(Some("2025-06-01T19:00:00Z"), &[], &[]), None);
+        assert_eq!(p.started_at.as_deref(), Some("2025-06-01T19:00:00Z"));
+        // An unparseable extracted start is no start at all; the command uses "now".
+        let p = normalize_import(import(Some("last summer"), &[Some("2024-01-01T00:00:00Z")], &[]), None);
+        assert!(p.started_at.is_none());
+        assert_eq!(p.doses[0].taken_at.as_deref(), Some("2024-01-01T00:00:00Z"), "nothing to rebase onto");
+    }
 
     /// After a reboot the portal may land on a different loopback port, but the
     /// tailnet URL every device knows must stay the same. Our old handler is
