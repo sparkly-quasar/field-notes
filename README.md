@@ -102,6 +102,10 @@ from your phone.
   system keychain after a reboot.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.
+- **Stats** (desktop and phone): dose over time against the reference's dose
+  ranges, spacing between sessions, how often, a calendar, and what you've taken
+  together. Descriptive only: no streaks, scores or warnings, and a toggle hides
+  substance names for screen-sharing.
 - **Contribute upstream** (consent-gated) — export substances you've catalogued
   that DoseWiki doesn't cover as a draft to submit by hand. Never automatic,
   never includes journal data.
@@ -110,20 +114,35 @@ from your phone.
 
 ## Screenshots
 
+All screenshots use a fictional demo journal.
+
+### Desktop
+
 | | |
 |:---:|:---:|
 | ![Journal home](docs/screenshots/journal-home.png) | ![Live session](docs/screenshots/live-session.png) |
-| **Journal** — sessions and plain notes in one place | **Live session** — elapsed time, one-tap logging, and the companion |
-| ![Companion chat](docs/screenshots/companion-chat.png) | ![Session detail](docs/screenshots/session-detail.png) |
-| **Companion** — local AI support chat with selectable support styles | **Session detail** — doses with inline reference ranges and combination warnings |
+| **Journal**: sessions and plain notes in one place | **Live session**: doses and timeline with t+ offsets |
+| ![Session detail](docs/screenshots/session-detail.png) | ![Stats](docs/screenshots/stats.png) |
+| **Session detail**: what you took, when, and how it went | **Stats**: dose over time against reference ranges, spacing, frequency, calendar |
+| ![Companion chat](docs/screenshots/companion-chat.png) | ![Substance log](docs/screenshots/substance-log.png) |
+| **Companion**: local AI support chat with selectable support styles | **Substance log**: history grouped by substance |
 | ![Substances reference](docs/screenshots/substances-reference.png) | ![Reference search](docs/screenshots/reference-search.png) |
-| **Substances** — offline dose reference and your own catalogue | **Reference search** — thousands of DoseWiki passages, searchable offline |
-| ![Substance log](docs/screenshots/substance-log.png) | ![Emergency help](docs/screenshots/emergency-help.png) |
-| **Substance log** — history grouped by substance | **Get help now** — real crisis and peer-support contacts, always one tap away |
-| ![Phone access settings](docs/screenshots/settings-phone-access.png) | ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) |
-| **Phone access** — optional, Tailscale-only, off by default | **Encryption & backups** — AES-256 at rest, one-file backup and restore |
-| ![Obsidian vault sync](docs/screenshots/settings-obsidian-sync.png) | ![Data location](docs/screenshots/settings-data-location.png) |
-| **Obsidian sync** — two-way Markdown export, fully offline | **Your data, one folder** — everything lives on your device, erase anytime |
+| **Substances**: offline dose reference and your own catalogue | **Reference search**: thousands of DoseWiki passages, searchable offline |
+| ![Emergency help](docs/screenshots/emergency-help.png) | ![Updates](docs/screenshots/settings-updates.png) |
+| **Get help now**: real crisis and peer-support contacts, always one tap away | **Updates**: automatic, or check by hand any time |
+| ![Devices and server](docs/screenshots/settings-phone-access.png) | ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) |
+| **Devices & server**: optional, Tailscale-only, off by default | **Encryption & backups**: AES-256 at rest, one-file backup and restore |
+| ![Obsidian vault sync](docs/screenshots/settings-obsidian-sync.png) | ![Erase and uninstall](docs/screenshots/settings-data-location.png) |
+| **Obsidian sync**: two-way Markdown export, fully offline | **Your data, one folder**: everything lives on your device, erase anytime |
+
+### Phone
+
+| | | |
+|:---:|:---:|:---:|
+| ![Today](docs/screenshots/phone-today.png) | ![Journal](docs/screenshots/phone-journal.png) | ![Entry](docs/screenshots/phone-entry.png) |
+| **Today**: the live session at your thumb | **Journal**: search and filter everything | **Entry**: a past session, editable |
+| ![Stats](docs/screenshots/phone-stats.png) | ![Stats chart](docs/screenshots/phone-stats-chart.png) | ![Combo check](docs/screenshots/phone-check.png) |
+| **Stats**: range, substances, totals | **Dose over time**: tap a dose for details | **Check**: combinations, from the deterministic checker |
 
 ## Install & update
 
