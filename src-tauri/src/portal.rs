@@ -368,6 +368,13 @@ pub const EXPOSED: &[&str] = &[
     "usage_by_substance",
     // Read-only aggregation over the same rows as `usage_by_substance`.
     "usage_stats",
+    // Updating the server. Status is a read. Install is the one exposed command
+    // that installs software: it's off until enabled at the computer, refuses
+    // unless the server will come back by itself, and installs only a signed
+    // release from the app's own update URL. See `server_update.rs`. The switch
+    // that enables it, `set_phone_can_update`, is deliberately absent.
+    "server_update_status",
+    "server_update_install",
     "list_substances",
     "db_status",
     "companion_enabled",
@@ -424,6 +431,8 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         }
         "usage_by_substance" => done(commands::usage_by_substance(db)),
         "usage_stats" => done(commands::usage_stats(db, arg(&args, "since")?)),
+        "server_update_status" => ok(crate::server_update::status(app)),
+        "server_update_install" => done(crate::server_update::install(app)),
         "list_substances" => done(commands::list_substances(db)),
         "db_status" => ok(commands::db_status(db)),
         "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
@@ -1019,5 +1028,14 @@ mod tests {
     fn usage_stats_is_reachable_from_a_phone_and_a_client() {
         assert!(EXPOSED.contains(&"usage_stats"));
         assert!(crate::remote::ROUTED.contains(&"usage_stats"));
+    }
+
+    /// A phone may install a server update, but may never turn that permission on.
+    #[test]
+    fn a_phone_can_install_updates_but_not_grant_itself_the_right() {
+        assert!(EXPOSED.contains(&"server_update_status"));
+        assert!(EXPOSED.contains(&"server_update_install"));
+        assert!(!EXPOSED.contains(&"set_phone_can_update"));
+        assert!(!EXPOSED.contains(&"set_server_prefs"));
     }
 }

@@ -91,6 +91,7 @@
     portalRevoke,
     serverPrefs,
     setServerPrefs,
+    setPhoneCanUpdate,
     keychainStatus,
     keychainRemember,
     keychainForget,
@@ -259,7 +260,7 @@
   let pairLinkCopied = $state(false);
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
-  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null });
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false });
   let loginStart = $state(false);
   let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
   let kcPass = $state("");
@@ -1679,6 +1680,15 @@
       sprefs = await setServerPrefs(!sprefs.serve_on_launch);
       portal = await portalStatus();
       ts = await portalTailscale();
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function togglePhoneCanUpdate() {
+    portalErr = null;
+    try {
+      sprefs = await setPhoneCanUpdate(!sprefs.phone_can_update);
     } catch (e) {
       portalErr = e instanceof Error ? e.message : String(e);
     }
@@ -3163,6 +3173,17 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <input type="checkbox" checked={loginStart} onchange={toggleLoginStart} />
             Open Field Notes when I log in to this computer
           </label>
+          <label class="share">
+            <input type="checkbox" checked={sprefs.phone_can_update} onchange={togglePhoneCanUpdate} />
+            Let paired phones install Field Notes updates on this computer
+          </label>
+          {#if sprefs.phone_can_update}
+            <p class="muted small">
+              Installing restarts Field Notes here. A phone can only do it when device access turns on by
+              itself at launch, the journal can unlock itself (its password saved below, if it's encrypted),
+              and no session is open. Only signed Field Notes releases can be installed.
+            </p>
+          {/if}
           {#if kc.applicable}
             {#if kc.remembered}
               <p class="small">

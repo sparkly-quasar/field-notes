@@ -1778,6 +1778,26 @@ pub fn set_server_prefs(app: AppHandle, prefs: State<'_, Prefs>, serve_on_launch
     Ok(p)
 }
 
+/// Whether this computer has a Field Notes update waiting, and whether a phone may
+/// install it. Exposed to the phone.
+#[tauri::command]
+pub fn server_update_status(app: AppHandle) -> crate::server_update::ServerUpdateStatus {
+    crate::server_update::status(&app)
+}
+
+/// Install the waiting update and restart, if every guard in `server_update.rs`
+/// allows it. Exposed to the phone.
+#[tauri::command]
+pub fn server_update_install(app: AppHandle) -> Result<crate::server_update::ServerUpdateStatus, String> {
+    crate::server_update::install(&app)
+}
+
+/// Let paired phones install updates. Desktop only: never on the portal allowlist.
+#[tauri::command]
+pub fn set_phone_can_update(prefs: State<'_, Prefs>, allowed: bool) -> Result<ServerPrefs, String> {
+    prefs.update(|p| p.phone_can_update = allowed)
+}
+
 #[derive(Serialize)]
 pub struct KeychainStatus {
     /// The journal is encrypted, so there is a passphrase to remember at all.

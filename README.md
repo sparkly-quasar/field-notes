@@ -262,7 +262,10 @@ session at least once:
 - **Adding a command to `EXPOSED` is a security decision, not a plumbing one.** Ask what
   it does in the hands of someone holding a phone that isn't yours. `ai_start` is exposed
   (it wakes a loopback server the app already owns); `ai_install` and `ai_pull` are not
-  (they install software and download gigabytes).
+  (they install software and download gigabytes). The one exception is
+  `server_update_install`: it installs only a signed Field Notes release, is off until
+  enabled at the computer, and refuses unless the server will come back by itself
+  (see `server_update.rs`). The switch that enables it is not exposed.
 - **Known rough edge:** browsing to the portal's `/` (rather than `/m`) from a phone
   serves the *desktop* page, which half-renders and throws console errors. Harmless —
   the allowlist is server-side — and fixed as part of Phase 3b.

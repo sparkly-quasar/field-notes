@@ -599,6 +599,8 @@ export interface PairResult {
 export interface ServerPrefs {
   serve_on_launch: boolean;
   served_https: number | null;
+  /** Paired phones may install updates on this computer. Set only at the computer. */
+  phone_can_update: boolean;
 }
 export interface KeychainStatus {
   /** The journal is encrypted, so there's a password to remember at all. */
@@ -654,6 +656,22 @@ export const portalRevoke = (id: number) => invoke<DeviceInfo[]>("portal_revoke"
 export const serverPrefs = () => invoke<ServerPrefs>("server_prefs");
 export const setServerPrefs = (serveOnLaunch: boolean) =>
   invoke<ServerPrefs>("set_server_prefs", { serveOnLaunch });
+/** Desktop only: let paired phones install updates here. Not on the portal allowlist. */
+export const setPhoneCanUpdate = (allowed: boolean) => invoke<ServerPrefs>("set_phone_can_update", { allowed });
+
+// ---- updating the server from a phone (see src-tauri/src/server_update.rs) ----
+export interface ServerUpdateStatus {
+  current: string;
+  available: { version: string; notes: string } | null;
+  /** Why this phone can't install it now; null means it can. */
+  blocked: string | null;
+  installing: boolean;
+  /** A check is running on the server; ask again shortly. */
+  checking: boolean;
+  error: string | null;
+}
+export const serverUpdateStatus = () => invoke<ServerUpdateStatus>("server_update_status");
+export const serverUpdateInstall = () => invoke<ServerUpdateStatus>("server_update_install");
 export const keychainStatus = () => invoke<KeychainStatus>("keychain_status");
 export const keychainRemember = (passphrase: string) =>
   invoke<KeychainStatus>("keychain_remember", { passphrase });

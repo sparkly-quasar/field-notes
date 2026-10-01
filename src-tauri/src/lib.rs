@@ -21,6 +21,7 @@ mod portal;
 mod prefs;
 pub mod pw;
 mod remote;
+mod server_update;
 mod stats;
 
 use rusqlite::Connection;
@@ -138,6 +139,7 @@ pub fn run() {
             app.manage(portal::CompanionJobs::default());
             app.manage(devices::Devices::load(dir.join("devices.json")));
             app.manage(prefs::Prefs::load(dir.join("server.json")));
+            app.manage(server_update::ServerUpdate::default());
             // Using another computer as the server: sends queued entries and notices
             // when it comes back. Idle unless this computer is connected to one.
             app.manage(remote::Remote::default());
@@ -161,6 +163,9 @@ pub fn run() {
             commands::add_timeline_event,
             commands::usage_by_substance,
             commands::usage_stats,
+            commands::server_update_status,
+            commands::server_update_install,
+            commands::set_phone_can_update,
             commands::update_experience,
             commands::update_dose,
             commands::update_timeline_event,
