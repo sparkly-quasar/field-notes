@@ -749,6 +749,101 @@ using the model switch and reading the screens as a first-timer would.
    by definition. Phase 3b is what makes the asleep case survivable — ship 3a first and
    see how often that actually bites before committing to it.
 
+2. **Usage stats: a page of patterns from your own journal.** A read-only view that
+   turns the doses already in the journal into a few honest pictures: how much, how
+   often, and how far apart. It works on **both the desktop and the phone (`/m`)** from
+   day one, not desktop first with a phone port later. No new data is collected; this
+   only reads what's already logged.
+
+   **What goes on the page (in rough priority order):**
+   - **Dose over time, per substance**: the headline chart. One dot per dose (x = date,
+     y = amount), one substance at a time, picked from chips. Where `pw.rs` has a dose
+     range for that substance + route + unit, draw the **light / common / strong bands**
+     behind the dots. That gives a dose context a number alone doesn't, and it comes from
+     the deterministic layer, never the corpus (containment rule 1 still holds).
+   - **Frequency**: sessions per week or month as bars, over a range picker (30 days ·
+     90 days · 1 year · all). Count **sessions**, not dose rows, so a redose doesn't
+     double-count a night.
+   - **Spacing between sessions**: days since the last use of each substance, and the
+     gap between consecutive sessions. For psychedelics this is the tolerance question
+     people actually ask ("is it too soon?"), and it's more useful than a raw count.
+     Show the gap as a fact. Any tolerance guidance stays with the Companion and the
+     reference, not baked into the chart.
+   - **Calendar heatmap**: a year at a glance, one cell per day, shaded by number of
+     sessions. It reads well on desktop. On the phone it collapses to the current month
+     with swipe/arrows (a 53-column year doesn't fit 360px).
+   - **Combinations**: which substances show up together in the same session, most
+     common first. It pairs naturally with the combo checker: tapping a pair opens Check
+     with it prefilled.
+   - **Smaller tiles:** route breakdown per substance, time of day doses are taken, and
+     average session rating where ratings exist.
+   - *Ideas worth considering later, not in v1:* overlaying timeline `intensity` on a
+     session's dose times (a personal dose-response curve), and rating vs. dose. Both
+     invite reading causation into a handful of points, so they'd need careful wording
+     and a minimum-N before they show anything.
+
+   **Data rules (the parts that will bite if skipped):**
+   - **Never sum or average across units.** `doses.unit` is free text (`mg`, `µg`, `g`,
+     `tab`, `ml`, `hits`…). Group by **substance + unit** and chart each group on its own
+     axis. Don't convert units (a "tab" has no mg value, and guessing one is inventing a
+     number). If one substance has several units, the chips split it ("LSD · µg",
+     "LSD · tab").
+   - **`amount` is nullable.** A dose with no amount still counts toward frequency and
+     spacing but is left off the dose chart. Say how many were left off ("3 doses without
+     an amount aren't shown") instead of dropping them silently.
+   - **Group by `substance_id` when it's set, else by normalized `substance_name`,** so a
+     catalogue rename or an alias doesn't split one substance into two series.
+   - **Plain journal entries (`kind = 'note'`) are excluded by definition**, same as the
+     substance log.
+   - **Local time.** Bucket days and weeks in the device's timezone (the v0.6.0 UTC bug
+     on the phone portal is the precedent to avoid).
+
+   **Architecture:**
+   - **One aggregation, in Rust.** A new read-only `usage_stats(range, substance?)`
+     command in `commands.rs` does the grouping and returns chart-ready series. The
+     desktop and phone render the same payload, so there's no second implementation of
+     the unit/grouping rules.
+   - **Add it to `EXPOSED` on purpose.** It's read-only, so it belongs on the phone, but
+     per `portal.rs`'s rules it has to be allowlisted deliberately, with a test.
+   - **No chart library.** Hand-rolled SVG in Svelte. The app is offline and ships no
+     CDN code, and the charts above are dots, bars and a grid, which don't need a
+     dependency. Every chart gets a **data table fallback** (a "show as table" toggle)
+     for screen readers and for exact numbers.
+
+   **Desktop and phone:**
+   - **Where it lives:** desktop gets a **Stats** view alongside Journal. On the phone,
+     the v0.13.0 IA (Today · Journal · ＋ · Check · Talk) stays at five; Stats goes
+     **inside Journal** as a segmented "Entries | Stats" switch, not a sixth tab.
+   - **Phone layout is a single column of cards**, charts at full width, no horizontal
+     page scroll. **Tap, not hover**: tapping a dot or bar opens the existing bottom
+     sheet with that dose/session and a link to the entry. Desktop shows the same
+     detail on hover and click.
+   - Substance chips and the range picker sit at the top, within thumb reach on the
+     phone, and they're remembered per device.
+
+   **Framing and privacy (decide these deliberately):**
+   - **Descriptive, never judgmental.** No streaks, scores, goals, badges, or red/green
+     "good/bad" coloring. Harm-reduction framing means showing the pattern and trusting
+     the user with it. It also follows the 2026-07-14 decision that the app doesn't
+     read over the user's shoulder: **the stats page never raises alerts on its own**.
+     It's there when opened and quiet otherwise.
+   - **Shoulder-surfing.** This page is a summary of someone's drug use on one screen.
+     Offer a **"hide substance names"** toggle (labels become "Substance A/B") for
+     viewing in public or screen-sharing.
+   - **Export is the open question.** A "save as PDF / image" for bringing to a
+     therapist, prescriber, or integration session is genuinely useful, but it moves the
+     data outside the encrypted journal. If it ships, it gets the same **plaintext
+     warning** as Obsidian export, and it's an explicit action, never automatic.
+   - **Companion access: off by default.** The Companion could answer "how often have I
+     been using X?" from this payload, but that's a new read path into the journal. If
+     it's added, it's opt-in, like "share session", and it uses the same
+     `usage_stats` output rather than its own queries.
+
+   **Tests:** mixed units never merge; null amounts count for frequency but not for
+   the dose chart; `note` entries are excluded; a session with three doses counts once
+   for frequency; day bucketing respects local time across midnight; `usage_stats` is in
+   `EXPOSED`.
+
 ---
 
 ## Companion design principles (peer-support model)
