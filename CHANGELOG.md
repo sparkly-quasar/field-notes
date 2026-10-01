@@ -11,6 +11,46 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.14.0
+
+- **Fixed: the combination check flagged safe-sounding pairs as dangerous.**
+  Some substances have one-letter street names in the dose reference (LSD is
+  also "L", MDMA "E" and "X", ketamine "K"), and the check treated any name
+  that *contained* one of those letters as a match. So "Lithium" matched LSD,
+  and LSD with mushrooms came up as "dangerous: high seizure and psychosis
+  risk", which is lithium's warning. Matching is now by whole words, which
+  removes hundreds of false warnings across the reference and catches some
+  real ones the old check missed (for example, "Stimulants" now matches
+  substances listed as "Stimulant (mild)"). Warnings about tramadol also now
+  apply to O-desmethyltramadol, its active form. If you'd learned to ignore a
+  warning that kept coming up, it's worth looking again at what's flagged now.
+- **Stats.** A new page, on the desktop and in the phone's Journal tab, laid
+  out from what you've logged: each dose over time against the reference's
+  light, common and strong ranges; days since you last took something and the
+  usual gap between sessions; how often, by week or month; a calendar; what
+  you've taken together; and time of day. It describes, it doesn't judge:
+  there are no streaks, scores or warnings. **Hide substance names** swaps
+  names for letters if you're sharing your screen, and every chart can be
+  shown as a table.
+- **Changing a time no longer opens a calendar.** Every date and time is now
+  two fields, a date and a time. On iPhone and on a Mac, tapping the time
+  opens only a time picker.
+- **Check for updates yourself.** Settings has a **Check for updates** button
+  that tells you whether you're up to date.
+- **Update your server from your phone.** When the computer your phone
+  connects to has an update waiting, the phone's Today tab says so. If you
+  turn on **Let paired phones install Field Notes updates** in Settings on
+  that computer, the phone can install it too. The computer restarts and the
+  phone reconnects by itself. It's only offered when the computer can come
+  back without anyone at it (device access turns on at launch, and an
+  encrypted journal can unlock itself), and never while a session is open.
+  It's off until you turn it on.
+- **Pasting a trip report with T+ times is more reliable.** Times that can't
+  be read now fall back to the start of the session instead of being saved as
+  text, and a report with no real date is placed on the start you choose.
+- **Fixed:** in Settings, the Server Mode checkboxes sat far away from their
+  labels.
+
 ## v0.13.3
 
 - **Fixed: "Sync journal to server" could copy entries twice.** If the server

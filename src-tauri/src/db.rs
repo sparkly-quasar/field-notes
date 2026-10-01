@@ -885,10 +885,23 @@ pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
 /// Does a DoseWiki interaction entry (a substance name or a class like
 /// "Stimulants"/"MAOIs") refer to `other`? Matches `other`'s name, aliases, and
 /// psychoactive/chemical classes, with light singular/substring tolerance.
+/// Active metabolites sold or taken in their own right, and the parent drug whose
+/// interaction warnings apply to them. Whole-word matching can't see that
+/// "O-Desmethyltramadol" is tramadol's active form, and its reference entry lists no
+/// drug classes, so without this no warning naming tramadol would ever reach it.
+/// (metabolite, parent), both lowercase.
+const ACTIVE_METABOLITES: &[(&str, &str)] = &[("o-desmethyltramadol", "tramadol")];
+
 fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
     let i = interaction.to_lowercase();
     let i_sing = i.trim_end_matches('s');
     let mut ids: Vec<String> = vec![other.name.to_lowercase()];
+    ids.extend(
+        ACTIVE_METABOLITES
+            .iter()
+            .filter(|(m, _)| other.name.eq_ignore_ascii_case(m))
+            .map(|(_, parent)| parent.to_string()),
+    );
     ids.extend(other.common_names.iter().map(|s| s.to_lowercase()));
     ids.extend(other.psychoactive.iter().map(|s| s.to_lowercase()));
     ids.extend(other.chemical.iter().map(|s| s.to_lowercase()));
@@ -1025,6 +1038,25 @@ mod tests {
         assert!(matches_interaction("Stimulants", &mild));
         let dmt = info("DMT", &[], &["Psychedelic"], &["Tryptamine"]);
         assert!(matches_interaction("Tryptamines", &dmt));
+    }
+
+    #[test]
+    fn a_warning_about_tramadol_reaches_its_active_metabolite() {
+        let odsmt = info("O-Desmethyltramadol", &[], &[], &["Phenylpropylamine"]);
+        assert!(matches_interaction("Tramadol", &odsmt));
+        // One direction only: the metabolite is not tramadol for every other purpose.
+        let tramadol = info("Tramadol", &["Ultram"], &["Opioid"], &[]);
+        assert!(!matches_interaction("O-Desmethyltramadol", &tramadol));
+    }
+
+    #[test]
+    fn mdma_and_o_desmethyltramadol_are_flagged_from_the_bundled_reference() {
+        let c = mem();
+        let mut c = c;
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        pw_replace_all(&mut c, &all).unwrap();
+        let w = pw_interaction_warnings(&c, &["MDMA".into(), "O-Desmethyltramadol".into()]);
+        assert!(w.iter().any(|x| x.severity == "danger"), "{w:?}");
     }
 
     fn mem() -> Connection {
