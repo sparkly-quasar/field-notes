@@ -894,7 +894,28 @@ fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
     ids.extend(other.chemical.iter().map(|s| s.to_lowercase()));
     ids.iter().any(|id| {
         let id_sing = id.trim_end_matches('s');
-        id == &i || id_sing == i_sing || (i.len() >= 4 && (id.contains(&i) || i.contains(id.as_str())))
+        // Partial matches are whole words only, and never on a one- or two-letter
+        // street name: LSD is also "L", MDMA "E" and "X", ketamine "K", and a plain
+        // substring test made "Lithium", "Tramadol" and "Alcohol" all match LSD.
+        id == &i
+            || id_sing == i_sing
+            || (id.len() >= 3 && has_word(&i, id))
+            || (i.len() >= 4 && has_word(id, &i))
+            || (i_sing.len() >= 4 && has_word(id, i_sing))
+    })
+}
+
+/// `needle` appears in `hay` as a whole word (a plural "s" after it is allowed):
+/// no letter or digit directly on either side.
+fn has_word(hay: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    hay.match_indices(needle).any(|(at, _)| {
+        let before = hay[..at].chars().next_back();
+        let rest = &hay[at + needle.len()..];
+        let rest = rest.strip_prefix('s').filter(|r| !r.starts_with(char::is_alphanumeric)).unwrap_or(rest);
+        !before.is_some_and(char::is_alphanumeric) && !rest.starts_with(char::is_alphanumeric)
     })
 }
 
@@ -958,6 +979,53 @@ pub fn pw_interaction_warnings(conn: &Connection, names: &[String]) -> Vec<crate
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn info(name: &str, common: &[&str], psy: &[&str], chem: &[&str]) -> PwInfo {
+        let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
+        PwInfo {
+            name: name.into(),
+            common_names: v(common),
+            psychoactive: v(psy),
+            chemical: v(chem),
+            roas: vec![],
+            interactions: vec![],
+        }
+    }
+
+    #[test]
+    fn a_one_letter_street_name_does_not_match_inside_another_word() {
+        // LSD is also "L", MDMA "E" and "X", ketamine "K". Each of these was a
+        // false "dangerous combination" before matching went whole-word.
+        let lsd = info("LSD", &["Acid", "L", "LSD-25"], &["Psychedelic"], &["Lysergamide"]);
+        let mdma = info("MDMA", &["Molly", "E", "X", "MD"], &["Entactogen", "Stimulant"], &["Amphetamine"]);
+        let ket = info("Ketamine", &["K", "Ket"], &["Dissociative"], &["Arylcyclohexylamine"]);
+        for i in ["Lithium", "Tramadol", "Alcohol"] {
+            assert!(!matches_interaction(i, &lsd), "{i} must not match LSD");
+        }
+        assert!(!matches_interaction("Diphenhydramine", &mdma));
+        assert!(!matches_interaction("Psychedelics", &info("Heroin", &["H", "Smack"], &["Opioid"], &["Morphinan"])));
+        assert!(!matches_interaction("Tricyclic antidepressants", &info("Alprazolam", &[], &["Depressant"], &["Benzodiazepine"])));
+        assert!(!matches_interaction("Ketamine", &info("Clonazepam", &["K-pin"], &["Depressant"], &["Benzodiazepine"])));
+        assert!(matches_interaction("Ketamine", &ket));
+    }
+
+    #[test]
+    fn real_matches_still_match() {
+        let mdma = info("MDMA", &["Molly", "E"], &["Entactogen", "Stimulant"], &["Amphetamine"]);
+        assert!(matches_interaction("MDMA", &mdma));
+        assert!(matches_interaction("Molly", &mdma));
+        assert!(matches_interaction("Amphetamines", &mdma));
+        assert!(matches_interaction("Stimulants", &mdma));
+        let ghb = info("GHB", &["G"], &["Depressant"], &[]);
+        assert!(matches_interaction("GHB/GBL", &ghb));
+        // A class written with a qualifier, which plain substring matching missed.
+        let fa = info("2-FA", &[], &["Stimulant"], &["Amphetamine (substituted)"]);
+        assert!(matches_interaction("Amphetamines", &fa));
+        let mild = info("3-MeO-PCPr", &[], &["Dissociative", "Stimulant (mild)"], &[]);
+        assert!(matches_interaction("Stimulants", &mild));
+        let dmt = info("DMT", &[], &["Psychedelic"], &["Tryptamine"]);
+        assert!(matches_interaction("Tryptamines", &dmt));
+    }
 
     fn mem() -> Connection {
         let c = Connection::open_in_memory().unwrap();
