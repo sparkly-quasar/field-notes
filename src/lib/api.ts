@@ -621,6 +621,10 @@ export interface PairResult {
 export interface ServerPrefs {
   serve_on_launch: boolean;
   served_https: number | null;
+  /** Published through the Tailscale built into Field Notes. */
+  builtin_tailnet: boolean;
+  /** Use the Tailscale app on this computer instead of the built-in one. */
+  tailscale_app: boolean;
   /** Paired phones may install updates on this computer. Set only at the computer. */
   phone_can_update: boolean;
   /** Discreet mode is offered (its toggle sits next to Help). */
@@ -670,6 +674,17 @@ export interface TailscaleStatus {
   signed_in: boolean;
   /** HTTPS certificates are enabled for the tailnet, which publishing needs. */
   https_enabled: boolean;
+  /** Reached through the Tailscale built into Field Notes, not the Tailscale app.
+   *  `installed` then means "this build includes it". */
+  builtin: boolean;
+  /** The Tailscale app is installed on this computer, so it can be offered. */
+  app_available: boolean;
+  /** The account this computer is signed in as (built-in only). */
+  login: string | null;
+  /** Tailscale's sign-in page, while it's waiting for one (built-in only). */
+  auth_url: string | null;
+  /** The built-in Tailscale's last error, in its own words. */
+  problem: string | null;
 }
 export const portalStatus = () => invoke<PortalStatus>("portal_status");
 export const portalEnable = () => invoke<PortalStatus>("portal_enable");
@@ -678,6 +693,12 @@ export const portalQr = (url: string) => invoke<string>("portal_qr", { url });
 export const portalTailscale = () => invoke<TailscaleStatus>("portal_tailscale");
 export const portalServe = () => invoke<TailscaleStatus>("portal_serve");
 export const portalUnserve = () => invoke<TailscaleStatus>("portal_unserve");
+/** Turn on device access and start the built-in Tailscale. */
+export const tailnetConnect = () => invoke<TailscaleStatus>("tailnet_connect");
+/** Sign this computer out of the built-in Tailscale and forget its keys. */
+export const tailnetSignOut = () => invoke<TailscaleStatus>("tailnet_sign_out");
+/** Use the Tailscale app on this computer (true) or the built-in one (false). */
+export const tailnetUseApp = (useApp: boolean) => invoke<TailscaleStatus>("tailnet_use_app", { useApp });
 /** Pair a device. With `person`, it opens that person's journal instead of yours. */
 export const portalPair = (name: string, person: number | null = null) =>
   invoke<PairResult>("portal_pair", { name, person });

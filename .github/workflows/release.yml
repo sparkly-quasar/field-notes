@@ -25,12 +25,15 @@ jobs:
           - platform: macos-latest
             args: "--target universal-apple-darwin"
             rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            sidecar-target: universal-apple-darwin
           - platform: ubuntu-22.04
             args: ""
             rust-targets: ""
+            sidecar-target: x86_64-unknown-linux-gnu
           - platform: windows-latest
             args: ""
             rust-targets: ""
+            sidecar-target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +103,18 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+
+      - name: Set up Go
+        # For the bundled Tailscale helper (tailnet/), which Tauri ships as a sidecar.
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tailnet/go.mod
+          cache-dependency-path: tailnet/go.sum
+
+      - name: Build the bundled Tailscale helper
+        # Must exist before Tauri compiles: it checks for the sidecar per target.
+        shell: bash
+        run: scripts/build-tailnet.sh ${{ matrix.sidecar-target }}
 
       - name: Install frontend dependencies
         run: npm ci

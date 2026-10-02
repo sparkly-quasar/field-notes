@@ -60,6 +60,9 @@
     portalTailscale,
     portalServe,
     portalUnserve,
+    tailnetConnect,
+    tailnetSignOut,
+    tailnetUseApp,
     type PortalStatus,
     type TailscaleStatus,
     dbStatus,
@@ -291,7 +294,7 @@
   let removeTyped = $state("");
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
-  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false, discreet_available: false, menu_bar: false });
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, builtin_tailnet: false, tailscale_app: false, phone_can_update: false, discreet_available: false, menu_bar: false });
   let loginStart = $state(false);
   let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
   let kcPass = $state("");
@@ -376,7 +379,14 @@
    * checker, crisis scan and dose reference are all deterministic and keep working.
    * The switch lives in Settings, not in the Companion tab it hides.
    */
-  let companionOff = $state(false);
+  // Off unless chosen (2026-10-02): a fresh install has nothing stored and starts
+  // with the Companion off. Every install that has run before has "0" or "1"
+  // saved (the effect below writes it on each launch), so nobody who already has
+  // the Companion loses it. Read here, not in onMount, so the save effect can
+  // never write the new default over a stored choice.
+  let companionOff = $state((() => {
+    try { return localStorage.getItem(COMPANION_OFF_KEY) !== "0"; } catch { return true; }
+  })());
   /** Whether the first-run Companion opt-in has been answered. Defaults true so a
    * returning user is never re-asked; onMount sets it false for a fresh install. */
   let companionChoiceMade = $state(true);
@@ -503,7 +513,6 @@
     getVersion().then((v) => (appVersion = v)).catch(() => {});
     discreetAvailable().then((v) => (discreet.available = v)).catch(() => {});
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
-    companionOff = localStorage.getItem(COMPANION_OFF_KEY) === "1";
     companionChoiceMade = localStorage.getItem(COMPANION_CHOICE_KEY) === "1";
     vaultFolder = localStorage.getItem(VAULT_KEY) ?? "";
     loadDbStatus();
@@ -1693,7 +1702,24 @@
   // Field Notes (Tailscale, the tailnet's admin page). So: one list, ticked from
   // what's actually true right now, with the fix for the first unticked step.
   type SetupStep = { key: string; label: string; done: boolean };
-  const setupSteps = $derived<SetupStep[]>([
+  // The phone has used its key at least once: the only proof the scan worked.
+  const phonePaired = $derived(pairedId != null || devices.some((d) => d.person === 1 && d.last_seen));
+  // This computer is on the tailnet and answering there.
+  const computerConnected = $derived(!!ts?.signed_in && !!ts?.https_enabled && !!ts?.serving);
+  // With the built-in Tailscale, the whole path is four steps, and only the first
+  // happens on this computer. Steps 2 and 3 happen on the phone, where we can't
+  // see; they tick together with step 4, when the phone first uses its key.
+  const builtinSteps = $derived<SetupStep[]>([
+    { key: "connect", label: "Connect this computer", done: computerConnected },
+    { key: "phone-app", label: "Install Tailscale on your phone", done: phonePaired },
+    {
+      key: "phone-signin",
+      label: ts?.login ? `Sign in on your phone with the same account: ${ts.login}` : "Sign in on your phone with the same account",
+      done: phonePaired,
+    },
+    { key: "scan", label: "Scan the code with your phone's camera", done: phonePaired },
+  ]);
+  const appSteps = $derived<SetupStep[]>([
     { key: "install", label: "Install Tailscale on this computer", done: !!ts?.installed },
     { key: "signin", label: "Sign in to Tailscale", done: !!ts?.signed_in },
     { key: "https", label: "Turn on HTTPS for your tailnet", done: !!ts?.https_enabled },
@@ -1701,7 +1727,12 @@
     { key: "publish", label: "Publish to your tailnet", done: !!ts?.serving },
     { key: "pair", label: "Pair your phone", done: devices.some((d) => d.person === 1) },
   ]);
+  const setupSteps = $derived(ts?.builtin ? builtinSteps : appSteps);
   const setupNext = $derived(setupSteps.find((st) => !st.done)?.key ?? null);
+  // Once this computer is connected, the three phone steps are all live at once:
+  // they're done in a row on the phone, not one at a time here.
+  const setupActive = (key: string) =>
+    ts?.builtin && computerConnected && !phonePaired ? key !== "connect" : key === setupNext;
   let setupOpen = $state(false);
   let setupChecking = $state(false);
   async function recheckSetup() {
@@ -1715,6 +1746,84 @@
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   });
+  // ---- built-in Tailscale ----
+  let connecting = $state(false);
+  // The sign-in page is opened once per link, not on every status poll.
+  let openedAuthUrl: string | null = null;
+  let storeQr = $state<{ ios: string; android: string } | null>(null);
+  // Pairing from step 4 shows its code in the step, not in "Pair a device" below.
+  let setupPairing = $state(false);
+
+  /** "Connect this computer": device access on, the built-in Tailscale started,
+   *  and Tailscale's sign-in page opened in the browser as soon as it exists. */
+  async function connectBuiltin() {
+    portalErr = null;
+    connecting = true;
+    openedAuthUrl = null;
+    try {
+      ts = await tailnetConnect();
+      portal = await portalStatus();
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+      connecting = false;
+    }
+  }
+
+  // While the built-in Tailscale is getting going (starting, waiting for sign-in,
+  // fetching its certificate), follow it closely so each step ticks on its own.
+  $effect(() => {
+    const following = tab === "data" && !!ts?.builtin && portal.running && (!computerConnected || connecting);
+    if (!following) return;
+    const id = setInterval(async () => {
+      try { ts = await portalTailscale(); } catch {}
+    }, 1500);
+    return () => clearInterval(id);
+  });
+  $effect(() => {
+    const url = ts?.auth_url;
+    if (connecting && url && url !== openedAuthUrl) {
+      openedAuthUrl = url;
+      openUrl(url).catch(() => {});
+    }
+    if (ts?.signed_in) connecting = false;
+  });
+
+  async function showStoreCodes() {
+    storeQr = {
+      ios: await portalQr("https://apps.apple.com/app/tailscale/id1470499037"),
+      android: await portalQr("https://play.google.com/store/apps/details?id=com.tailscale.ipn"),
+    };
+  }
+
+  /** Step 4: make this phone's key and show it as a code, right in the step. */
+  async function pairFromSetup() {
+    await doPair();
+    if (!pairing) return;
+    setupPairing = true;
+    await revealQr();
+  }
+
+  async function disconnectBuiltin() {
+    portalErr = null;
+    try { ts = await portalUnserve(); } catch (e) { portalErr = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function signOutBuiltin() {
+    if (!confirm("Sign this computer out of Tailscale? Your phone can't reach the journal until you connect again. Pairings are kept.")) return;
+    portalErr = null;
+    try { ts = await tailnetSignOut(); } catch (e) { portalErr = e instanceof Error ? e.message : String(e); }
+  }
+
+  async function switchTailscale(useApp: boolean) {
+    portalErr = null;
+    try {
+      ts = await tailnetUseApp(useApp);
+      donePairing();
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   let pairInput = $state<HTMLInputElement | null>(null);
   function startPairFromChecklist() {
     if (!pairName.trim()) pairName = "Phone";
@@ -1765,6 +1874,7 @@
 
   /** Finished pairing: drop the token from the screen for good. */
   function donePairing() {
+    setupPairing = false;
     pairing = null;
     portalQrSvg = null;
     showQr = false;
@@ -2224,10 +2334,11 @@
             onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
           />
           <span>
-            <strong>Enable the Companion</strong> — an optional AI trip-sitter you can chat with
-            before, during, or after an experience. It runs entirely on this device, offline. The
-            interaction checker, crisis scan, and dose reference all work either way. You can change
-            this anytime in Settings.
+            <strong>Turn on the Companion</strong> (optional): an AI you can chat with before,
+            during, or after an experience. It runs entirely on this device, offline, and needs a
+            separate free download of a few gigabytes (Ollama and a model). The interaction checker,
+            crisis scan, and dose reference don't use it and work either way. You can turn it on
+            anytime in Settings.
           </span>
         </label>
       {/if}
@@ -3236,12 +3347,18 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       <section class="card">
         <h2>Companion <span class="off-badge" class:on={!companionOff}>{companionOff ? "off" : "on"}</span></h2>
         <label class="share">
-          <input type="checkbox" bind:checked={companionOff} />
-          Use Field Notes without a Companion
+          <input
+            type="checkbox"
+            checked={!companionOff}
+            onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
+          />
+          Turn on the Companion
         </label>
         <p class="muted small">
-          Hides the Companion tab and stops any local model from loading. The journal, timeline, dose
-          reference, interaction checker and crisis resources don't use a model and are unaffected.
+          An optional AI to talk with before, during or after a session. It runs only on this
+          computer and needs a separate free download of a few gigabytes (Ollama and a model), which
+          the Companion tab walks you through. The journal, timeline, dose reference, interaction
+          checker and crisis resources don't use it and work the same either way.
         </p>
       </section>
 
@@ -3369,13 +3486,60 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             {#if !allDone || setupOpen}
               <ol class="setup-steps">
                 {#each setupSteps as st, n}
-                  <li class:done={st.done} class:next={st.key === setupNext}>
+                  {@const active = !st.done && setupActive(st.key)}
+                  <li class:done={st.done} class:next={active}>
                     <span class="setup-mark" aria-hidden="true">{st.done ? "✓" : n + 1}</span>
                     <div>
-                      <span class="setup-label">{st.label}<span class="visually-hidden">{st.done ? " (done)" : st.key === setupNext ? " (next)" : ""}</span></span>
-                      {#if st.key === setupNext}
+                      <span class="setup-label">{st.label}<span class="visually-hidden">{st.done ? " (done)" : active ? " (next)" : ""}</span></span>
+                      {#if active}
                         <div class="setup-fix small">
-                          {#if st.key === "install"}
+                          {#if st.key === "connect"}
+                            {#if !ts.installed}
+                              <p>This copy of Field Notes is missing its built-in Tailscale. Reinstall Field Notes{ts.app_available ? ", or use the Tailscale app that's already on this computer" : ""}.</p>
+                              {#if ts.app_available}
+                                <button class="primary small-btn" onclick={() => switchTailscale(true)}>Use the Tailscale app</button>
+                              {/if}
+                            {:else if ts.signed_in && !ts.https_enabled}
+                              <p>Signed in as <strong>{ts.login ?? "you"}</strong>. One last switch: your Tailscale account needs secure (HTTPS) connections turned on. It's off on new accounts and only needs doing once.</p>
+                              <p>On the page this opens, find <strong>HTTPS Certificates</strong> and click <strong>Enable HTTPS</strong>. If it asks you to turn on MagicDNS first, do that too. Then come back here.</p>
+                              <button class="primary small-btn" onclick={() => openUrl("https://login.tailscale.com/admin/dns")}>Open Tailscale's DNS settings</button>
+                            {:else if ts.signed_in}
+                              <p>Signed in as <strong>{ts.login ?? "you"}</strong>. Setting up a secure connection; the first time takes a few seconds.</p>
+                            {:else if ts.auth_url}
+                              <p>Sign in on the Tailscale page that opened in your browser, with Google, Apple, Microsoft or GitHub. No account yet? Signing in creates one. Then come back here: this step ticks by itself.</p>
+                              <button class="ghost small-btn" onclick={() => openUrl(ts!.auth_url!)}>Open the sign-in page again</button>
+                            {:else if connecting}
+                              <p>Starting Tailscale…</p>
+                            {:else}
+                              <p>Your phone reaches this computer through <strong>Tailscale</strong>, a free, private connection between your own devices. It's built into Field Notes, so there's nothing to install here. Tailscale can see which of your devices are connected, never what's in your journal.</p>
+                              <button class="primary small-btn" onclick={connectBuiltin}>Connect</button>
+                              <p class="muted">Opens Tailscale's sign-in page in your browser. Sign in with Google, Apple, Microsoft or GitHub; no account yet? Signing in creates one.</p>
+                            {/if}
+                            {#if ts.problem}<p class="muted">Tailscale said: {ts.problem}</p>{/if}
+                          {:else if st.key === "phone-app"}
+                            <p>Get <strong>Tailscale</strong> from the App Store or Google Play. It's free.</p>
+                            {#if storeQr}
+                              <div class="store-qrs">
+                                <figure><div class="qr">{@html storeQr.ios}</div><figcaption>iPhone (App Store)</figcaption></figure>
+                                <figure><div class="qr">{@html storeQr.android}</div><figcaption>Android (Google Play)</figcaption></figure>
+                              </div>
+                            {:else}
+                              <button class="ghost small-btn" onclick={showStoreCodes}>Show download codes</button>
+                            {/if}
+                          {:else if st.key === "phone-signin"}
+                            <p>Open Tailscale on your phone and sign in{ts.login ? ` as ${ts.login}` : ""}. It has to be <strong>the same account</strong> as this computer: signing in with a different one (say Google here, Apple there) is the most common reason a phone can't connect.</p>
+                            <p>Allow the VPN when your phone asks, and check that Tailscale says <strong>Connected</strong>.</p>
+                          {:else if st.key === "scan"}
+                            {#if setupPairing && pairing}
+                              {#if showQr && portalQrSvg}<div class="qr">{@html portalQrSvg}</div>{/if}
+                              <p>Field Notes opens on your phone, already set up. To keep it as an app, use <strong>Share → Add to Home Screen</strong>.</p>
+                              <p class="muted"><strong>This code is a key</strong>: whoever scans it can read and write this journal. Don't photograph it. It disappears when you press Done.</p>
+                              <button class="ghost small-btn" onclick={donePairing}>Done</button>
+                            {:else}
+                              <p>Field Notes opens on your phone, already set up. Nothing to type.</p>
+                              <button class="primary small-btn" onclick={pairFromSetup}>Show the code</button>
+                            {/if}
+                          {:else if st.key === "install"}
                             <p>Tailscale is a free app that privately links your own devices. It's what carries the connection between this computer and your phone, encrypted.</p>
                             <button class="primary small-btn" onclick={() => openUrl("https://tailscale.com/download")}>Download Tailscale</button>
                           {:else if st.key === "signin"}
@@ -3417,21 +3581,45 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           </p>
         {/if}
 
-        <button
-          class="primary small-btn"
-          onclick={togglePortal}
-          disabled={!portal.running && ts != null && !ts.installed}
-        >
-          {portal.running ? "Turn off device access" : "Turn on device access"}
-        </button>
-        {#if !portal.running && ts != null && !ts.installed}
+        {#if portal.running || !ts?.builtin}
+          <button
+            class="primary small-btn"
+            onclick={togglePortal}
+            disabled={!portal.running && ts != null && !ts.installed}
+          >
+            {portal.running ? "Turn off device access" : "Turn on device access"}
+          </button>
+        {/if}
+        {#if !portal.running && ts != null && !ts.installed && !ts.builtin}
           <p class="muted small">Install and sign into Tailscale first — there's no point serving this where only this machine can reach it.</p>
         {/if}
 
         {#if portal.running}
           <div class="sec-block">
             <h3>Your tailnet</h3>
-            {#if !ts?.installed}
+            {#if ts?.builtin}
+              {#if ts.serving}
+                <p class="muted small">
+                  Connected to Tailscale as <strong>{ts.login ?? "you"}</strong>, at <strong>{ts.url}</strong>. Only
+                  devices signed in to that account can reach it, and every request still needs a paired device's key.
+                </p>
+              {:else if ts.signed_in}
+                <p class="muted small">Signed in to Tailscale as <strong>{ts.login ?? "you"}</strong>, but not answering on your tailnet.</p>
+                <button class="primary small-btn" onclick={connectBuiltin}>Connect</button>
+              {:else}
+                <p class="muted small">Not connected to Tailscale. Use <strong>Connect</strong> in the steps above.</p>
+              {/if}
+              <div class="row-actions">
+                {#if ts.serving}<button class="ghost small-btn" onclick={disconnectBuiltin}>Disconnect</button>{/if}
+                {#if ts.signed_in}<button class="ghost small-btn" onclick={signOutBuiltin}>Sign out of Tailscale</button>{/if}
+              </div>
+              {#if ts.app_available}
+                <p class="muted small">
+                  The Tailscale app is installed on this computer too.
+                  <button class="link-inline" onclick={() => switchTailscale(true)}>Use it instead of the built-in one</button>
+                </p>
+              {/if}
+            {:else if !ts?.installed}
               <p class="muted small">
                 ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
                 Install Tailscale on this computer and your devices, then come back.
@@ -3447,6 +3635,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
               <button class="ghost small-btn" disabled={serving} onclick={toggleServe}>
                 {serving ? "Working…" : "Stop publishing to my tailnet"}
               </button>
+
             {:else}
               <p class="muted small">
                 One more step: publish the portal to your tailnet, so your devices can reach it.
@@ -3457,12 +3646,21 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 {serving ? "Publishing…" : "Publish to my tailnet"}
               </button>
             {/if}
+            {#if ts && !ts.builtin}
+              <p class="muted small">
+                Using the Tailscale app on this computer.
+                <button class="link-inline" onclick={() => switchTailscale(false)}>Use Field Notes' built-in Tailscale instead</button>
+                (paired phones will need a new code scanned, since the address changes).
+              </p>
+            {/if}
           </div>
         {/if}
 
         <div class="sec-block">
           <h3>Pair a device</h3>
-          {#if !pairing}
+          {#if setupPairing}
+            <p class="muted small">The code is showing in the setup steps above.</p>
+          {:else if !pairing}
             <p class="muted small">
               Give it a name you'll recognise later — you can un-pair each device separately.
             </p>
@@ -4255,6 +4453,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .first-steps li strong { color: var(--ink); }
   /* Phone setup checklist. */
   .setup { border: 1px solid var(--line); border-radius: 12px; padding: 0.9rem 1rem; margin: 1rem 0; }
+  .store-qrs { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .store-qrs figure { margin: 0; text-align: center; }
+  .store-qrs figcaption { font-size: 0.85rem; color: var(--muted); }
   .setup.done { border-color: color-mix(in srgb, var(--note) 40%, var(--line)); }
   .setup-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
   .setup-head h3 { margin: 0; font-size: 1rem; }

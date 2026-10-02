@@ -24,6 +24,7 @@ pub mod pw;
 mod remote;
 mod server_update;
 mod stats;
+mod tailnet;
 mod tray;
 
 use rusqlite::Connection;
@@ -203,6 +204,8 @@ pub fn run() {
             app.manage(devices::Devices::load(dir.join("devices.json")));
             app.manage(people::People::load(&dir));
             app.manage(prefs::Prefs::load(dir.join("server.json")));
+            // The built-in Tailscale: idle until the user connects this computer.
+            app.manage(tailnet::Tailnet::new(&dir));
             app.manage(server_update::ServerUpdate::default());
             // Using another computer as the server: sends queued entries and notices
             // when it comes back. Idle unless this computer is connected to one.
@@ -293,6 +296,9 @@ pub fn run() {
             commands::portal_disable,
             commands::portal_qr,
             commands::portal_tailscale,
+            commands::tailnet_connect,
+            commands::tailnet_sign_out,
+            commands::tailnet_use_app,
             commands::portal_serve,
             commands::portal_unserve,
             commands::portal_pair,

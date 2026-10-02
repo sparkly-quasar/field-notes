@@ -31,6 +31,18 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      - name: Set up Go
+        # For the bundled Tailscale helper (tailnet/), which Tauri ships as a sidecar.
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tailnet/go.mod
+          cache-dependency-path: tailnet/go.sum
+
+      - name: Build the bundled Tailscale helper
+        # Must exist before Tauri compiles: it checks for the sidecar per target.
+        shell: bash
+        run: scripts/build-tailnet.sh x86_64-pc-windows-msvc
+
       - name: Install frontend dependencies
         run: npm ci
 

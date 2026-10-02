@@ -7,11 +7,15 @@ does the verifying, the version bump, and the release notes.
 ## 1. Verify
 
 ```bash
+scripts/build-tailnet.sh            # the bundled Tailscale helper (CI builds its own)
 cd src-tauri && cargo test          # all suites green
 cd .. && npm run check              # svelte-check: 0 errors
 npm run build                       # frontend builds
 ```
 
+- If the release touches `tailnet/` or `tailnet.rs`, test phone access by hand on a
+  real computer and phone before tagging a plain release: Connect, sign in, scan,
+  and check the phone works on cellular. CI can't sign in to Tailscale.
 - If the release touches anything platform-specific, run the **"Windows build
   (no release)"** workflow from the Actions tab first (`workflow_dispatch`). It
   builds real NSIS/MSI installers and attaches them to the run without touching

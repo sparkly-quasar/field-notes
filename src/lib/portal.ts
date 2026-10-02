@@ -105,9 +105,14 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
     if (ctl.signal.aborted) {
       throw new Error("That took too long to answer. It may or may not have saved — check the entry before trying again.");
     }
-    // The server has to be awake and on the tailnet to answer. Say so plainly —
-    // a silent failure while someone is logging a dose is the worst outcome here.
-    throw new Error("Can't reach your Field Notes server. Is it awake and on your tailnet?");
+    // Nothing answered at all, so the phone isn't on the tailnet (or the computer
+    // isn't). Say which things to check, in the order they usually go wrong — a
+    // silent failure while someone is logging a dose is the worst outcome here.
+    throw new Error(
+      "Can't reach your computer. Check that Tailscale is switched on on this phone and signed in " +
+        "with the same account as your computer (another VPN app can switch it off), and that your " +
+        "computer is on.",
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -115,6 +120,10 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
   if (res.status === 401) {
     forgetToken();
     throw new Error("This phone is no longer paired. Pair it again on your server: Settings → Devices & server.");
+  }
+  if (res.status === 502) {
+    // Tailscale reached the computer, but Field Notes isn't running there.
+    throw new Error("Your computer isn't answering. Is it awake, with Field Notes open?");
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

@@ -27,6 +27,9 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "externalBin": [
+      "binaries/fieldnotes-tailnet"
+    ],
     "resources": [
       "resources/dosewiki.json",
       "resources/dosewiki-corpus.json"
