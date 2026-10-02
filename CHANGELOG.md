@@ -11,6 +11,30 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.16.0
+
+- **When was the last dose?** A live session now shows it in large type:
+  "Last: LSD 100 µg · 1h 12m ago". On the phone, logging another dose of the
+  same substance shows how long it's been since the last one.
+- **Undo a dose you just logged.** Tap **Undo** on the "Saved" message on the
+  phone, or next to "Logged" on the desktop's live session screen.
+- **Moments without typing.** Tap how it is (Coming up, Peaking, Calm,
+  Anxious, Nauseous, Need water, Coming down) and that's a moment. Words and
+  intensity are optional.
+- **"What's your intention?"** Starting a session asks, if you want to say.
+  When you write it up later, it opens with "You set out to: …", and the
+  rating now comes after the write-up.
+- **Dim (red) screen on the phone.** True black with red text, easier on your
+  eyes in the dark, and it keeps the screen from locking. Turn it on from the
+  live session card, or when you start a session.
+- **Discreet mode everywhere.** Tap the eye at the top of the phone app (or
+  tick **Discreet** in the desktop Journal) to swap substance names for
+  stand-ins like "Substance K7" and hide entry titles and previews in lists.
+  The same stand-in is used on every screen. Opening an entry still shows it
+  in full.
+- **Ending a session is harder to hit by accident.** It sits apart from
+  logging and Help.
+
 ## v0.15.0
 
 - **Not every session needs a write-up.** Mark any finished session as not
