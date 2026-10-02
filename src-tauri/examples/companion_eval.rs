@@ -24,7 +24,6 @@ use field_notes_lib::ollama::ChatMsg;
 use field_notes_lib::{crisis, db, knowledge, pw, Db, Knowledge};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 fn main() {
     let args = Args::parse();
@@ -150,7 +149,7 @@ fn run_scenario(sc: &Value, rep: usize, model: &str, doses: &[pw::PwInfo], kb: &
             return out;
         }
     };
-    let dbh = Db { conn: Mutex::new(Some(conn)), path: path.clone() };
+    let dbh = Db::new(Some(conn), path.clone());
     if let Err(e) = dbh.with_mut(|c| db::pw_replace_all(c, doses)) {
         out.error = Some(format!("seeding dose reference: {e}"));
         return out;

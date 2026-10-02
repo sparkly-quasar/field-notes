@@ -153,6 +153,7 @@
 
   // at-rest encryption / unlock gate
   let db = $state<DbStatus>({ encrypted: false, unlocked: true });
+  let openingSlow = $state(false);
   let statusLoaded = $state(false);
   let unlockPass = $state("");
   let unlockErr = $state<string | null>(null);
@@ -514,11 +515,21 @@
   // Decide the startup screen: a locked encrypted journal shows the unlock
   // prompt; otherwise the disclaimer splash, unless the user opted out of it.
   async function loadDbStatus() {
-    try {
-      db = await dbStatus();
-    } catch (_) {
-      db = { encrypted: false, unlocked: true };
+    // The journal opens in the background at launch, so the window can appear
+    // straight away. Wait for it here. An encrypted journal whose keychain lookup
+    // is slow gets the unlock screen after a few seconds rather than a wait.
+    const t0 = Date.now();
+    for (;;) {
+      try {
+        db = await dbStatus();
+      } catch (_) {
+        db = { encrypted: false, unlocked: true };
+      }
+      if (!db.opening || (db.encrypted && Date.now() - t0 > 6000)) break;
+      openingSlow = Date.now() - t0 > 6000;
+      await new Promise((r) => setTimeout(r, 200));
     }
+    openingSlow = false;
     statusLoaded = true;
     if (db.unlocked && dontShowDisclaimer) {
       await enter();
@@ -2011,7 +2022,17 @@
   <div class="gate">
     <div class="gate-card">
       <h1>Field Notes</h1>
-      <p class="muted">Loading…</p>
+      <p class="muted">Opening your journal…</p>
+      {#if openingSlow}<p class="muted small">This is taking longer than usual. It will carry on by itself.</p>{/if}
+    </div>
+  </div>
+{:else if db.error}
+  <div class="gate">
+    <div class="gate-card">
+      <h1>Field Notes</h1>
+      <p class="lead">Your journal couldn't be opened.</p>
+      <p class="notice bad-notice">{db.error}</p>
+      <p class="muted small">Nothing has been changed or deleted. Quit and open Field Notes again; if this keeps happening, report it with the message above.</p>
     </div>
   </div>
 {:else if db.encrypted && !db.unlocked}
@@ -3171,7 +3192,15 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {/if}
         </div>
 
-        {#if portalErr}<p class="notice bad-notice">{portalErr}</p>{/if}
+        {#if portalErr}
+          <!-- Tailscale's approval link (Serve or HTTPS not yet enabled for the
+               tailnet) is the fix, so it's a button, not text to copy. -->
+          {@const approve = portalErr.match(/https:\/\/login\.tailscale\.com\/\S+/)?.[0]}
+          <p class="notice bad-notice">
+            {portalErr}
+            {#if approve}<br /><button class="primary small-btn" onclick={() => openUrl(approve)}>Open the approval page</button>{/if}
+          </p>
+        {/if}
 
         <button
           class="primary small-btn"

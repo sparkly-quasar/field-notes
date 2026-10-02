@@ -542,6 +542,10 @@ export interface DbStatus {
   encrypted: boolean;
   /** Is there a live, usable connection this session? */
   unlocked: boolean;
+  /** Still opening at launch; ask again shortly. */
+  opening?: boolean;
+  /** Opening failed, and why. */
+  error?: string | null;
 }
 export const dbStatus = () => invoke<DbStatus>("db_status");
 export const unlockDb = (passphrase: string) => invoke<void>("unlock_db", { passphrase });

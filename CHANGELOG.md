@@ -11,6 +11,17 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.16.1
+
+- **"Publish to my tailnet" no longer freezes the app.** If Tailscale needs
+  Serve or HTTPS approved for your tailnet first, Field Notes now says so and
+  gives you a button that opens the approval page. Before, the window froze while
+  Tailscale waited for an approval you couldn't see. Any Tailscale step that
+  hasn't answered after 15 seconds is now stopped, with a message.
+- **The window appears straight away when you open Field Notes.** Your journal
+  opens in the background behind "Opening your journal…". If it can't be opened,
+  you'll see why instead of a Dock icon that keeps bouncing.
+
 ## v0.16.0
 
 **Safety fixes**

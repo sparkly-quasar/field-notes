@@ -160,6 +160,8 @@ Download an installer for your platform from the
   was blocked". (On macOS 15 Sequoia and later, right-click → Open no longer
   offers this.) Or in Terminal: `xattr -dr com.apple.quarantine
   "/Applications/Field Notes.app"`.
+  If the icon keeps bouncing and the window never opens, select Field Notes in
+  Applications, press **Cmd+I**, and untick **Locked**.
 - **Linux** — the `.AppImage` (make it executable and run), or the `.deb` / `.rpm`.
 
 **To update:** the app checks for updates on launch and installs them in place
