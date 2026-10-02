@@ -1209,9 +1209,50 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.14.1** (2026-10-01; v0.14.0 plus code cleanup, no behaviour change). v0.14.0 brought usage stats, import timestamps in the
+**Current release: v0.21.6** (2026-10-02).
+
+### To do — from owner testing, 2026-10-02
+
+1. **Phone: show which tab you're on.** The bottom bar marks the current tab only
+   by tinting its label and icon (`class:on`, `aria-current`), which is easy to
+   miss. Give it a clear indicator (a filled pill or bar behind the active tab),
+   still readable in Dim (red) and discreet mode.
+2. **5-MeO-DMT dose ranges are wrong in the lookup.** The bundled DoseWiki entry
+   lists an **Oral** route as if it were orally active on its own (it isn't without
+   an MAOI, and with one it's a dangerous combination), with "heavy" a flat 30 mg
+   above "strong" 8–15 mg; "Inhaled" duplicates "Smoked". Correct values come from
+   the owner. Put them in a small override table in `pw.rs` (like
+   `EXTRA_ALIASES`) so they survive a DoseWiki refresh, and draft the fix upstream
+   via `contribute.rs`.
+3. **Alcohol in drinks.** The dose form's units (mg, µg, g, ml, tab, capsule, pill)
+   can't say "1 beer". Add a **drink** unit (one standard drink) with quick picks
+   for beer, wine, a shot and a mixed drink (a mixed drink counts its shots, since
+   it varies most). DoseWiki's Alcohol ranges mix "units" (UK, 8 g ethanol) and
+   "drinks" (US, 14 g): normalise to one before comparing a logged amount against
+   the ranges, and say which one the app means.
+4. **Smoked or vaped cannabis in hits.** DoseWiki's smoked ranges are mg of THC,
+   which nobody can count. Add a **hit** unit for smoked and vaped routes. A hit
+   isn't a fixed dose (strength, device and inhalation all vary widely), so hits
+   are never compared against mg ranges; optionally record the product's THC %.
+   Edibles stay in mg THC.
+5. **Stats: trends.** A section that spots and reports patterns over time, in the
+   same neutral voice as the rest of Stats ("nothing here is a judgement"), and
+   only once there's enough data to mean something. Candidates: how often (this
+   period against the one before), whether typical doses of a substance are
+   drifting up, whether gaps between sessions of the same substance are
+   shortening (with the tolerance note), redosing becoming more common,
+   combinations becoming more common, and ratings against spacing.
+6. **Check whether `server_update_status` can hang the portal** (unverified).
+   While taking screenshots against a test portal with no internet, a second call
+   from the phone blocked, and every later request queued behind it until restart;
+   the first call failed within ~300 ms. Find out whether a real paired phone can
+   hit this (a lock held across a network call is the first suspect).
+
+### Earlier
+
+v0.14.1 (2026-10-01) was v0.14.0 plus code cleanup, no behaviour change. v0.14.0 brought usage stats, import timestamps in the
 backend, the whole-word combo-matching fix, split date/time fields, a manual update
-check, and phone-installed server updates. Next:
+check, and phone-installed server updates. Next, then:
 
 1. **Real-device checks the release couldn't do:** tap a dose time on iPhone and in
    the Mac app (no calendar should open); install the *next* release from a phone.
