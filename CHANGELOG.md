@@ -11,6 +11,17 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.20.2
+
+- **Spacing guidance in Stats.** The Spacing card for psychedelics,
+  entactogens, dissociatives, cannabinoids, opioids and depressants now shows
+  what harm-reduction sources usually say about time between uses, with the
+  reason. For example: psychedelic tolerance mostly fades in 3 to 7 days; a
+  month or more between MDMA sessions, with three months widely recommended;
+  after a break from opioids, start lower. It shows on a substance's card too.
+  It's reference text only, and never compares your own gaps to it. In
+  discreet mode it's hidden, since it names substances.
+
 ## v0.20.1
 
 - **Pasted text that's full of %20 now reads normally.** Some apps copy text the
