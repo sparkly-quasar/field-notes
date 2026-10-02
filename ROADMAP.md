@@ -900,7 +900,7 @@ using the model switch and reading the screens as a first-timer would.
    - Desktop vocabulary matches the phone: session, moment, write-up (not
      "experience", "Add note", "End experience").
 
-   **Phase 2: live session and reflection (M). ✅ Shipped in v0.16.0** (night theme on the phone only so far).
+   **Phase 2: live session and reflection (M). ✅ Shipped in v0.16.0** (the desktop's night theme came with Phase 3).
    - "Last: LSD 100 µg · 1h 12m ago" on the live card, and time since the last dose
      of that substance in the dose sheet.
    - Undo on the "Saved" receipt.
@@ -911,7 +911,14 @@ using the model switch and reading the screens as a first-timer would.
    - Dim red night theme (true black, red text, keeps the screen awake).
    - App-wide discreet mode (today's "Hide substance names" covers Stats only).
 
-   **Phase 3: the sleeker look (M–L).** *Fonts shipped early, in v0.16.0:* Atkinson
+   **Phase 3: the sleeker look (M–L). ✅ Shipped in v0.16.0**, except the component
+   split (deferred: it's a refactor with no visible change, better done on its own).
+   Built: warm tokens on both pages, borderless buttons and tinted chips, flat journal
+   rows, `Icon.svelte` line icons with labels, the desktop sidebar (Journal, Stats with
+   "Every dose, by substance" folded in, Check with a standalone combo checker, Talk;
+   Settings and Get help at the foot; narrow windows fall back to a row), and the dim
+   red theme on the desktop live screen. The desktop has no Today view; its live
+   screen plays that role. *Fonts shipped early, in v0.16.0:* Atkinson
    Hyperlegible for data and UI, Literata for reflection (`static/fonts`, OFL, Latin +
    Latin Extended subsets, ~300 KB; `--font-data` / `--font-reflect`, class `reflect`). One shared token set for both pages (warm),
    the bundled fonts, flatter layout (no cards inside cards), calmer chips, a small
