@@ -11,6 +11,35 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.7
+
+- **"Experience", not "session".** The app now talks about experiences
+  throughout, including Stats.
+- **Trends, under Stats.** Compares the last stretch of time with the one before
+  and lays out what changed, each with a small chart: how often (the headline),
+  time between experiences of one substance, amount per experience, redosing
+  and combinations. A trend only appears once each period has at least three
+  experiences. It describes, never judges. For psychedelics, a rising amount
+  carries a note that starting low and working up gradually is a common way to
+  work with them.
+- **MDMA with a psychedelic is its own note.** MDMA acts as an empathogen
+  rather than a plain stimulant and tends to soften a psychedelic's anxiety, so
+  the advice for that pairing now says so, while still covering heart rate,
+  temperature and serotonin.
+- **5-MeO-DMT dose ranges corrected.** Oral and the duplicate inhaled route are
+  gone (it isn't orally active). Smoked and insufflated ranges come from
+  Erowid, and there are intramuscular ranges. The lookup says where the figures
+  come from.
+- **Log alcohol in drinks and cannabis in hits.** One drink is one standard
+  drink, with quick picks for a beer, a glass of wine and a shot; a mixed drink
+  counts its shots. Smoked or vaped cannabis defaults to hits, which are never
+  compared against mg ranges. Pasted trip logs understand "2 beers", "a shot of
+  tequila" and "3 hits".
+- **Phone: the current tab is easier to see.** The active tab sits on a tinted
+  pill in the bottom bar.
+- **Steadier update check from the phone.** A failed update check can no longer
+  leave the phone stuck on "checking".
+
 ## v0.21.6
 
 - **Combination warnings are quieter and more useful.** Each one is a single

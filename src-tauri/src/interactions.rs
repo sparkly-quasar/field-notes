@@ -28,6 +28,7 @@ pub const CLASSES: &[&str] = &[
     "maoi",
     "ssri",
     "serotonin_releaser",
+    "entactogen",
     "serotonergic",
     "stimulant",
     "depressant",
@@ -73,6 +74,10 @@ const RULES: &[(&str, &str, &str, &str)] = &[
         "Two stimulants — additive cardiovascular strain (heart rate, blood pressure, temperature)."),
     ("dissociative", "depressant", "caution",
         "Dissociative + depressant — additive sedation; nausea/vomiting while sedated is a choke risk."),
+    // Before stimulant + psychedelic: MDMA is a stimulant too, but with a psychedelic
+    // it acts as an empathogen and usually eases anxiety rather than adding to it.
+    ("entactogen", "psychedelic", "note",
+        "Empathogen + psychedelic — MDMA often eases the anxiety a psychedelic can bring, but together they still add up on heart rate, temperature and serotonin."),
     ("stimulant", "psychedelic", "note",
         "Stimulant + psychedelic — can amplify anxiety and cardiovascular load."),
     ("stimulant", "dissociative", "note",
@@ -160,7 +165,10 @@ pub fn advice_for(ca: &[String], cb: &[String]) -> Vec<String> {
         out.push("Heart rate, blood pressure and temperature add up. Lower amounts of each and more time between them make the biggest difference.");
         out.push("Sip water steadily rather than a lot at once, and rest somewhere cool. Chest pain or a racing heart that doesn't settle with rest is a reason to get checked.");
     }
-    if either("stimulant", "psychedelic") {
+    if either("entactogen", "psychedelic") {
+        out.push("MDMA tends to soften a psychedelic's anxiety rather than add to it. Together it's still a long, full experience: many people take less of each than they would on its own.");
+        out.push("Heart rate and temperature both climb. Take breaks somewhere cool and go easy on redoses.");
+    } else if either("stimulant", "psychedelic") {
         out.push("Stimulants can tip a psychedelic experience toward anxiety or thought loops. A calm setting, a trusted sitter and a smaller stimulant dose help.");
     }
     if either("stimulant", "dissociative") {
@@ -227,6 +235,13 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     {
         add("serotonin_releaser", &mut c);
         add("stimulant", &mut c);
+    }
+    // The MDMA-like empathogens. Mephedrone releases serotonin too but behaves more
+    // like a stimulant, so it isn't one of these.
+    if n.contains("mdma") || n.contains("molly") || n.contains("ecstasy") || n.contains("mda")
+        || n.contains("mdea") || n.contains("methylone")
+    {
+        add("entactogen", &mut c);
     }
     // classic psychedelics
     if n.contains("lsd") || n.contains("acid") || n.contains("psiloc") || n.contains("mushroom")
@@ -319,6 +334,18 @@ mod tests {
     fn flags_lithium_lsd_danger() {
         let w = check(&[sub("lithium"), sub("LSD")]);
         assert!(w.iter().any(|w| w.severity == "danger"));
+    }
+
+    #[test]
+    fn mdma_with_a_psychedelic_is_an_empathogen_note() {
+        let w = check(&[sub("MDMA"), sub("LSD")]);
+        assert!(w[0].message.starts_with("Empathogen + psychedelic"), "{w:?}");
+        let a = advice_for(&builtin_classes("MDMA"), &builtin_classes("LSD"));
+        assert!(a.iter().any(|x| x.contains("soften")), "{a:?}");
+        assert!(!a.iter().any(|x| x.contains("thought loops")), "{a:?}");
+        // A plain stimulant keeps the stimulant note.
+        let w = check(&[sub("amphetamine"), sub("LSD")]);
+        assert!(w[0].message.starts_with("Stimulant + psychedelic"), "{w:?}");
     }
 
     #[test]

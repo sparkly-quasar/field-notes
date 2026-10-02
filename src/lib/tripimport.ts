@@ -31,7 +31,7 @@
  * instead of a row.
  */
 
-export type Unit = "mg" | "µg" | "g" | "ml" | "tab" | "capsule" | "pill";
+export type Unit = "mg" | "µg" | "g" | "ml" | "tab" | "capsule" | "pill" | "drink" | "hit";
 
 export interface ParsedRow {
   kind: "dose" | "moment";
@@ -82,7 +82,11 @@ export interface CatalogueEntry {
   aliases?: string[];
 }
 
-const UNIT_RE = /(\d+(?:[.,]\d+)?)\s*(mg|mgs|milligrams?|µg|ug|mcg|micrograms?|g|grams?|gr|ml|mls|tabs?|tablets?|pills?|caps?|capsules?)\b/i;
+const UNIT_RE = /(\d+(?:[.,]\d+)?|\ban?|\bone)\s*(mg|mgs|milligrams?|µg|ug|mcg|micrograms?|g|grams?|gr|ml|mls|tabs?|tablets?|pills?|caps?|capsules?|drinks?|beers?|shots?|glass(?:es)? of wine|wines?|hits?|puffs?|tokes?)\b/i;
+
+/** Drinks counted by what they were: "2 beers" and "a shot of tequila" are alcohol. */
+const DRINK_WORD = /^(beers?|shots?|glass(?:es)? of wine|wines?)$/i;
+const ALCOHOLS = new Set(["alcohol", "ethanol", "booze", "beer", "wine", "cider", "vodka", "whiskey", "whisky", "rum", "gin", "tequila", "mezcal", "liquor", "spirits", "sake", "champagne"]);
 
 function normUnit(u: string): Unit {
   const s = u.toLowerCase();
@@ -92,6 +96,8 @@ function normUnit(u: string): Unit {
   if (/^(ml|mls)$/.test(s)) return "ml";
   if (/^(caps?|capsules?)$/.test(s)) return "capsule";
   if (/^pills?$/.test(s)) return "pill";
+  if (/^(drinks?|beers?|shots?|glass(es)? of wine|wines?)$/.test(s)) return "drink";
+  if (/^(hits?|puffs?|tokes?)$/.test(s)) return "hit";
   return "tab";
 }
 
@@ -250,8 +256,12 @@ export function takeStamp(line: string): { stamp: Stamp | null; rest: string } {
 function doseOf(text: string, catalogue: CatalogueEntry[], index: Map<string, string>) {
   const m = text.match(UNIT_RE);
   if (!m) return null;
-  const amount = Number(m[1].replace(",", "."));
+  // "a"/"one" only counts for things counted whole: "a beer", "one hit", not "a mg".
+  const word = /^(an?|one)$/i.test(m[1]);
+  if (word && !/^(drinks?|beers?|shots?|glass|wines?|hits?|puffs?|tokes?)/i.test(m[2])) return null;
+  const amount = word ? 1 : Number(m[1].replace(",", "."));
   const unit = normUnit(m[2]);
+  const drink = DRINK_WORD.test(m[2]) || unit === "drink";
   const around = (text.slice(0, m.index) + " " + text.slice(m.index! + m[0].length))
     .replace(/[().;!]|(?<!\d),|,(?!\d)/g, " ")
     .split(/\s+/)
@@ -260,6 +270,10 @@ function doseOf(text: string, catalogue: CatalogueEntry[], index: Map<string, st
   // ketamine in the bathroom" is Ketamine, not "Ketamine in bathroom".
   // (The amount and unit are taken out first, so "2 tabs" can't read as a name.)
   const known = findKnown(text.slice(0, m.index) + " " + text.slice(m.index! + m[0].length), index);
+  // "a shot of tequila", "2 beers": the drink is alcohol, whatever it was poured as.
+  if (drink && (!known || ALCOHOLS.has(known.toLowerCase())) && around.every((w) => ALCOHOLS.has(w.toLowerCase()))) {
+    return { substance: resolveSubstance("alcohol", catalogue), amount, unit, route: "oral" };
+  }
   if (known) return { substance: known, amount, unit, route: routeOf(text) };
   // Otherwise a short line names it: "35mg mesc", "2C-B 15mg", "2 tabs of acid".
   if (around.length >= 1 && around.length <= 3) {

@@ -136,6 +136,8 @@
     defaultUnitFor,
     sameUnit,
     UNITS,
+    STANDARD_DRINK,
+    HIT_NOTE,
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
@@ -1048,7 +1050,7 @@
       qlUnit = shape.unit;
       qlRoute = shape.route;
     } else {
-      qlUnit = defaultUnitFor(qlSub) ?? qlUnit;
+      qlUnit = defaultUnitFor(qlSub, qlRoute) ?? qlUnit;
     }
   }
 
@@ -2190,7 +2192,7 @@
     if (r.threshold != null) parts.push(`thresh ${r.threshold}`);
     if (r.common.min != null) parts.push(`common ${num(r.common.min)}–${num(r.common.max)}`);
     if (r.strong.min != null) parts.push(`strong ${num(r.strong.min)}–${num(r.strong.max)}`);
-    if (r.heavy != null) parts.push(`heavy ${r.heavy}+`);
+    if (r.heavy != null) parts.push(r.heavy_max != null ? `heavy ${r.heavy}–${r.heavy_max}` : `heavy ${r.heavy}+`);
     return `${parts.join(" · ")} ${u}`.trim();
   }
   // Compact duration line from DoseWiki stages (onset → total, plus half-life).
@@ -2575,7 +2577,7 @@
           {/if}
 
           <div class="dose-form">
-            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance) ?? dUnit; }} />
+            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance, dRoute) ?? dUnit; }} />
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
@@ -2591,6 +2593,7 @@
               {#each dRef.roas as r}
                 {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{durationSummary(r) ? ` · ${durationSummary(r)}` : ""}</div>{/if}
               {/each}
+              {#if dRef.dose_note}<div class="muted small">{dRef.dose_note}</div>{/if}
               {#if refInteractions(dRef, "danger").length}
                 <div class="small warn-text">Known dangerous with: {refInteractions(dRef, "danger").map((i) => i.name).join(", ")}</div>
               {/if}
@@ -2693,10 +2696,15 @@
                 <select bind:value={qlUnit}>
                   {#each UNITS as u}<option>{u}</option>{/each}
                 </select>
-                <select bind:value={qlRoute}>
+                <select bind:value={qlRoute} onchange={() => { if (!recallDoseShape(qlSub)) qlUnit = defaultUnitFor(qlSub, qlRoute) ?? qlUnit; }}>
                   {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
                 </select>
               </div>
+              {#if qlUnit === "drink"}
+                <p class="muted small">{STANDARD_DRINK}</p>
+              {:else if qlUnit === "hit"}
+                <p class="muted small">{HIT_NOTE}</p>
+              {/if}
 
               <!-- A preset fills the field beside it rather than replacing it, so
                    the time that will be saved is always visible. -->
@@ -3125,6 +3133,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 {#each kbDose.roas as r}
                   {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{durationSummary(r) ? ` · ${durationSummary(r)}` : ""}</div>{/if}
                 {/each}
+                {#if kbDose.dose_note}<div class="muted small">{kbDose.dose_note}</div>{/if}
                 {#if refInteractions(kbDose, "danger").length}
                   <div class="small warn-text">Known dangerous with: {refInteractions(kbDose, "danger").map((i) => i.name).join(", ")}</div>
                 {/if}

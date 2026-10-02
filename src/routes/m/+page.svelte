@@ -111,6 +111,9 @@
     stretchToCover,
     defaultUnitFor,
     UNITS,
+    STANDARD_DRINK,
+    HIT_NOTE,
+    DRINK_PICKS,
   } from "$lib/quicklog";
 
   type View = "today" | "journal" | "check" | "talk";
@@ -875,7 +878,7 @@
       dUnit = shape.unit;
       dRoute = shape.route;
     } else {
-      dUnit = defaultUnitFor(dSub) ?? dUnit;
+      dUnit = defaultUnitFor(dSub, dRoute) ?? dUnit;
     }
   }
 
@@ -1987,12 +1990,13 @@
                   <dt>Light</dt><dd>{range(roa.light)}</dd>
                   <dt>Common</dt><dd>{range(roa.common)}</dd>
                   <dt>Strong</dt><dd>{range(roa.strong)}</dd>
-                  <dt>Heavy</dt><dd>{roa.heavy ?? "—"}</dd>
+                  <dt>Heavy</dt><dd>{roa.heavy == null ? "—" : roa.heavy_max != null ? `${roa.heavy}–${roa.heavy_max}` : `${roa.heavy}+`}</dd>
                   {#if roa.onset}<dt>Onset</dt><dd>{roa.onset}</dd>{/if}
                   {#if roa.total}<dt>Total</dt><dd>{roa.total}</dd>{/if}
                 </dl>
               </div>
             {/each}
+            {#if pw.dose_note}<p class="muted small">{pw.dose_note}</p>{/if}
             {#if pw.interactions.length}
               <h2 class="sec">Interactions</h2>
               {#each pw.interactions as i}
@@ -2216,9 +2220,19 @@
             </div>
             <div>
               <label for="d-route">Route</label>
-              <select id="d-route" bind:value={dRoute}>{#each ROUTES as r}<option>{r}</option>{/each}</select>
+              <select id="d-route" bind:value={dRoute} onchange={() => { if (!recallDoseShape(dSub)) dUnit = defaultUnitFor(dSub, dRoute) ?? dUnit; }}>{#each ROUTES as r}<option>{r}</option>{/each}</select>
             </div>
           </div>
+          {#if dUnit === "drink"}
+            <div class="chips" role="group" aria-label="Add a drink">
+              {#each DRINK_PICKS as p}
+                <button class="chip" onclick={() => (dAmt = String((Number(dAmt.replace(",", ".")) || 0) + 1))}>+ {p}</button>
+              {/each}
+            </div>
+            <p class="hint">{STANDARD_DRINK}</p>
+          {:else if dUnit === "hit"}
+            <p class="hint">{HIT_NOTE}</p>
+          {/if}
           <label for="d-when">When</label>
           <div class="chips" role="group" aria-label="Quick times">
             {#each doseTimeChips as c}
@@ -2963,7 +2977,15 @@
   }
   nav button { flex: 1; margin: 0; padding: 0.15rem 0 0; min-height: 56px; font-size: var(--fs-sm); background: transparent; border-color: transparent; color: var(--text-2);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; }
-  nav button.on { color: var(--accent); background: transparent; border-color: transparent; font-weight: 800; }
+  /* The tab you're on: a filled pill behind it, not just a tint, so it reads at a
+     glance (and in Dim (red), where every colour is a shade of the same red). */
+  nav button.on {
+    color: var(--accent); font-weight: 800; border-radius: 16px; border-color: transparent;
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  @media (forced-colors: active) {
+    nav button.on { border: 2px solid CanvasText; }
+  }
   nav button.plus {
     flex: 0 0 4.2rem; gap: 0; padding: 0; font-weight: 700; background: var(--accent); color: var(--on-accent); border-radius: 999px;
     transform: translateY(-6px); box-shadow: 0 4px 12px #0004;

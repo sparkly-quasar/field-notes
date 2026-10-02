@@ -1209,9 +1209,41 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.21.6** (2026-10-02).
+**Current release: v0.21.7** (2026-10-02).
 
-### To do — from owner testing, 2026-10-02
+### Shipped in v0.21.7 — the 2026-10-02 to-do list
+
+All six items below shipped, with these notes:
+
+- **1. Tab indicator:** a tinted pill behind the active tab (`nav button.on`),
+  with a 2px outline under forced colours.
+- **2. 5-MeO-DMT:** `ROUTE_OVERRIDES` in `pw.rs` (`RouteSpec`), with
+  `PwRoa.heavy_max` for a bounded heavy band and `PwInfo.dose_note` for the
+  source credit. Threshold is the low end of Erowid's figure (1 mg smoked,
+  3 mg insufflated). The upstream draft via `contribute.rs` was **not** done.
+- **3. Drinks:** `drink` unit (US standard drink, 14 g) with quick picks. DoseWiki's
+  Alcohol ranges mix UK units and US drinks inconsistently (strong 6+ drinks sits
+  above heavy 5–6 units), so a logged drink is **not** classified against them
+  (`sameUnit` keeps them apart). Normalising needs a trustworthy reference
+  first.
+- **4. Hits:** `hit` unit, default for smoked/vaporized cannabis
+  (`defaultUnitFor(substance, route)`). THC % is not recorded yet.
+- **5. Trends:** `src/lib/Trends.svelte`, under the tiles in `UsageStats`.
+  Amount is the **total per experience** (per-dose medians made redosed
+  experiences look smaller), shown without reference bands since those are
+  per-dose. Only rising psychedelic amounts (not entactogens) get the "working up
+  gradually" title and note. Not built: ratings against spacing.
+- **6. `server_update_status`:** it never waits on the network (the check runs on
+  its own thread). It now copies its state out of the lock before reading the
+  database, and a check that panics (e.g. no updater plugin, as in the bare test
+  portal) is recorded as a failed check rather than leaving `checking` on. The
+  original hang was only seen through the screenshot proxy and wasn't reproduced
+  on a real paired phone.
+- **Also:** MDMA/MDA/MDEA/methylone get an `entactogen` class; entactogen +
+  psychedelic is a "note" with its own advice, ahead of the stimulant +
+  psychedelic rule.
+
+### The 2026-10-02 to-do list, as written
 
 1. **Phone: show which tab you're on.** The bottom bar marks the current tab only
    by tinting its label and icon (`class:on`, `aria-current`), which is easy to
