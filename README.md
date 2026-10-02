@@ -16,6 +16,12 @@ from your phone: that's the one exception, off until you turn it on, and it
 uses a free Tailscale account to connect your own devices. Tailscale sees
 which of your devices are connected, never what's in your journal.
 
+### ⬇️ [Download Field Notes](https://github.com/sparkly-quasar/field-notes/releases/latest) · [How to install](#install--update)
+
+Free for Windows, macOS and Linux. The installers aren't code-signed yet, so
+each OS warns you once on first launch; [the install steps](#install--update)
+show you how to get past it.
+
 > ⚠️ **Harm-reduction and journaling tool — not medical advice, and not
 > encouragement to use anything.** Dose and interaction information is a reference
 > and safety backstop only: incomplete, possibly wrong, and no substitute for a
@@ -159,25 +165,47 @@ All screenshots use a fictional demo journal.
 
 ## Install & update
 
-Download an installer for your platform from the
-[Releases page](https://github.com/sparkly-quasar/field-notes/releases):
+Download the installer for your computer from the
+**[latest release](https://github.com/sparkly-quasar/field-notes/releases/latest)**
+(the files are listed under *How to install* on that page), then follow the
+steps for your system. The installers aren't code-signed yet, so the first
+launch needs one extra click.
 
-- **Windows** — run the `-setup.exe` installer (or the `.msi`). Not code-signed yet,
-  so SmartScreen may warn on first launch — click **More info → Run anyway**.
-- **macOS** — open the `.dmg`, drag Field Notes to Applications. Not notarized yet,
-  so macOS blocks the first launch. Open it once, then go to **System Settings →
-  Privacy & Security**, scroll down and click **Open Anyway** next to "Field Notes
-  was blocked". (On macOS 15 Sequoia and later, right-click → Open no longer
-  offers this.) Or in Terminal: `xattr -dr com.apple.quarantine
-  "/Applications/Field Notes.app"`.
-  If the icon keeps bouncing and the window never opens, select Field Notes in
-  Applications, press **Cmd+I**, and untick **Locked**.
-- **Linux** — the `.AppImage` (make it executable and run), or the `.deb` / `.rpm`.
+### Windows
 
-**To update:** the app checks for updates on launch and installs them in place
-("Install & restart") — signed and verified, fully in-app. You can also install
-any release over the old version by hand. **Your journal is safe either way** —
-all data lives in the OS app-data directory
+1. Download the file ending in **`_x64-setup.exe`** (or the `.msi`, if you prefer).
+2. Open it. Windows shows **"Windows protected your PC"**: click **More info**,
+   then **Run anyway**.
+3. Follow the installer, then open **Field Notes** from the Start menu.
+
+### macOS (Apple Silicon and Intel)
+
+1. Download the file ending in **`_universal.dmg`**.
+2. Open it and drag **Field Notes** into **Applications**.
+3. Open Field Notes. macOS blocks it the first time because it isn't notarized
+   yet: click **Done**.
+4. Go to **System Settings → Privacy & Security**, scroll down and click
+   **Open Anyway** next to *"Field Notes" was blocked*.
+5. Open Field Notes again and click **Open**. You only do this once.
+
+On macOS 15 Sequoia and later, right-click → Open no longer skips the block, so
+use step 4. In Terminal, `xattr -dr com.apple.quarantine "/Applications/Field Notes.app"`
+does the same thing. If the icon keeps bouncing and no window opens, select
+Field Notes in Applications, press **Cmd+I**, and untick **Locked**.
+
+### Linux
+
+- **AppImage (any distribution):** download the `.AppImage`, make it executable
+  (`chmod +x Field.Notes_*.AppImage`), and run it.
+- **Debian / Ubuntu:** `sudo apt install ./Field.Notes_*_amd64.deb`
+- **Fedora / RHEL:** `sudo dnf install ./Field.Notes-*.x86_64.rpm`
+
+### Updating
+
+The app checks for updates on launch and installs them in place
+("Install & restart"), signed and verified, fully in-app. You can also install
+any release over the old version by hand. **Your journal is safe either way.**
+All data lives in the OS app-data directory
 (`%APPDATA%\com.fieldnotes.journal` on Windows,
 `~/Library/Application Support/com.fieldnotes.journal` on macOS,
 `~/.local/share/com.fieldnotes.journal` on Linux), separate from the app itself,

@@ -158,3 +158,39 @@ jobs:
           # (including beta testers, since 0.4.0 > 0.4.0-beta.1) is offered.
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
+
+  install-guide:
+    # Appends the step-by-step install guide (.github/release-install.md) to the
+    # draft's body once every platform has uploaded. latest.json was already
+    # written by tauri-action from the CHANGELOG-only body, so the in-app update
+    # prompt never sees this; it lives only on the GitHub release page.
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Append install guide to the release
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          ver="${tag#v}"
+          body="$(gh release view "$tag" --json body --jq .body)"
+          # Re-runs must not append it twice.
+          if grep -qF '<!-- install-guide -->' <<<"$body"; then
+            echo "Install guide already on $tag; nothing to do."
+            exit 0
+          fi
+          guide="$(sed -e "s/@VERSION@/$ver/g" -e "s/@TAG@/$tag/g" .github/release-install.md)"
+          # Warn (don't fail) if a toolchain change renamed an asset the guide links.
+          assets="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+          grep -oE "releases/download/$tag/[^)]+" <<<"$guide" | sed 's#.*/##' | sort -u |
+            while read -r name; do
+              grep -qxF "$name" <<<"$assets" || echo "::warning::install guide links $name, which is not on the $tag release"
+            done
+          printf '%s\n\n%s\n' "$body" "$guide" > "$RUNNER_TEMP/body.md"
+          gh release edit "$tag" --notes-file "$RUNNER_TEMP/body.md"
