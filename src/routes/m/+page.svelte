@@ -275,7 +275,18 @@
     try { localStorage.setItem(HOME_HINT_KEY, "1"); } catch { /* private mode */ }
   }
 
+  /** The live card's "now T+…" reads this, so it moves on its own. Every 30s,
+   *  and at once when the phone wakes or the app comes back to the front; a
+   *  sitter glancing at a stale elapsed time is worse than no number at all. */
+  let nowTick = $state(Date.now());
+
   onMount(() => {
+    const tick = () => (nowTick = Date.now());
+    const clock = setInterval(tick, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     captureToken();
     paired = inTauri() || hasToken();
     try {
@@ -296,6 +307,8 @@
       loadServerUpdate();
     }
     return () => {
+      clearInterval(clock);
+      document.removeEventListener("visibilitychange", onVisible);
       vv?.removeEventListener("resize", onVv);
       vv?.removeEventListener("scroll", onVv);
     };
@@ -1249,7 +1262,7 @@
 
 <main style="--kb: {kb}px">
   {#if !paired}
-    <section class="pane">
+    <section class="pane unpaired">
       <h1>Not paired</h1>
       {#if standalone}
         <p>
@@ -1352,7 +1365,7 @@
           <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Live session</p>
           <h1 class="entry-title">{live.title || "Untitled session"}</h1>
           <p class="muted">
-            Started {hhmm(live.started_at)}{#if t0Of(live)} · now {rel(new Date().toISOString(), t0Of(live))}{/if}
+            Started {hhmm(live.started_at)}{#if t0Of(live)} · now {rel(new Date(nowTick).toISOString(), t0Of(live))}{/if}
           </p>
           {#if warnFor[live.id]?.length}
             {@render warnings(warnFor[live.id])}
@@ -2114,7 +2127,7 @@
   main {
     max-width: 36rem;
     margin: 0 auto;
-    padding: calc(0.5rem + var(--sa-t)) 0.8rem calc(var(--nav-h) + 5.5rem);
+    padding: 0 0.8rem calc(var(--nav-h) + 5.5rem);
   }
   :global(:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
 
@@ -2127,9 +2140,17 @@
   h2 { font-size: var(--fs-h); margin: 0 0 0.6rem; }
 
   /* ---------- header ---------- */
+  /* Pinned, so Help is on screen however far down a page you are, and padded by
+     the safe area so it clears the status bar and notch instead of sitting under
+     the clock. Below the sheets (30+) and toasts (20), above the nav strip (5). */
+  /* No header on this screen, so it clears the status bar itself. */
+  .unpaired { margin-top: calc(0.8rem + var(--sa-t)); }
   header.top {
     display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;
-    min-height: var(--tap); margin-bottom: 0.4rem;
+    min-height: var(--tap);
+    position: sticky; top: 0; z-index: 15;
+    margin: 0 -0.8rem 0.4rem; padding: calc(0.5rem + var(--sa-t)) 0.8rem 0.4rem;
+    background: var(--bg);
   }
   .brand { font-weight: 700; }
   .top-right { display: flex; gap: 0.4rem; align-items: center; min-width: 0; }

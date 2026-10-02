@@ -1894,6 +1894,48 @@
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
 </script>
 
+<!-- Shared with the live-session screen, which covers the whole window: the
+     crisis banner and interaction warnings must show there too, or a dangerous
+     combination logged mid-session flags nothing anyone can see. -->
+{#snippet crisisBanner()}
+  {#if crisis && crisis.level !== "none"}
+    <div class="crisis-banner {crisis.level}">
+      <div class="crisis-head">
+        <strong>{crisis.headline}</strong>
+        <button class="icon-btn" title="Dismiss" onclick={() => (crisis = null)}>✕</button>
+      </div>
+      {#if crisis.presentation === "offer" && !crisisResourcesShown}
+        <!-- A hard moment is not an emergency. Offer, and let it be declined. -->
+        <div class="crisis-offer">
+          <button class="primary" onclick={() => (crisisResourcesShown = true)}>Show me some options</button>
+          <button class="ghost" onclick={() => (crisis = null)}>No thanks</button>
+        </div>
+      {:else}
+        <ul class="crisis-res">
+          {#each crisis.resources as r}
+            <li><strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}<br /><span class="muted small">{r.detail}</span></li>
+          {/each}
+        </ul>
+        <p class="muted small">This is an automatic safety prompt, not a diagnosis. You know your situation best — reaching out for help is always okay.</p>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet doseWarnings()}
+  {#if lastWarnings.length}
+    <div class="warnings">
+      {#each lastWarnings as w}
+        <div class="warn {sevClass(w.severity)}">
+          <strong>{w.severity.toUpperCase()}</strong> · {w.a} + {w.b}
+          <div>{w.message}</div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+
 {#if !statusLoaded}
   <div class="gate">
     <div class="gate-card">
@@ -2027,28 +2069,7 @@
       </div>
     {/if}
 
-    {#if crisis && crisis.level !== "none"}
-      <div class="crisis-banner {crisis.level}">
-        <div class="crisis-head">
-          <strong>{crisis.headline}</strong>
-          <button class="icon-btn" title="Dismiss" onclick={() => (crisis = null)}>✕</button>
-        </div>
-        {#if crisis.presentation === "offer" && !crisisResourcesShown}
-          <!-- A hard moment is not an emergency. Offer, and let it be declined. -->
-          <div class="crisis-offer">
-            <button class="primary" onclick={() => (crisisResourcesShown = true)}>Show me some options</button>
-            <button class="ghost" onclick={() => (crisis = null)}>No thanks</button>
-          </div>
-        {:else}
-          <ul class="crisis-res">
-            {#each crisis.resources as r}
-              <li><strong>{r.label}</strong>{#if r.contact} — <span class="contact">{r.contact}</span>{/if}<br /><span class="muted small">{r.detail}</span></li>
-            {/each}
-          </ul>
-          <p class="muted small">This is an automatic safety prompt, not a diagnosis. You know your situation best — reaching out for help is always okay.</p>
-        {/if}
-      </div>
-    {/if}
+    {@render crisisBanner()}
 
     <header>
       <h1>Field Notes</h1>
@@ -2141,16 +2162,7 @@
             {#if selected.rating != null}<p class="muted small">Rating: {selected.rating}/10</p>{/if}
           {/if}
 
-          {#if lastWarnings.length}
-            <div class="warnings">
-              {#each lastWarnings as w}
-                <div class="warn {sevClass(w.severity)}">
-                  <strong>{w.severity.toUpperCase()}</strong> · {w.a} + {w.b}
-                  <div>{w.message}</div>
-                </div>
-              {/each}
-            </div>
-          {/if}
+          {@render doseWarnings()}
 
           <h3>Doses</h3>
           {#if selected.doses.length}
@@ -3443,11 +3455,12 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   <!-- ============ EMERGENCY / PANIC RESOURCES ============ -->
   {#if showHelp}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="modal-overlay" role="presentation" onclick={() => (showHelp = false)}>
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="help-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
-        <h2>Get help now</h2>
+    <!-- Only Close closes it. A click outside used to dismiss it, and one stray
+         click is easy to make at exactly the moment this screen is needed. -->
+    <div class="modal-overlay" role="presentation">
+      <div class="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1">
+        <h2 id="help-title">Get help now</h2>
+        <p class="help-first"><strong>If someone is in danger, call your local emergency number now.</strong></p>
         <ul class="crisis-res">
           {#each helpInPerson as r}
             <li>
@@ -3523,6 +3536,11 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <button class="help-btn" onclick={openHelp}>Get help now</button>
           <button class="ghost" onclick={endLiveSession}>Exit</button>
         </div>
+      </div>
+
+      <div class="live-alerts">
+        {@render crisisBanner()}
+        {@render doseWarnings()}
       </div>
 
       <div class="live-body">
@@ -3864,6 +3882,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; padding: 1.5rem; z-index: 50; }
   .help-modal { background: var(--card); border: 1px solid var(--danger); border-radius: 16px; padding: 1.6rem; max-width: 520px; width: 100%; }
   .help-modal h2 { margin-top: 0; }
+  .help-first { font-size: 1.05rem; margin: 0 0 0.8rem; }
 
   /* ---- support style intake ---- */
   .models-panel { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin: 0.6rem 0 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
@@ -3879,6 +3898,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .action-chip { font-size: 0.8rem; color: var(--note); border: 1px solid var(--note); border-radius: 999px; padding: 0.15rem 0.6rem; }
 
   /* ---- live session ---- */
+  .live-alerts { margin: 0.8rem 0 0; }
+  .live-alerts:empty { display: none; }
   .live { position: fixed; inset: 0; background: var(--bg); z-index: 40; display: flex; flex-direction: column; padding: 1.2rem clamp(1rem, 4vw, 3rem); overflow-y: auto; }
   .live-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
   .live-title { font-size: 1.5rem; font-weight: 700; }
