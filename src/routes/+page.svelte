@@ -2150,7 +2150,7 @@
     create_experience: "A new entry",
     log_dose: "A dose",
     add_timeline_event: "A timeline note",
-    end_experience: "Ending a session",
+    end_experience: "Ending a trip report",
   };
 
   async function discardFailed(f: RemoteFailed) {
@@ -2652,7 +2652,7 @@
           </div>
 
           {#if !selected.ended_at}
-            <button class="ghost" onclick={finishExperience}>End session</button>
+            <button class="ghost" onclick={finishExperience}>End trip report</button>
           {/if}
           <button class="ghost" onclick={exportEntry}>Export this entry</button>
           {#if exportErr}<p class="notice bad-notice">{exportErr}</p>{/if}
