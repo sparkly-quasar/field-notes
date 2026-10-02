@@ -1283,7 +1283,7 @@ mod tests {
             let _ = std::fs::remove_file(path.with_extension(ext));
         }
         let conn = db::open(&path, None).unwrap();
-        app.manage(Db { conn: std::sync::Mutex::new(Some(conn)), path: path.clone() });
+        app.manage(Db::new(Some(conn), path.clone()));
         app.manage(crate::Knowledge(None));
         app.manage(crate::portal::Portal::default());
         app.manage(crate::portal::CompanionJobs::default());

@@ -1175,11 +1175,20 @@ pub struct DbStatus {
     /// Is there a live, usable connection this session? (An encrypted journal is
     /// locked — `encrypted && !unlocked` — until the passphrase is entered.)
     pub unlocked: bool,
+    /// Still opening at launch; ask again shortly.
+    pub opening: bool,
+    /// Opening failed, and why.
+    pub error: Option<String>,
 }
 
 #[tauri::command]
 pub fn db_status(db: State<'_, Db>) -> DbStatus {
-    DbStatus { encrypted: db::is_encrypted(&db.path), unlocked: db.is_unlocked() }
+    DbStatus {
+        encrypted: db::is_encrypted(&db.path),
+        unlocked: db.is_unlocked(),
+        opening: db.is_opening(),
+        error: db.open_error.lock().unwrap().clone(),
+    }
 }
 
 /// Open a locked (encrypted) journal with the supplied passphrase.
@@ -1194,6 +1203,7 @@ pub fn unlock_db(app: AppHandle, db: State<'_, Db>, passphrase: String) -> Resul
             .map_err(|_| "Incorrect password.".to_string())?;
         *guard = Some(conn);
     }
+    db.opening.store(false, std::sync::atomic::Ordering::SeqCst);
     // Repopulate the (in-DB) dose reference from the bundled snapshot, as at startup.
     refresh_dose_reference(&app, db.inner());
     // If this computer is the server, now is when it can start serving.
@@ -1527,18 +1537,92 @@ fn tailscale_bin() -> Option<String> {
 /// Run a `tailscale` subcommand, returning its stderr as the error. Tailscale's own
 /// messages are the useful ones here ("HTTPS must be enabled in the admin console",
 /// "not logged in"), and a generic "failed to publish" would throw them away.
+///
+/// Never waits forever. When Serve or HTTPS isn't enabled for the tailnet yet,
+/// `tailscale serve` doesn't fail: it prints an approval link and blocks until
+/// someone approves it in a browser. Waiting on that froze the window (a pinwheel
+/// on "Publish to my tailnet"). So the output is watched as it arrives: an approval
+/// link stops the command and comes back as the error, with the link, and anything
+/// still running after [`TAILSCALE_TIMEOUT`] is stopped too.
 fn tailscale_run(bin: &str, args: &[&str]) -> Result<String, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::{Arc, Mutex};
+
     let mut cmd = std::process::Command::new(bin);
     crate::ollama::hide_console(&mut cmd);
-    let out = cmd
+    let mut child = cmd
         .args(args)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Couldn't run Tailscale: {e}"))?;
-    if out.status.success() {
-        return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+
+    // Collect both streams on their own threads, so the output can be read while
+    // the command is still running (and a full pipe can't stall it).
+    let collect = |mut r: Box<dyn Read + Send>| {
+        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let b = buf.clone();
+        let h = std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(n) = r.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                b.lock().unwrap().extend_from_slice(&chunk[..n]);
+            }
+        });
+        (buf, h)
+    };
+    let (out, out_h) = collect(Box::new(child.stdout.take().expect("piped stdout")));
+    let (err, err_h) = collect(Box::new(child.stderr.take().expect("piped stderr")));
+    let text = |b: &Arc<Mutex<Vec<u8>>>| String::from_utf8_lossy(&b.lock().unwrap()).trim().to_string();
+
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().map_err(|e| format!("Couldn't run Tailscale: {e}"))? {
+            break st;
+        }
+        let so_far = format!("{}\n{}", text(&out), text(&err));
+        if let Some(url) = approval_url(&so_far) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "Tailscale needs you to approve this first. Open {url} , sign in and approve it, then try again."
+            ));
+        }
+        if started.elapsed() > TAILSCALE_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "Tailscale didn't answer within {} seconds. Check that Tailscale is running and signed in, then try again.",
+                TAILSCALE_TIMEOUT.as_secs()
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    let _ = out_h.join();
+    let _ = err_h.join();
+
+    if status.success() {
+        return Ok(text(&out));
     }
-    let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let msg = text(&err);
     Err(if msg.is_empty() { "Tailscale refused, without saying why.".into() } else { msg })
+}
+
+/// How long any one `tailscale` command may take. Real ones answer in well under a
+/// second; this is only there so a stuck one can't hang the app.
+const TAILSCALE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The link Tailscale prints when something has to be approved in the admin
+/// console first ("Serve is not enabled on your tailnet. To enable, visit: …").
+fn approval_url(output: &str) -> Option<String> {
+    output
+        .split_whitespace()
+        .find(|w| w.starts_with("https://login.tailscale.com/"))
+        .map(|w| w.trim_end_matches(['.', ',', ')']).to_string())
 }
 
 /// HTTPS ports we'll publish on, in order of preference. 443 gives the bare
@@ -1600,7 +1684,8 @@ fn parse_serve(raw: &str, local: Option<u16>) -> (Option<u16>, std::collections:
     (ours, used)
 }
 
-#[tauri::command]
+// Off the main thread: it runs `tailscale`, which can be slow.
+#[tauri::command(async)]
 pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
     let Some(bin) = tailscale_bin() else {
         return TailscaleStatus {
@@ -1650,7 +1735,8 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
 /// proxies to our loopback port. This is the one button that makes the journal
 /// reachable from another device, so it stays an explicit, reversible act — and it
 /// refuses if the portal isn't actually running, rather than serving a dead port.
-#[tauri::command]
+// Off the main thread: it runs `tailscale`, which can be slow.
+#[tauri::command(async)]
 pub fn portal_serve(portal: State<'_, Portal>, prefs: State<'_, Prefs>) -> Result<TailscaleStatus, String> {
     publish(&portal, &prefs, None)?;
     Ok(portal_tailscale(portal))
@@ -1723,7 +1809,8 @@ pub fn bring_up_server<R: tauri::Runtime>(app: &AppHandle<R>) {
 
 /// Stop publishing. The portal itself keeps running on loopback — this only removes
 /// the tailnet's route to it.
-#[tauri::command]
+// Off the main thread: it runs `tailscale`, which can be slow.
+#[tauri::command(async)]
 pub fn portal_unserve(portal: State<'_, Portal>, prefs: State<'_, Prefs>) -> Result<TailscaleStatus, String> {
     let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
 
@@ -1896,6 +1983,35 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn finds_the_tailscale_approval_link() {
+        let msg = "Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=nAbC123\n";
+        assert_eq!(approval_url(msg).as_deref(), Some("https://login.tailscale.com/f/serve?node=nAbC123"));
+        assert_eq!(approval_url("Success. Available within your tailnet: https://mac.tail1.ts.net/"), None);
+    }
+
+    /// The pinwheel on "Publish to my tailnet": a `tailscale serve` that prints an
+    /// approval link and then waits must come back at once, with the link.
+    #[cfg(unix)]
+    #[test]
+    fn a_tailscale_waiting_for_approval_does_not_hang() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("fn-ts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tailscale");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\necho 'Serve is not enabled on your tailnet.'\necho 'To enable, visit:'\necho '  https://login.tailscale.com/f/serve?node=n1'\nsleep 60\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let t = std::time::Instant::now();
+        let err = tailscale_run(fake.to_str().unwrap(), &["serve", "--bg", "--https=443", "8787"]).unwrap_err();
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "took {:?}", t.elapsed());
+        assert!(err.contains("https://login.tailscale.com/f/serve?node=n1"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

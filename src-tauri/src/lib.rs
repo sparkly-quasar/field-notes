@@ -35,9 +35,23 @@ use tauri::Manager;
 pub struct Db {
     pub conn: Mutex<Option<Connection>>,
     pub path: PathBuf,
+    /// Still opening at launch (see `run`'s setup). Commands answer "locked" until
+    /// it's done; the window waits on `db_status`.
+    pub opening: std::sync::atomic::AtomicBool,
+    /// Why opening an unencrypted journal failed, shown instead of freezing.
+    pub open_error: Mutex<Option<String>>,
 }
 
 impl Db {
+    /// A journal that's already open (or locked), with nothing still in progress.
+    pub fn new(conn: Option<Connection>, path: PathBuf) -> Self {
+        Db { conn: Mutex::new(conn), path, opening: false.into(), open_error: Mutex::new(None) }
+    }
+
+    pub fn is_opening(&self) -> bool {
+        self.opening.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn locked_err() -> String {
         "The journal is locked — unlock it with your password.".to_string()
     }
@@ -84,6 +98,45 @@ impl Knowledge {
     }
 }
 
+/// The launch-time half of opening the journal, off the main thread.
+///
+/// If the journal is encrypted, it stays locked until the user unlocks it with their
+/// passphrase, unless they chose to remember it in the system keychain
+/// (`keychain.rs`), so a computer serving the journal can come back on its own after
+/// a reboot. A remembered passphrase that no longer fits just leaves it locked.
+/// Otherwise it's opened (and created on first run).
+fn open_journal(app: tauri::AppHandle, path: PathBuf) {
+    use std::sync::atomic::Ordering;
+    let db = app.state::<Db>();
+    let opened = if db::is_encrypted(&path) {
+        Ok(keychain::get().and_then(|p| db::open(&path, Some(&p)).ok()))
+    } else {
+        db::open(&path, None).map(Some).map_err(|e| format!("Couldn't open the journal at {}: {e}", path.display()))
+    };
+    match opened {
+        Ok(conn) => {
+            let mut guard = db.conn.lock().unwrap();
+            // The user may have unlocked it by hand while the keychain was slow.
+            if guard.is_none() {
+                *guard = conn;
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            *db.open_error.lock().unwrap() = Some(e);
+        }
+    }
+    // The bundled dose reference lives inside the journal DB, so it can only be
+    // loaded once the DB is open (i.e. not locked).
+    if db.is_unlocked() {
+        commands::refresh_dose_reference(&app, db.inner());
+    }
+    db.opening.store(false, Ordering::SeqCst);
+    // A computer set up as the server starts serving as soon as the journal is open.
+    // With the journal locked this waits for `unlock_db`.
+    commands::bring_up_server(&app);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -100,25 +153,18 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let path = dir.join("journal.db");
-            // If the journal is encrypted, leave it locked until the user unlocks
-            // it with their passphrase — unless they chose to remember it in the
-            // system keychain (`keychain.rs`), so a computer serving the journal can
-            // come back on its own after a reboot. A remembered passphrase that no
-            // longer fits just leaves it locked. Otherwise open it (creating on first run).
-            let conn = if db::is_encrypted(&path) {
-                keychain::get().and_then(|p| db::open(&path, Some(&p)).ok())
-            } else {
-                Some(db::open(&path, None).expect("failed to open journal database"))
-            };
-            app.manage(Db { conn: Mutex::new(conn), path });
-
-            // The bundled dose reference lives inside the journal DB, so it can
-            // only be loaded once the DB is open (i.e. not locked).
-            let db = app.state::<Db>();
-            if db.is_unlocked() {
-                commands::refresh_dose_reference(app.handle(), db.inner());
-            }
-
+            // Open the journal in the background, so the window always appears at
+            // once. Everything in this hook runs before macOS will show the window,
+            // so anything slow here (a Keychain prompt hidden behind other windows,
+            // a disk that won't answer) used to leave the Dock icon bouncing with no
+            // way to tell why. The window shows "Opening your journal…" until this
+            // finishes, and a failure as a message rather than a freeze.
+            app.manage(Db {
+                conn: Mutex::new(None),
+                path: path.clone(),
+                opening: true.into(),
+                open_error: Mutex::new(None),
+            });
             // The knowledge corpus is bundled reference data held in memory, so it
             // loads regardless of the journal's lock state. A failure here is not
             // fatal — the app simply has no prose search.
@@ -145,9 +191,9 @@ pub fn run() {
             app.manage(remote::Remote::default());
             remote::start_background(app.handle());
 
-            // A computer set up as the server starts serving as soon as the journal
-            // is open. With the journal locked this waits for `unlock_db`.
-            commands::bring_up_server(app.handle());
+            // Last, once every piece of state it touches is managed.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || open_journal(handle, path));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -651,7 +651,6 @@ mod tests {
     // request path, not against a function in isolation.
 
     use crate::Knowledge;
-    use std::sync::Mutex as StdMutex;
 
     /// A running portal backed by a real (temporary) journal.
     fn serving() -> (tauri::AppHandle<tauri::test::MockRuntime>, u16, String) {
@@ -665,7 +664,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let conn = crate::db::open(&path, None).unwrap();
 
-        app.manage(Db { conn: StdMutex::new(Some(conn)), path: path.clone() });
+        app.manage(Db::new(Some(conn), path.clone()));
         app.manage(Knowledge(None));
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
@@ -841,10 +840,7 @@ mod tests {
             },
         )
         .unwrap();
-        app.manage(Db {
-            conn: StdMutex::new(Some(conn)),
-            path: std::env::temp_dir().join("fn-export-test-unused.db"),
-        });
+        app.manage(Db::new(Some(conn), std::env::temp_dir().join("fn-export-test-unused.db")));
 
         let handle = app.handle().clone();
         let v = dispatch(&handle, "export_experience_markdown", json!({ "id": exp.id }))
