@@ -895,7 +895,7 @@ using the model switch and reading the screens as a first-timer would.
    - Desktop vocabulary matches the phone: session, moment, write-up (not
      "experience", "Add note", "End experience").
 
-   **Phase 2: live session and reflection (M).**
+   **Phase 2: live session and reflection (M). ✅ Shipped in v0.16.0** (night theme on the phone only so far).
    - "Last: LSD 100 µg · 1h 12m ago" on the live card, and time since the last dose
      of that substance in the dose sheet.
    - Undo on the "Saved" receipt.
