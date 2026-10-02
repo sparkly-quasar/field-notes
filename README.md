@@ -155,8 +155,11 @@ Download an installer for your platform from the
 - **Windows** — run the `-setup.exe` installer (or the `.msi`). Not code-signed yet,
   so SmartScreen may warn on first launch — click **More info → Run anyway**.
 - **macOS** — open the `.dmg`, drag Field Notes to Applications. Not notarized yet,
-  so on first launch **right-click → Open** (or `xattr -dr com.apple.quarantine
-  "/Applications/Field Notes.app"`).
+  so macOS blocks the first launch. Open it once, then go to **System Settings →
+  Privacy & Security**, scroll down and click **Open Anyway** next to "Field Notes
+  was blocked". (On macOS 15 Sequoia and later, right-click → Open no longer
+  offers this.) Or in Terminal: `xattr -dr com.apple.quarantine
+  "/Applications/Field Notes.app"`.
 - **Linux** — the `.AppImage` (make it executable and run), or the `.deb` / `.rpm`.
 
 **To update:** the app checks for updates on launch and installs them in place
