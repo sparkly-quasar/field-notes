@@ -197,6 +197,18 @@
   let search = $state("");
   let filter = $state<"all" | "sessions" | "notes" | "writeup">("all");
   let subFilter = $state<string | null>(null);
+  /** "All" means everything, so it clears the substance pick too. Journal notes
+   *  have no doses, so a substance pick can't apply to them either. Sessions and
+   *  No write-up keep it: "LSD sessions with no write-up" is a fair question. */
+  function setFilter(k: typeof filter) {
+    filter = k;
+    if (k === "all" || k === "notes") subFilter = null;
+  }
+  /** Picking a substance from Journal notes would show nothing; show sessions. */
+  function pickSubFilter(s: string) {
+    subFilter = subFilter === s ? null : s;
+    if (subFilter && filter === "notes") filter = "all";
+  }
   let usage = $state<SubstanceUsage[]>([]);
   let showUsage = $state(false);
 
@@ -1494,13 +1506,13 @@
           <input id="search" type="search" placeholder="Search titles, write-ups, substances" bind:value={search} autocapitalize="none" enterkeyhint="search" />
           <div class="chips" role="group" aria-label="Show">
             {#each [["all", "All"], ["sessions", "Sessions"], ["notes", "Journal notes"], ["writeup", "No write-up"]] as [k, label]}
-              <button class="chip" class:on={filter === k} aria-pressed={filter === k} onclick={() => (filter = k as typeof filter)}>{label}</button>
+              <button class="chip" class:on={filter === k} aria-pressed={filter === k} onclick={() => setFilter(k as typeof filter)}>{label}</button>
             {/each}
           </div>
           {#if listSubs.length}
             <div class="chips scroll" role="group" aria-label="Filter by substance">
               {#each listSubs as s}
-                <button class="chip" class:on={subFilter === s} aria-pressed={subFilter === s} onclick={() => (subFilter = subFilter === s ? null : s)}>{s}</button>
+                <button class="chip" class:on={subFilter === s} aria-pressed={subFilter === s} onclick={() => pickSubFilter(s)}>{s}</button>
               {/each}
             </div>
           {/if}
