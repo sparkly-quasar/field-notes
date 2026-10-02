@@ -21,6 +21,17 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   after a break from opioids, start lower. It shows on a substance's card too.
   It's reference text only, and never compares your own gaps to it. In
   discreet mode it's hidden, since it names substances.
+- **Pasted text that's full of %20 now reads normally.** Some apps copy text the
+  way it looks inside a link ("I%E2%80%99ve%20been..."). Pasting a trip log
+  turns that back into ordinary words, even when only part of the paste was like
+  that. A log that just mentions "50%" is left as you wrote it.
+- **The date at the top of a log is used.** If your log starts with a line like
+  `Date: 02-28-2026 12:30pm` or `Saturday, February 28, 2026`, the import picks
+  that day for you instead of guessing today or yesterday, and says it did. You
+  can still change it before saving.
+- **A time on its own line, with the words underneath, now works.** Writing
+  `12:30pm` on one line and `20mg 2C-D after breakfast` on the next is read as a
+  dose at 12:30, the same as if it were all on one line.
 
 ## v0.20.1
 
