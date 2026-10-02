@@ -556,7 +556,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "usage_by_substance" => done(commands::usage_by_substance_in(db)),
         "usage_stats" => done(commands::usage_stats_in(db, arg(&args, "since")?)),
         "server_update_status" => ok(crate::server_update::status(app)),
-        "server_update_install" => done(crate::server_update::install(app)),
+        "server_update_install" => {
+            done(crate::server_update::install(app, arg::<Option<bool>>(&args, "anyway")?.unwrap_or(false)))
+        }
         "list_substances" => done(commands::list_substances_in(db)),
         "db_status" => match &theirs {
             None => ok(commands::db_status(owner_db)),

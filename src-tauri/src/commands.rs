@@ -2237,10 +2237,14 @@ pub fn server_update_status(app: AppHandle) -> crate::server_update::ServerUpdat
 }
 
 /// Install the waiting update and restart, if every guard in `server_update.rs`
-/// allows it. Exposed to the phone.
+/// allows it. `anyway` installs past the ones that only lock other people's
+/// journals. Exposed to the phone.
 #[tauri::command]
-pub fn server_update_install(app: AppHandle) -> Result<crate::server_update::ServerUpdateStatus, String> {
-    crate::server_update::install(&app)
+pub fn server_update_install(
+    app: AppHandle,
+    anyway: Option<bool>,
+) -> Result<crate::server_update::ServerUpdateStatus, String> {
+    crate::server_update::install(&app, anyway.unwrap_or(false))
 }
 
 /// Is discreet mode offered? Read by the phone, so enabling it in Settings on the

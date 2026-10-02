@@ -388,10 +388,31 @@ impl People {
         opened
     }
 
-    /// Someone's journal is open only in memory, so a restart would lock it until
-    /// they unlock it again from their own device.
-    pub fn unlocked_in_memory_only(&self) -> bool {
-        self.list().iter().any(|p| p.unlocked && !p.remembered)
+    /// Whose journals are open only in memory, so a restart would lock them until
+    /// they unlock them again from their own device. For the owner's update prompt,
+    /// which shows only names and locked-or-unlocked: what Settings already shows (rule 3).
+    pub fn would_lock(&self) -> Vec<String> {
+        self.list().into_iter().filter(|p| p.unlocked && !p.remembered).map(|p| p.name).collect()
+    }
+
+    /// Who has a session that hasn't been ended, among the journals open right now.
+    /// Only whether one is open: never its title or anything else in it. A locked
+    /// journal can't be read, and nobody can be mid-session in one.
+    pub fn in_session(&self) -> Vec<u32> {
+        let open: Vec<(u32, Arc<Db>)> = self.dbs.lock().unwrap().iter().map(|(id, d)| (*id, d.clone())).collect();
+        open.into_iter()
+            .filter(|(_, d)| {
+                d.with(|c| {
+                    c.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM experiences WHERE kind = 'session' AND ended_at IS NULL)",
+                        [],
+                        |r| r.get::<_, bool>(0),
+                    )
+                })
+                .unwrap_or(false)
+            })
+            .map(|(id, _)| id)
+            .collect()
     }
 }
 
@@ -492,6 +513,23 @@ mod tests {
         let c = db::open(&out, Some("correct horse battery")).unwrap();
         let x: String = c.query_row("SELECT x FROM marker", [], |r| r.get(0)).unwrap();
         assert_eq!(x, "SAMSECRET");
+    }
+
+    #[test]
+    fn a_restart_names_who_it_would_lock_and_sees_only_whether_a_session_is_open() {
+        let p = people("restart");
+        p.add("Sam").unwrap();
+        p.add("Alex").unwrap();
+        assert!(p.would_lock().is_empty() && p.in_session().is_empty());
+        let sam = p.unlock(2, 1, "correct horse battery").unwrap();
+        p.unlock(3, 2, "another good password").unwrap();
+        assert_eq!(p.would_lock(), vec!["Sam".to_string(), "Alex".to_string()]);
+        assert!(p.in_session().is_empty());
+        sam.with(|c| c.execute("INSERT INTO experiences (kind, title, started_at) VALUES ('session', 'x', '2026-10-02T10:00:00Z')", []))
+            .unwrap();
+        assert_eq!(p.in_session(), vec![2]);
+        sam.with(|c| c.execute("UPDATE experiences SET ended_at = '2026-10-02T14:00:00Z'", [])).unwrap();
+        assert!(p.in_session().is_empty());
     }
 
     #[test]

@@ -12,7 +12,13 @@
 //!   start at launch (`serve_on_launch`), and an encrypted journal has to be able to
 //!   unlock itself (its password saved in the keychain).
 //! - **Never during an open session.** A restart mid-sit drops every device's
-//!   access at the worst moment.
+//!   access at the worst moment. That goes for the owner's journal and for anyone
+//!   else's that's open, as long as one of their devices has been in touch lately
+//!   (`CONNECTED_WITHIN`). A session nobody has touched in hours was most likely
+//!   just never ended, and the owner can't end it for them.
+//! - **Other people's journals locking is the owner's call.** A journal kept
+//!   unlocked only in memory locks on restart. That's an inconvenience, not a
+//!   danger, so the phone names who it would affect and offers "Install anyway".
 //!
 //! What gets installed is decided by the same Tauri updater as the desktop's own
 //! "Install & restart": only a release signed with the app's key, from the app's own
@@ -28,6 +34,11 @@ use tauri_plugin_updater::UpdaterExt;
 /// How long a check is reused. The phone asks whenever Today opens; GitHub
 /// doesn't need to hear about every one of those.
 const RECHECK_AFTER: Duration = Duration::from_secs(15 * 60);
+
+/// How recently one of a person's devices must have made a request for their open
+/// session to count as going on now. Phones don't check in by themselves, so this
+/// is generous: someone deep in a sit can go a long while without touching theirs.
+const CONNECTED_WITHIN: u64 = 2 * 60 * 60;
 
 #[derive(Default)]
 pub struct ServerUpdate {
@@ -58,6 +69,9 @@ pub struct ServerUpdateStatus {
     /// Why a phone can't install it right now, in words for the person holding
     /// the phone. `None` means it can.
     pub blocked: Option<String>,
+    /// The phone may install anyway after saying so: what `blocked` describes only
+    /// locks other people's journals, and nobody is mid-session.
+    pub can_override: bool,
     pub installing: bool,
     /// A check is running in the background; ask again in a few seconds.
     pub checking: bool,
@@ -73,29 +87,65 @@ pub(crate) struct Gates {
     pub remembered: bool,
     /// Title of a session that hasn't been ended, if there is one.
     pub open_session: Option<String>,
-    /// Another person's journal is unlocked only in memory: a restart would lock it
-    /// until they unlock it again from their own device.
-    pub others_unlocked: bool,
+    /// People whose journals are unlocked only in memory: a restart would lock them
+    /// until they unlock them again from their own device.
+    pub others_would_lock: Vec<String>,
+    /// Someone else has a session open and one of their devices was in touch lately.
+    pub others_live_session: bool,
+    /// Someone else has a session open but none of their devices has been in touch
+    /// for a while: most likely a session nobody ended.
+    pub others_stale_session: bool,
 }
 
-pub(crate) fn blocked_reason(g: &Gates) -> Option<String> {
+pub(crate) struct Blocked {
+    pub why: String,
+    pub can_override: bool,
+}
+
+fn hard(why: impl Into<String>) -> Option<Blocked> {
+    Some(Blocked { why: why.into(), can_override: false })
+}
+
+/// "Sam", "Sam and Alex", "Sam, Alex and Jo".
+fn names(n: &[String]) -> String {
+    match n {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+pub(crate) fn blocked_reason(g: &Gates) -> Option<Blocked> {
     if !g.allowed {
-        return Some("Installing from a phone is turned off. It can be turned on in Settings on the computer.".into());
+        return hard("Installing from a phone is turned off. It can be turned on in Settings on the computer.");
     }
     if !g.serve_on_launch {
-        return Some("The computer isn't set to turn device access on when Field Notes opens, so this phone would lose access after the restart. Install it at the computer.".into());
+        return hard("The computer isn't set to turn device access on when Field Notes opens, so this phone would lose access after the restart. Install it at the computer.");
     }
     if g.encrypted && !g.remembered {
-        return Some("The journal is encrypted and its password isn't saved on the computer, so it would stay locked after the restart. Install it at the computer.".into());
-    }
-    if g.others_unlocked {
-        return Some("Someone else's journal on this server is unlocked, and restarting would lock it again. Install it at the computer, where you can check first.".into());
+        return hard("The journal is encrypted and its password isn't saved on the computer, so it would stay locked after the restart. Install it at the computer.");
     }
     if let Some(t) = &g.open_session {
         let t = if t.is_empty() { "untitled" } else { t.as_str() };
-        return Some(format!("A session (\"{t}\") is still open. End it first: the restart would cut off every device."));
+        return hard(format!("A session (\"{t}\") is still open. End it first: the restart would cut off every device."));
     }
-    None
+    if g.others_live_session {
+        return hard("Someone else on this server has a session going. Wait until it's ended: the restart would cut them off.");
+    }
+    if g.others_would_lock.is_empty() && !g.others_stale_session {
+        return None;
+    }
+    let mut why = Vec::new();
+    match g.others_would_lock.as_slice() {
+        [] => {}
+        [one] => why.push(format!("{one}'s journal is unlocked on this server, and restarting would lock it until they unlock it again from their phone.")),
+        many => why.push(format!("{}'s journals are unlocked on this server, and restarting would lock them until they unlock them again from their phones.", names(many))),
+    }
+    if g.others_stale_session {
+        why.push("Someone else has a session that was never ended, but nobody has used it in over two hours.".into());
+    }
+    why.push("Nobody has a session going right now.".into());
+    Some(Blocked { why: why.join(" "), can_override: true })
 }
 
 fn gates<R: Runtime>(app: &AppHandle<R>) -> Gates {
@@ -114,13 +164,35 @@ fn gates<R: Runtime>(app: &AppHandle<R>) -> Gates {
         })
         .ok()
         .flatten();
+    // Someone else's open session, split by whether they've been in touch lately.
+    let people = app.try_state::<crate::people::People>();
+    let (mut live, mut stale) = (false, false);
+    if let Some(p) = &people {
+        let devices = app.state::<crate::devices::Devices>().list();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        for id in p.in_session() {
+            let recent = devices
+                .iter()
+                .any(|d| d.person == id && d.last_seen.is_some_and(|t| now.saturating_sub(t) < CONNECTED_WITHIN));
+            if recent {
+                live = true;
+            } else {
+                stale = true;
+            }
+        }
+    }
     Gates {
         allowed: p.phone_can_update,
         serve_on_launch: p.serve_on_launch,
         encrypted: db::is_encrypted(&db.path),
         remembered: keychain::remembered(),
         open_session,
-        others_unlocked: app.try_state::<crate::people::People>().is_some_and(|p| p.unlocked_in_memory_only()),
+        others_would_lock: people.as_ref().map(|p| p.would_lock()).unwrap_or_default(),
+        others_live_session: live,
+        others_stale_session: stale,
     }
 }
 
@@ -172,7 +244,8 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> ServerUpdateStatus {
     ServerUpdateStatus {
         current: app.package_info().version.to_string(),
         available: s.available.clone(),
-        blocked,
+        can_override: blocked.as_ref().is_some_and(|b| b.can_override),
+        blocked: blocked.map(|b| b.why),
         installing: s.installing,
         checking: s.checking,
         error: s.error.clone(),
@@ -180,10 +253,14 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> ServerUpdateStatus {
 }
 
 /// Download, install, restart. Returns as soon as it has started; the phone sees
-/// `installing`, then the server going away, then the new version.
-pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<ServerUpdateStatus, String> {
-    if let Some(why) = blocked_reason(&gates(app)) {
-        return Err(why);
+/// `installing`, then the server going away, then the new version. `anyway` is the
+/// owner having read who it would lock out; it never gets past a hard guard, and
+/// the guards are checked again here, not taken from what the phone last saw.
+pub fn install<R: Runtime>(app: &AppHandle<R>, anyway: bool) -> Result<ServerUpdateStatus, String> {
+    if let Some(b) = blocked_reason(&gates(app)) {
+        if !(b.can_override && anyway) {
+            return Err(b.why);
+        }
     }
     {
         let state = app.state::<ServerUpdate>();
@@ -228,7 +305,21 @@ mod tests {
     use super::*;
 
     fn ready() -> Gates {
-        Gates { allowed: true, serve_on_launch: true, encrypted: true, remembered: true, open_session: None, others_unlocked: false }
+        Gates {
+            allowed: true,
+            serve_on_launch: true,
+            encrypted: true,
+            remembered: true,
+            open_session: None,
+            others_would_lock: vec![],
+            others_live_session: false,
+            others_stale_session: false,
+        }
+    }
+
+    fn why(g: Gates) -> (String, bool) {
+        let b = blocked_reason(&g).expect("blocked");
+        (b.why, b.can_override)
     }
 
     #[test]
@@ -239,11 +330,27 @@ mod tests {
 
     #[test]
     fn each_guard_blocks_on_its_own() {
-        assert!(blocked_reason(&Gates { allowed: false, ..ready() }).unwrap().contains("turned off"));
-        assert!(blocked_reason(&Gates { serve_on_launch: false, ..ready() }).unwrap().contains("lose access"));
-        assert!(blocked_reason(&Gates { remembered: false, ..ready() }).unwrap().contains("stay locked"));
-        let open = blocked_reason(&Gates { open_session: Some("Autumn sit".into()), ..ready() }).unwrap();
+        assert!(why(Gates { allowed: false, ..ready() }).0.contains("turned off"));
+        assert!(why(Gates { serve_on_launch: false, ..ready() }).0.contains("lose access"));
+        assert!(why(Gates { remembered: false, ..ready() }).0.contains("stay locked"));
+        let open = why(Gates { open_session: Some("Autumn sit".into()), ..ready() }).0;
         assert!(open.contains("Autumn sit"), "{open}");
-        assert!(blocked_reason(&Gates { others_unlocked: true, ..ready() }).unwrap().contains("Someone else's"));
+        assert!(why(Gates { others_live_session: true, ..ready() }).0.contains("session going"));
+    }
+
+    #[test]
+    fn locking_someone_out_is_the_owners_call_but_a_live_session_never_is() {
+        let (w, can) = why(Gates { others_would_lock: vec!["Sam".into()], ..ready() });
+        assert!(can && w.contains("Sam's journal"), "{w}");
+        let (w, _) = why(Gates { others_would_lock: vec!["Sam".into(), "Alex".into(), "Jo".into()], ..ready() });
+        assert!(w.contains("Sam, Alex and Jo's journals"), "{w}");
+        // A session nobody has touched in hours doesn't hold the server hostage.
+        let (w, can) = why(Gates { others_stale_session: true, ..ready() });
+        assert!(can && w.contains("never ended"), "{w}");
+        // But someone in a session right now always wins, as do the hard guards.
+        let live = Gates { others_would_lock: vec!["Sam".into()], others_live_session: true, ..ready() };
+        assert!(!why(live).1);
+        let off = Gates { others_would_lock: vec!["Sam".into()], serve_on_launch: false, ..ready() };
+        assert!(!why(off).1);
     }
 }
