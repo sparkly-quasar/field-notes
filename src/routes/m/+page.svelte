@@ -95,6 +95,7 @@
     pairingLink,
   } from "$lib/portal";
   import TripImport from "$lib/TripImport.svelte";
+  import RiskNotes from "$lib/RiskNotes.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
   import { discreet, hiding, shown as nameShown } from "$lib/discreet.svelte";
@@ -110,7 +111,6 @@
     stretchToCover,
     defaultUnitFor,
     UNITS,
-    groupWarnings,
   } from "$lib/quicklog";
 
   type View = "today" | "journal" | "check" | "talk";
@@ -162,9 +162,6 @@
   /** Interaction warnings from the last dose logged into each entry. They stay until
    *  dismissed — a warning that scrolls away or times out is a warning missed. */
   let warnFor = $state<Record<number, Warning[]>>({});
-  /** The combination in a session just became dangerous: the crisis layer's answer. */
-  let crisis = $state<CrisisResult | null>(null);
-  let crisisShown = $state(false);
 
   // ---------- the dose form (one form, three places: new entry, live session, past entry) ----------
   /** Where the dose goes. null = a new entry of its own (a quick log). */
@@ -1486,13 +1483,7 @@
 {/snippet}
 
 {#snippet warnings(list: Warning[])}
-  {#each groupWarnings(list) as w}
-    <p class="banner {w.severity}" role={w.severity === "danger" ? "alert" : "status"}>
-      <strong>{w.severity === "danger" ? "Known dangerous:" : w.severity === "caution" ? "Use care:" : "Note:"}</strong>
-      {w.pairs.join(", ")}.
-      {w.message}
-    </p>
-  {/each}
+  <RiskNotes warnings={list} />
 {/snippet}
 
 {#snippet resourceList(list: CrisisResource[])}
@@ -1674,21 +1665,6 @@
         {/if}
       </section>
     {:else}
-    {#if crisis && crisis.level !== "none"}
-      <section class="banner danger crisis" role="alert">
-        <strong>{crisis.headline}</strong>
-        {#if crisis.presentation === "offer" && !crisisShown}
-          <div class="pair">
-            <button onclick={() => (crisisShown = true)}>Show me some options</button>
-            <button class="ghost" onclick={() => (crisis = null)}>No thanks</button>
-          </div>
-        {:else}
-          {@render resourceList(crisis.resources)}
-          <button class="ghost" onclick={() => (crisis = null)}>Dismiss</button>
-        {/if}
-      </section>
-    {/if}
-
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
       {#if backupNudge}
@@ -2089,7 +2065,7 @@
             </select>
           {/if}
           {#if chatCrisis && chatCrisis.level !== "none"}
-            <div class="banner danger" role="alert">
+            <div class="banner note" role="status">
               <strong>{chatCrisis.headline}</strong>
               {#if chatCrisis.presentation === "offer" && !chatCrisisShown}
                 <div class="pair">
@@ -2947,8 +2923,6 @@
   .banner.danger { border-color: var(--danger); background: var(--danger-bg); }
   .banner.caution { border-color: var(--caution); background: var(--caution-bg); }
   .banner.note { border-color: var(--accent); background: var(--note-bg); }
-  .crisis { font-size: var(--fs-body); margin-bottom: 0.8rem; }
-  .crisis .pair { margin-top: 0.6rem; }
   .resources { list-style: none; padding: 0; margin: 0.5rem 0; }
   .resources li { display: flex; flex-direction: column; padding: 0.5rem 0; border-top: 1px solid var(--divider); }
   .call { display: inline-flex; align-items: center; min-height: var(--tap-min); color: var(--accent); font-weight: 700; font-size: var(--fs-h); }

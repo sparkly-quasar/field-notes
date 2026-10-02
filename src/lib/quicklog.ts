@@ -160,14 +160,22 @@ export async function allWarnings(substance: string, at: string, own: Warning[],
 
 /** Warnings that say the same thing, as one: "Stimulant + psychedelic" for five
  *  pairs is one thing to know, not five. Most severe first, each with its pairs. */
-export function groupWarnings(list: Warning[]): { severity: string; message: string; pairs: string[] }[] {
+export interface WarningGroup {
+  severity: string;
+  message: string;
+  pairs: string[];
+  advice: string[];
+}
+
+export function groupWarnings(list: Warning[]): WarningGroup[] {
   const rank = (s: string) => (s === "danger" ? 0 : s === "caution" ? 1 : 2);
-  const groups = new Map<string, { severity: string; message: string; pairs: string[] }>();
+  const groups = new Map<string, WarningGroup>();
   for (const w of list) {
     const key = `${w.severity}|${w.message}`;
     const pair = `${w.a} + ${w.b}`;
-    const g = groups.get(key) ?? { severity: w.severity, message: w.message, pairs: [] };
+    const g = groups.get(key) ?? { severity: w.severity, message: w.message, pairs: [], advice: [] };
     if (!g.pairs.includes(pair)) g.pairs.push(pair);
+    for (const a of w.advice ?? []) if (!g.advice.includes(a)) g.advice.push(a);
     groups.set(key, g);
   }
   return [...groups.values()].sort((a, b) => rank(a.severity) - rank(b.severity));

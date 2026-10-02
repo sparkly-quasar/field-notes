@@ -129,6 +129,8 @@ export interface Warning {
   a: string;
   b: string;
   message: string;
+  /** Harm-reduction notes for the classes involved (older servers send none). */
+  advice?: string[];
 }
 
 export interface SubstanceUsage {

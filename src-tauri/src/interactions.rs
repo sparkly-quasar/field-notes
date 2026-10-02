@@ -17,6 +17,10 @@ pub struct Warning {
     pub a: String,
     pub b: String,
     pub message: String,
+    /// What lowers the risk, for the person deciding: plain harm-reduction notes
+    /// for the classes involved (see [`advice_for`]). Shown behind a tap.
+    #[serde(default)]
+    pub advice: Vec<String>,
 }
 
 /// The class vocabulary the UI offers when classifying a substance.
@@ -97,12 +101,77 @@ pub fn check(substances: &[(String, Vec<String>)]) -> Vec<Warning> {
                 }
             }
             if let Some(rule) = best {
-                out.push(Warning { severity: rule.2, a: na.clone(), b: nb.clone(), message: rule.3.to_string() });
+                out.push(Warning { severity: rule.2, a: na.clone(), b: nb.clone(), message: rule.3.to_string(), advice: Vec::new() });
             }
         }
     }
     out.sort_by_key(|w| std::cmp::Reverse(rank(w.severity)));
     out
+}
+
+/// Pairs where we rate the risk differently from the reference, with our reason.
+/// MDMA + mephedrone is two serotonin releasers, and DoseWiki calls it dangerous
+/// outright; how risky it is depends heavily on the amounts and the spacing, so a
+/// flat "dangerous" overstates a small second dose hours later and understates
+/// nothing the advice doesn't cover. (a, b, severity, message), names lowercase.
+pub const SEVERITY_OVERRIDES: &[(&str, &str, &str, &str)] = &[(
+    "mdma",
+    "mephedrone",
+    "caution",
+    "Two serotonin releasers: a risk of serotonin toxicity, overheating and added neurotoxicity that grows with the amounts and how close together they're taken. DoseWiki rates this combination as dangerous.",
+)];
+
+/// Harm-reduction notes for a pair, from the classes on each side. Plain things
+/// that lower the risk, not instructions to stop: the person has already decided
+/// or is deciding, and what helps is knowing how to do it more safely.
+pub fn advice_for(ca: &[String], cb: &[String]) -> Vec<String> {
+    let either = |x: &str, y: &str| (has(ca, x) && has(cb, y)) || (has(ca, y) && has(cb, x));
+    let mut out: Vec<&str> = Vec::new();
+    if has(ca, "maoi") || has(cb, "maoi") {
+        out.push("MAOIs change how much of the other drug reaches you, unpredictably. This is one to avoid rather than adjust; if it's already happened, watch for a severe headache, a racing heart or overheating, and get help if they appear.");
+    }
+    if has(ca, "lithium") || has(cb, "lithium") {
+        out.push("Seizures have been reported with lithium at ordinary doses of the other drug. This is one to avoid rather than adjust.");
+    }
+    // Serotonergic here means tramadol, DXM and the like. Every classic psychedelic
+    // is also tagged serotonergic, but with MDMA the meaningful risks are the
+    // stimulant ones below, not serotonin toxicity.
+    let serotonergic_not_psychedelic = |c: &[String]| has(c, "serotonergic") && !has(c, "psychedelic");
+    let serotonin_pair = either("serotonin_releaser", "serotonin_releaser")
+        || either("ssri", "serotonin_releaser")
+        || (has(ca, "serotonin_releaser") && serotonergic_not_psychedelic(cb))
+        || (has(cb, "serotonin_releaser") && serotonergic_not_psychedelic(ca));
+    if serotonin_pair {
+        out.push("Effects build on each other, so a smaller amount of the second goes further. Leave real time between them and go easy on redoses.");
+        out.push("Keep cool and take breaks from dancing. Overheating, rigid or twitching muscles, or confusion are signs of serotonin toxicity: cool down, and get help if they don't settle.");
+    }
+    if either("ssri", "serotonin_releaser") {
+        out.push("SSRIs blunt MDMA-like drugs, which can lead to taking more to feel it. Taking more doesn't get past the block; it adds risk.");
+    }
+    let depressants = |c: &[String]| has(c, "depressant") || has(c, "benzodiazepine") || has(c, "opioid");
+    if depressants(ca) && depressants(cb) {
+        out.push("Each makes the other stronger, often more than expected. Use less of both, measure carefully, and don't redose either on top.");
+        out.push("Have someone with you who knows what you took. If someone can't be woken, or their breathing is slow or noisy, put them on their side in the recovery position and call for help.");
+    }
+    if either("dissociative", "depressant") {
+        out.push("Feeling sick while heavily sedated is a choking risk: lie on your side, not your back.");
+    }
+    if either("stimulant", "stimulant") {
+        out.push("Heart rate, blood pressure and temperature add up. Lower amounts of each and more time between them make the biggest difference.");
+        out.push("Sip water steadily rather than a lot at once, and rest somewhere cool. Chest pain or a racing heart that doesn't settle with rest is a reason to get checked.");
+    }
+    if either("stimulant", "psychedelic") {
+        out.push("Stimulants can tip a psychedelic experience toward anxiety or thought loops. A calm setting, a trusted sitter and a smaller stimulant dose help.");
+    }
+    if either("stimulant", "dissociative") {
+        out.push("A stimulant can hide how sedated you are. Go slow with redoses of either.");
+    }
+    let mut v: Vec<String> = out.into_iter().map(String::from).collect();
+    v.dedup();
+    if !v.is_empty() || !ca.is_empty() || !cb.is_empty() {
+        v.push("Amounts and spacing matter: lower doses and more time between them lower the risk of almost any combination.".into());
+    }
+    v
 }
 
 fn rank(sev: &str) -> u8 {

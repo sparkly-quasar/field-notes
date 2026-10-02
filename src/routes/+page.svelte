@@ -136,10 +136,10 @@
     defaultUnitFor,
     sameUnit,
     UNITS,
-    groupWarnings,
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
+  import RiskNotes from "$lib/RiskNotes.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
@@ -2265,14 +2265,7 @@
 
 {#snippet doseWarnings()}
   {#if lastWarnings.length}
-    <div class="warnings">
-      {#each groupWarnings(lastWarnings) as w}
-        <div class="warn {sevClass(w.severity)}">
-          <strong>{sevLabel(w.severity)}</strong> · {w.pairs.join(", ")}
-          <div>{w.message}</div>
-        </div>
-      {/each}
-    </div>
+    <RiskNotes warnings={lastWarnings} />
   {/if}
 {/snippet}
 
@@ -2722,14 +2715,7 @@
               </div>
 
               {#if qlWarnings.length}
-                <div class="warnings">
-                  {#each groupWarnings(qlWarnings) as w}
-                    <div class="warn {sevClass(w.severity)}">
-                      <strong>{sevLabel(w.severity)}</strong> · {w.pairs.join(", ")}
-                      <div>{w.message}</div>
-                    </div>
-                  {/each}
-                </div>
+                <RiskNotes warnings={qlWarnings} />
               {/if}
 
               {#if qlSaved}
@@ -3109,14 +3095,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if comboResult.length === 0}
             <p class="notice">Nothing flagged between those. That isn't the same as "safe".</p>
           {:else}
-            <div class="warnings">
-              {#each groupWarnings(comboResult) as w}
-                <div class="warn {sevClass(w.severity)}">
-                  <strong>{sevLabel(w.severity)}</strong> · {w.pairs.join(", ")}
-                  <div>{w.message}</div>
-                </div>
-              {/each}
-            </div>
+            <RiskNotes warnings={comboResult} />
           {/if}
         {/if}
       </section>
@@ -4706,7 +4685,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .crisis-banner { border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1rem; border: 1px solid var(--caution); background: color-mix(in srgb, var(--caution) 14%, var(--card)); }
   .crisis-offer { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
   .crisis-offer button { margin-top: 0.4rem; }
-  .crisis-banner.psychiatric, .crisis-banner.medical { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--card)); }
+  /* Calm at every level: what someone wrote is a reason to offer help, not to sound an alarm. */
+  .crisis-banner.psychiatric, .crisis-banner.medical { border-color: var(--note); background: color-mix(in srgb, var(--note) 12%, var(--card)); }
   .crisis-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   .crisis-res { list-style: none; padding: 0; margin: 0.7rem 0; display: flex; flex-direction: column; gap: 0.6rem; }
   .crisis-res .contact { font-variant-numeric: tabular-nums; }
