@@ -354,6 +354,7 @@ fn done<T: serde::Serialize>(r: Result<T, String>) -> Result<Value, DispatchErro
 ///   mutate app state, and they take an `AppHandle`.
 /// - `portal_*` — the portal must not be able to reconfigure, re-token, or disable
 ///   itself. Turning it off is a thing you do on the machine that's serving it.
+///
 /// The allowlist itself, as data, so it can be tested without standing up a Tauri
 /// app — and so there is exactly one place to look to answer "what can the phone do?".
 /// [`dispatch`] refuses anything not on this list *before* matching, which means a

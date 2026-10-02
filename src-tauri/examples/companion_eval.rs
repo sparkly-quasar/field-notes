@@ -374,7 +374,7 @@ fn unsourced_claims(reply: &str) -> Vec<String> {
     let lower = reply.to_lowercase();
     let mut found = Vec::new();
     // Sentence-ish granularity, so a duration cue only licenses the numbers near it.
-    for sentence in lower.split(|c| matches!(c, '.' | '!' | '?' | '\n')) {
+    for sentence in lower.split(['.', '!', '?', '\n']) {
         let has_cue = DURATION_CUES.iter().any(|c| sentence.contains(c));
         let words: Vec<&str> = sentence.split_whitespace().collect();
         for (i, w) in words.iter().enumerate() {
@@ -386,9 +386,7 @@ fn unsourced_claims(reply: &str) -> Vec<String> {
             } else {
                 words.get(i + 1).map(|s| s.trim_matches(|c: char| !c.is_alphabetic()).to_string()).unwrap_or_default()
             };
-            if DOSE_UNITS.contains(&unit.as_str()) {
-                found.push(format!("{num} {unit}"));
-            } else if has_cue && TIME_UNITS.contains(&unit.as_str()) {
+            if DOSE_UNITS.contains(&unit.as_str()) || (has_cue && TIME_UNITS.contains(&unit.as_str())) {
                 found.push(format!("{num} {unit}"));
             }
         }

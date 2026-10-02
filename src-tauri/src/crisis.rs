@@ -353,7 +353,7 @@ fn near_matches(toks: &[&str], sigs: &[Near]) -> Vec<String> {
 }
 
 
-fn any_match<'a>(haystack: &str, needles: &[&'a str]) -> Vec<String> {
+fn any_match(haystack: &str, needles: &[&str]) -> Vec<String> {
     needles.iter().filter(|n| haystack.contains(**n)).map(|n| n.to_string()).collect()
 }
 

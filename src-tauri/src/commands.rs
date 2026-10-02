@@ -31,7 +31,7 @@ pub fn interaction_classes() -> Vec<&'static str> {
 
 #[tauri::command]
 pub fn list_substances(db: State<'_, Db>) -> Result<Vec<Substance>, String> {
-    db.with(|c| db::list_substances(c))
+    db.with(db::list_substances)
 }
 
 #[tauri::command]
@@ -59,7 +59,7 @@ pub fn create_experience(db: State<'_, Db>, input: ExperienceInput) -> Result<Ex
 
 #[tauri::command]
 pub fn list_experiences(db: State<'_, Db>) -> Result<Vec<ExperienceSummary>, String> {
-    db.with(|c| db::list_experiences(c))
+    db.with(db::list_experiences)
 }
 
 #[tauri::command]
@@ -103,7 +103,7 @@ pub fn usage_stats(db: State<'_, Db>, since: Option<String>) -> Result<stats::Us
 
 #[tauri::command]
 pub fn usage_by_substance(db: State<'_, Db>) -> Result<Vec<SubstanceUsage>, String> {
-    db.with(|c| db::usage_by_substance(c))
+    db.with(db::usage_by_substance)
 }
 
 // ---------- edit & delete ----------
@@ -168,7 +168,7 @@ pub fn pw_update(app: AppHandle, db: State<'_, Db>) -> Result<usize, String> {
 
 #[tauri::command]
 pub fn pw_status(db: State<'_, Db>) -> Result<PwStatus, String> {
-    let (count, _last_fetched) = db.with(|c| db::pw_status(c))?;
+    let (count, _last_fetched) = db.with(db::pw_status)?;
     Ok(PwStatus { count, snapshot: pw::DOSEWIKI_SNAPSHOT })
 }
 
@@ -397,7 +397,7 @@ pub fn import_experience(
     };
 
     let exp = db::create_experience(
-        &conn,
+        conn,
         &ExperienceInput {
             kind: "session".into(),
             title: if parsed.title.is_empty() { "Imported experience".into() } else { parsed.title.clone() },
@@ -408,7 +408,7 @@ pub fn import_experience(
     ).map_err(err)?;
 
     if !parsed.notes.is_empty() {
-        db::update_experience(&conn, exp.id, &ExperienceUpdate {
+        db::update_experience(conn, exp.id, &ExperienceUpdate {
             title: exp.title.clone(),
             intention: exp.intention.clone(),
             setting: exp.setting.clone(),
@@ -425,7 +425,7 @@ pub fn import_experience(
         }
         let taken = d.taken_at.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| started.clone());
         let unit = if d.unit.is_empty() { "mg".to_string() } else { d.unit.clone() };
-        db::log_dose(&conn, &DoseInput {
+        db::log_dose(conn, &DoseInput {
             experience_id: exp.id,
             substance_name: d.substance.clone(),
             amount: d.amount,
@@ -441,7 +441,7 @@ pub fn import_experience(
             continue;
         }
         let at = t.at.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| started.clone());
-        db::add_timeline_event(&conn, &TimelineInput {
+        db::add_timeline_event(conn, &TimelineInput {
             experience_id: exp.id,
             at,
             note: t.note.clone(),

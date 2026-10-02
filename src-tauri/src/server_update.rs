@@ -135,7 +135,7 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> ServerUpdateStatus {
     let state = app.state::<ServerUpdate>();
     let start = {
         let mut s = state.inner.lock().unwrap();
-        let stale = s.checked.map_or(true, |t| t.elapsed() > RECHECK_AFTER);
+        let stale = s.checked.is_none_or(|t| t.elapsed() > RECHECK_AFTER);
         let start = stale && !s.installing && !s.checking;
         if start {
             s.checking = true;
