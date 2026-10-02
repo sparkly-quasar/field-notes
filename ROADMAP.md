@@ -132,6 +132,10 @@ editing. Decisions:
   session, past session, paste a log, journal note). Combo + Look up merged as Check.
 - **Vocabulary, one word per thing:** entry / session / journal note / moment /
   write-up. ("Note" used to mean three things.)
+  **v0.21.4:** a session in progress is called a **live trip report** in the UI
+  (was "live session"); a finished one is still a session. Today keeps one
+  "+ Log a dose" button; the other "new" actions live only under ＋, now
+  labelled "＋ New", which also offers "Add a moment" during a live trip report.
 - **Bottom sheets for every edit** (they open at the thumb; editors used to render
   below the whole timeline, off-screen). Entry actions in a sticky bar.
 - **Deferred delete + Undo (8s)** instead of `confirm()`; Delete separated from Save,

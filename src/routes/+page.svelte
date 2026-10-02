@@ -2519,7 +2519,7 @@
           <div class="exp-head">
             <h2>{selected.title || "Untitled session"}</h2>
             <span class="row-actions">
-              {#if !selected.ended_at}<button class="primary small-btn" onclick={startLiveSession}>Live session</button>{/if}
+              {#if !selected.ended_at}<button class="primary small-btn" onclick={startLiveSession}>Live trip report</button>{/if}
               {#if !editExp}<button class="link" onclick={startEditExp}>Edit</button>{/if}
               <button class="link danger-link" onclick={delExp}>Delete</button>
             </span>
@@ -4207,7 +4207,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     <div class="live">
       <div class="live-bar">
         <div>
-          <div class="live-title">{selected.title || "Live session"}</div>
+          <div class="live-title">{selected.title || "Live trip report"}</div>
           <div class="muted">
             Started {fmtTime(selected.started_at)} · {elapsedSince(selected.started_at)} in
             <!-- Ticks with lsNow: the current t+ is the number a sitter actually
