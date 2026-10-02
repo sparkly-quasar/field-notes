@@ -11,6 +11,27 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.15.0
+
+- **Not every session needs a write-up.** Mark any finished session as not
+  needing one: **No need** in the phone's write-up list, **Doesn't need one**
+  on the entry, or tick **This one doesn't need a write-up** when you end it.
+  It stops being listed as waiting, and you can undo it any time.
+- **Gentler reminders.** An entry without a write-up now says "Add a write-up
+  when you're ready" in quiet text, instead of an orange "No write-up yet".
+- **Help looks like help.** The Help button has its own warm colour on the
+  phone and the desktop, so it no longer looks like Delete or a warning. On
+  the desktop the tab is now called **Get help**.
+- **Red is only for real danger.** Delete is a plain button until you
+  confirm. Warnings say "Known dangerous" or "Use care" instead of shouting
+  DANGER, and a heavy dose is marked "above the usual strong range" in amber
+  rather than red.
+- **Stats wording:** "days since last session", a calendar called "Days with a
+  session", "One gap so far" when there's only one, and years on the dose
+  chart when the range crosses a year.
+- **The desktop uses the same words as the phone:** session, moment, write-up
+  and journal note.
+
 ## v0.14.4
 
 - **Fixed: warnings now show during a live session on the desktop.** The live

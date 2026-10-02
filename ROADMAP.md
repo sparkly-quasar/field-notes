@@ -881,7 +881,7 @@ using the model switch and reading the screens as a first-timer would.
    - **"What's your intention?"** is the prompt when a session starts. Plain, one
      question, optional.
 
-   **Phase 1: tone and wording (S).**
+   **Phase 1: tone and wording (S). ✅ Shipped in v0.15.0**, with the write-up skip.
    - Red means only interaction danger. Help gets its own calm, unmistakable filled
      style ("Get help"); Delete is a neutral text button that turns red only inside
      its confirm step.
