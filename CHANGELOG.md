@@ -11,6 +11,28 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.20.0
+
+- **More than one person on one server.** Someone you live with can now use
+  your Field Notes server with a journal of their own. In Settings → Devices &
+  server → People, add them by name and let them scan the pairing code. Their
+  phone asks them to choose a password, and their journal is encrypted with it.
+  Nobody else who uses the server can see it, and you can't read it either: the
+  People list shows their name, how many devices they have and whether their
+  journal is locked, never their entries.
+- **Their password, their choice.** Your server never stores their password
+  unless they turn on "Keep my journal unlocked on this server" on their own
+  phone. Otherwise a restart locks their journal until they type it again.
+  Help and the combination checker still work while it's locked. A forgotten
+  password can't be reset by anyone, so the phone says so when they choose it.
+- **Their own devices.** From their phone's settings they can pair another
+  device of theirs or un-pair one. You can also pair a replacement for them
+  from the desk if they lose a phone, or remove them, which deletes their
+  journal after you type their name.
+- **Nothing changes if it's just you.** Your journal, your devices and your
+  phone work exactly as before. Only you can install updates from a phone, and
+  an install waits if someone's journal would lock because of it.
+
 ## v0.19.0
 
 - **Stats by drug family.** A new row above the substances lets you pick

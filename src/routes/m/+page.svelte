@@ -28,6 +28,14 @@
     serverUpdateStatus,
     serverUpdateInstall,
     type ServerUpdateStatus,
+    dbStatus,
+    personUnlock,
+    personRemember,
+    myDevices,
+    pairOwnDevice,
+    unpairMyDevice,
+    type DbStatus,
+    type MyDevice,
     listExperiences,
     getExperience,
     createExperience,
@@ -72,7 +80,18 @@
     type KnowledgeHit,
     type AiStatus,
   } from "$lib/api";
-  import { acceptPairing, captureToken, hasToken, inTauri, isIos, isStandalone, pairingLink } from "$lib/portal";
+  import {
+    acceptPairing,
+    captureToken,
+    forgetToken,
+    hasToken,
+    inTauri,
+    isIos,
+    isStandalone,
+    LOCKED_EVENT,
+    LockedError,
+    pairingLink,
+  } from "$lib/portal";
   import TripImport from "$lib/TripImport.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
@@ -106,7 +125,8 @@
     | "writeup"
     | "end"
     | "more"
-    | "paste";
+    | "paste"
+    | "me";
 
   const ROUTES = ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"];
 
@@ -356,19 +376,145 @@
     };
     vv?.addEventListener("resize", onVv);
     vv?.addEventListener("scroll", onVv);
+    window.addEventListener(LOCKED_EVENT, onLocked);
     if (paired) {
-      refresh();
-      loadAi();
+      // Help first and regardless: it needs no journal.
       loadResources();
-      loadServerUpdate();
+      loadMe().then(() => {
+        if (!locked) startJournal();
+      });
     }
     return () => {
+      window.removeEventListener(LOCKED_EVENT, onLocked);
       clearInterval(clock);
       document.removeEventListener("visibilitychange", onVisible);
       vv?.removeEventListener("resize", onVv);
       vv?.removeEventListener("scroll", onVv);
     };
   });
+
+  /** Everything that reads the journal, once it's open. */
+  function startJournal() {
+    refresh();
+    loadAi();
+    loadServerUpdate();
+  }
+
+  // ---------- another person's journal (src-tauri/src/people.rs) ----------
+  // The owner's phone never sees any of this. Someone else on the same server has
+  // their own encrypted journal, which they unlock here with a password only they
+  // know; until then, only Help and the combination checker answer.
+
+  /** Set only on another person's device; null for the owner (and older servers). */
+  let me = $state<DbStatus | null>(null);
+  const isOther = $derived(!!me?.person_name);
+  const locked = $derived(!!me?.person_name && !me.unlocked);
+  let pw1 = $state("");
+  let pw2 = $state("");
+  let lockErr = $state<string | null>(null);
+  let unlocking = $state(false);
+
+  async function loadMe() {
+    try {
+      const st = await dbStatus();
+      me = st.person_name ? st : null;
+    } catch {
+      // The owner's journal locked at the desk, or the server is out of reach:
+      // the usual paths below say so.
+      me = null;
+    }
+  }
+
+  /** The server answered "locked" (it restarted and forgot the password). */
+  function onLocked() {
+    err = null;
+    if (me) me = { ...me, unlocked: false };
+    else loadMe();
+  }
+
+  async function unlock() {
+    lockErr = null;
+    if (me?.new_journal) {
+      if (pw1.length < 8) return void (lockErr = "Choose a password of at least 8 characters.");
+      if (pw1 !== pw2) return void (lockErr = "Those two don't match. Type the same password twice.");
+    } else if (!pw1) {
+      return;
+    }
+    unlocking = true;
+    try {
+      me = await personUnlock(pw1);
+      pw1 = "";
+      pw2 = "";
+      startJournal();
+    } catch (e) {
+      lockErr = e instanceof Error ? e.message : String(e);
+    } finally {
+      unlocking = false;
+    }
+  }
+
+  // Their own Settings: devices, keeping the journal unlocked, and the limits.
+  let mine = $state<MyDevice[]>([]);
+  let newDevice = $state("");
+  let pairedNew = $state<{ name: string; link: string; qr: string | null } | null>(null);
+  let linkCopied = $state(false);
+  let unpairAsk = $state<number | null>(null);
+  let rememberPw = $state("");
+  let rememberAsk = $state(false);
+
+  function openMe() {
+    sheet = "me";
+    pairedNew = null;
+    unpairAsk = null;
+    rememberAsk = false;
+    rememberPw = "";
+    run("me", async () => (mine = await myDevices()));
+  }
+
+  const pairAnother = () =>
+    run("pairown", async () => {
+      const name = newDevice.trim() || "My other device";
+      const r = await pairOwnDevice(name, location.origin);
+      pairedNew = { name: r.device.name, link: `${location.origin}/m#t=${r.token}`, qr: r.qr };
+      newDevice = "";
+      linkCopied = false;
+      mine = await myDevices();
+    });
+
+  async function copyPairLink() {
+    if (!pairedNew) return;
+    try {
+      await navigator.clipboard.writeText(pairedNew.link);
+      linkCopied = true;
+    } catch {
+      err = "Couldn't copy. Press and hold the link to copy it instead.";
+    }
+  }
+
+  const unpair = (d: MyDevice) =>
+    run("unpair", async () => {
+      mine = await unpairMyDevice(d.id);
+      unpairAsk = null;
+      if (d.this) {
+        forgetToken();
+        sheet = null;
+        paired = false;
+        me = null;
+      }
+    });
+
+  const setRemember = (on: boolean) =>
+    run("remember", async () => {
+      me = await personRemember(on, on ? rememberPw : null);
+      rememberPw = "";
+      rememberAsk = false;
+    });
+
+  const seen = (secs: number | null) => {
+    if (!secs) return "not used yet";
+    const d = new Date(secs * 1000);
+    return sameDay(d.toISOString(), new Date().toISOString()) ? `last used ${hhmm(d.toISOString())}` : `last used ${fmtDay(d.toISOString())}`;
+  };
 
   // ---------- updating the server (server_update.rs) ----------
 
@@ -380,7 +526,8 @@
   /** The server checks in the background and answers with what it last knew;
    *  when it says it's still checking, ask again shortly. */
   async function loadServerUpdate(retries = 2) {
-    if (inTauri() || srvUpdStage !== "idle") return;
+    // Installing restarts everyone's server, so only the owner's devices are offered it.
+    if (inTauri() || isOther || srvUpdStage !== "idle") return;
     try {
       srvUpd = await serverUpdateStatus();
     } catch {
@@ -435,7 +582,8 @@
     try {
       await f();
     } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+      // A locked journal swaps in the password screen; no need to say it twice.
+      if (!(e instanceof LockedError)) err = e instanceof Error ? e.message : String(e);
     } finally {
       busyKey = null;
     }
@@ -453,7 +601,7 @@
       if (open) open = await getExperience(open.id).catch(() => null);
       if (target) target = await getExperience(target.id).catch(() => null);
     } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+      if (!(e instanceof LockedError)) err = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -1403,11 +1551,62 @@
             <span class="live-dot" aria-hidden="true"></span>{hiding() ? "Live" : session.title || "Live session"}
           </button>
         {/if}
+        {#if isOther && !locked}
+          <button class="pill me" onclick={openMe} aria-label="Your journal and devices"><Icon name="settings" size={18} /></button>
+        {/if}
         <DiscreetToggle />
         <button class="help" onclick={openHelp}>Help</button>
       </span>
     </header>
 
+    {#if locked && me}
+      <!-- ================= LOCKED: another person's journal ================= -->
+      <section class="pane bare lock">
+        {#if me.new_journal}
+          <h1>Choose a password</h1>
+          <p>
+            This is your journal{me.person_name ? `, ${me.person_name}` : ""}. Nobody else who uses this server can see
+            it, and the person who runs the server can't read it without your password.
+          </p>
+        {:else}
+          <h1>Your journal is locked</h1>
+          <p>The server restarted, so it forgot your password. Type it to open your journal again.</p>
+        {/if}
+        <form onsubmit={(e) => { e.preventDefault(); unlock(); }}>
+          <label for="lock-pw">{me.new_journal ? "Password (at least 8 characters)" : "Password"}</label>
+          <input id="lock-pw" type="password" bind:value={pw1} minlength={me.new_journal ? 8 : undefined}
+            autocomplete={me.new_journal ? "new-password" : "current-password"} autocapitalize="off" spellcheck="false" />
+          {#if me.new_journal}
+            <label for="lock-pw2">The same password again</label>
+            <input id="lock-pw2" type="password" bind:value={pw2} autocomplete="new-password" autocapitalize="off" spellcheck="false" />
+            <p class="banner caution small">
+              Only you know this. If you forget it, your journal can't be recovered: nobody can reset it, including the
+              person who runs the server.
+            </p>
+          {/if}
+          {#if lockErr}<p class="err" role="alert">{lockErr}</p>{/if}
+          <button class="primary" type="submit" disabled={unlocking || !pw1}>
+            {unlocking ? (me.new_journal ? "Creating…" : "Unlocking…") : me.new_journal ? "Create my journal" : "Unlock"}
+          </button>
+        </form>
+        <button class="help wide" onclick={openHelp}>Help</button>
+      </section>
+
+      <section class="pane">
+        <h2>Check a combination</h2>
+        <p class="muted small">Works while your journal is locked.</p>
+        <label for="lock-combo">Two or more substances, separated by commas</label>
+        <input id="lock-combo" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocapitalize="none" enterkeyhint="go" onkeydown={(ev) => ev.key === "Enter" && runCombo()} />
+        <button disabled={busy} onclick={runCombo}>{busyKey === "combo" ? "Checking…" : "Check"}</button>
+        {#if comboWarnings}
+          {#if comboWarnings.length === 0}
+            <p class="banner note" role="status">Nothing flagged between those. That isn't the same as "safe".</p>
+          {:else}
+            {@render warnings(comboWarnings)}
+          {/if}
+        {/if}
+      </section>
+    {:else}
     {#if crisis && crisis.level !== "none"}
       <section class="banner danger crisis" role="alert">
         <strong>{crisis.headline}</strong>
@@ -1825,6 +2024,8 @@
       </section>
     {/if}
 
+    {/if}
+
     <!-- ================= messages: next to the thumb, announced ================= -->
     <div class="toasts" aria-live="assertive">
       {#if err}
@@ -1849,6 +2050,7 @@
     </div>
 
     <!-- ================= nav ================= -->
+    {#if !locked}
     <nav aria-label="Sections">
       <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}><Icon name="today" />Today</button>
       <button class:on={view === "journal"} aria-current={view === "journal" ? "page" : undefined} onclick={() => goTo("journal")}><Icon name="journal" />Journal</button>
@@ -1858,6 +2060,7 @@
         <button class:on={view === "talk"} aria-current={view === "talk" ? "page" : undefined} onclick={() => goTo("talk")}><Icon name="talk" />Talk</button>
       {/if}
     </nav>
+    {/if}
 
     <!-- ================= sheets ================= -->
     {#if sheet}
@@ -2189,6 +2392,98 @@
           </div>
           <TripImport oncancel={closeSheet} onsaved={pasted} />
 
+        {:else if sheet === "me" && me}
+          <div class="sheet-head">
+            <h2 id="sheet-title">Your journal</h2>
+            <button class="ghost small" onclick={closeSheet}>Close</button>
+          </div>
+          {#if err}<p class="err" role="alert">{err}</p>{/if}
+          <p>
+            <strong>Your journal is yours.</strong> Nobody else who uses this server can see it, and the person who runs
+            the server can't read it without your password.
+          </p>
+
+          <h3 class="sec">Your devices</h3>
+          {#if mine.length}
+            <ul class="plain devices">
+              {#each mine as d (d.id)}
+                <li>
+                  <span><strong>{d.name}</strong>{#if d.this} <span class="tag">this one</span>{/if}<br />
+                    <span class="muted small">{seen(d.last_seen)}</span></span>
+                  {#if unpairAsk === d.id}
+                    <span class="pair">
+                      <button class="small danger" disabled={busy} onclick={() => unpair(d)}>Un-pair</button>
+                      <button class="small" onclick={() => (unpairAsk = null)}>Keep</button>
+                    </span>
+                  {:else}
+                    <button class="small" onclick={() => (unpairAsk = d.id)}>Un-pair…</button>
+                  {/if}
+                </li>
+                {#if unpairAsk === d.id}
+                  <li class="muted small">
+                    {d.this
+                      ? "This device will stop opening your journal straight away. Your journal stays; pair again from another device of yours."
+                      : "That device will stop opening your journal straight away. Your journal stays."}
+                  </li>
+                {/if}
+              {/each}
+            </ul>
+          {:else if busyKey === "me"}
+            <p class="muted">Loading…</p>
+          {/if}
+
+          {#if pairedNew}
+            <div class="paired-new">
+              <p><strong>Scan this with {pairedNew.name}.</strong></p>
+              {#if pairedNew.qr}<div class="qr">{@html pairedNew.qr}</div>{/if}
+              <p class="link small">{pairedNew.link}</p>
+              <button class="small" onclick={copyPairLink}>{linkCopied ? "Copied" : "Copy link"}</button>
+              <p class="muted small">
+                This code is a key to your journal. Show it only to your own device, and send the link to yourself
+                privately if you send it at all. It keeps working until you un-pair that device.
+              </p>
+              <button class="ghost small" onclick={() => (pairedNew = null)}>Done</button>
+            </div>
+          {:else}
+            <label for="new-device">Pair another device of yours</label>
+            <input id="new-device" bind:value={newDevice} placeholder="e.g. Laptop" autocomplete="off" />
+            <button disabled={busy} onclick={pairAnother}>{busyKey === "pairown" ? "Making a code…" : "Show a pairing code"}</button>
+          {/if}
+
+          <h3 class="sec">Keep my journal unlocked on this server</h3>
+          {#if me.remembered}
+            <p>
+              <strong>On.</strong> Your password is kept in the server computer's keychain, so your journal opens by
+              itself after a restart. Anyone who can log in to that computer could open it too.
+            </p>
+            <button disabled={busy} onclick={() => setRemember(false)}>{busyKey === "remember" ? "Turning off…" : "Turn off"}</button>
+          {:else}
+            <p>
+              <strong>Off.</strong> When the server restarts, your journal locks until you type your password on one of
+              your devices. Turning this on keeps your password in the server computer's keychain so it opens by itself,
+              but then anyone who can log in to that computer could open your journal too.
+            </p>
+            {#if rememberAsk}
+              <form onsubmit={(e) => { e.preventDefault(); setRemember(true); }}>
+                <label for="remember-pw">Your password</label>
+                <input id="remember-pw" type="password" bind:value={rememberPw} autocomplete="current-password" autocapitalize="off" spellcheck="false" />
+                {#if err}<p class="err" role="alert">{err}</p>{/if}
+                <span class="pair">
+                  <button class="primary" type="submit" disabled={busy || !rememberPw}>{busyKey === "remember" ? "Checking…" : "Keep it unlocked"}</button>
+                  <button type="button" onclick={() => { rememberAsk = false; rememberPw = ""; }}>Cancel</button>
+                </span>
+              </form>
+            {:else}
+              <button onclick={() => (rememberAsk = true)}>Turn on…</button>
+            {/if}
+          {/if}
+
+          <h3 class="sec">The limit</h3>
+          <p class="muted small">
+            While your journal is unlocked it is open in the server's memory, so someone with full control of that
+            computer and the skill to inspect a running program could reach it. This protects you from other people who
+            share the server, not from a determined person who controls the machine.
+          </p>
         {:else if sheet === "help"}
           <div class="sheet-head">
             <h2 id="sheet-title">Help</h2>
@@ -2357,6 +2652,13 @@
     border: 0; color: var(--help-ink); background: var(--help-bg); border-radius: 999px; font-weight: 700;
   }
   .help.wide { width: 100%; margin: 0.4rem 0; }
+  .pill.me { padding: 0 0.6rem; display: inline-flex; align-items: center; }
+  .lock h1 { margin-top: 0.6rem; }
+  .devices li { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
+  .paired-new { margin: 0.6rem 0; }
+  .paired-new .qr { background: #fff; border-radius: 8px; padding: 0.4rem; width: fit-content; margin: 0.4rem 0; }
+  .paired-new .qr :global(svg) { display: block; width: 220px; height: 220px; }
+  .paired-new .link { word-break: break-all; user-select: all; }
 
   /* ---------- surfaces ---------- */
   /* Clean and utilitarian: sections sit on the page, full width, divided by a

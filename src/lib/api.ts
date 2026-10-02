@@ -549,6 +549,13 @@ export interface DbStatus {
   opening?: boolean;
   /** Opening failed, and why. */
   error?: string | null;
+  // Only on another person's device (src-tauri/src/people.rs); absent for the owner.
+  /** Whose journal this device opens. Present means "not the owner". */
+  person_name?: string;
+  /** They haven't chosen a password yet, so there's no journal: ask for one. */
+  new_journal?: boolean;
+  /** Their password is kept on the server so the journal reopens after a restart. */
+  remembered?: boolean;
 }
 export const dbStatus = () => invoke<DbStatus>("db_status");
 export const unlockDb = (passphrase: string) => invoke<void>("unlock_db", { passphrase });
@@ -603,6 +610,8 @@ export interface DeviceInfo {
   /** Unix seconds. */
   created_at: number;
   last_seen: number | null;
+  /** Whose device: 1 is the owner, anyone else is listed in People. */
+  person: number;
 }
 export interface PairResult {
   device: DeviceInfo;
@@ -669,9 +678,48 @@ export const portalQr = (url: string) => invoke<string>("portal_qr", { url });
 export const portalTailscale = () => invoke<TailscaleStatus>("portal_tailscale");
 export const portalServe = () => invoke<TailscaleStatus>("portal_serve");
 export const portalUnserve = () => invoke<TailscaleStatus>("portal_unserve");
-export const portalPair = (name: string) => invoke<PairResult>("portal_pair", { name });
+/** Pair a device. With `person`, it opens that person's journal instead of yours. */
+export const portalPair = (name: string, person: number | null = null) =>
+  invoke<PairResult>("portal_pair", { name, person });
 export const portalDevices = () => invoke<DeviceInfo[]>("portal_devices");
 export const portalRevoke = (id: number) => invoke<DeviceInfo[]>("portal_revoke", { id });
+
+// ---- other people on this server (see src-tauri/src/people.rs) ----
+/** What the owner may see about someone else: never anything from their journal. */
+export interface PersonInfo {
+  id: number;
+  name: string;
+  created_at: number;
+  /** They've chosen a password, so their journal exists. */
+  has_journal: boolean;
+  unlocked: boolean;
+  remembered: boolean;
+}
+/** Desktop only. */
+export const peopleList = () => invoke<PersonInfo[]>("people_list");
+/** Desktop only. */
+export const personAdd = (name: string) => invoke<PersonInfo>("person_add", { name });
+/** Desktop only. `confirm` must be their name, typed. Deletes their journal. */
+export const personRemove = (id: number, confirm: string) =>
+  invoke<PersonInfo[]>("person_remove", { id, confirm });
+
+// From another person's own device. None of these take a person: the server
+// knows whose device is asking.
+export interface MyDevice extends DeviceInfo {
+  /** The device making the request. */
+  this: boolean;
+}
+/** Unlock, or the first time create, your journal with your password. */
+export const personUnlock = (password: string) => invoke<DbStatus>("person_unlock", { password });
+/** Keep your password on the server (needs it), or stop keeping it. */
+export const personRemember = (remember: boolean, password: string | null = null) =>
+  invoke<DbStatus>("person_remember", { remember, password });
+export const myDevices = () => invoke<MyDevice[]>("my_devices");
+/** Pair another device of yours. `origin` is where this phone reached the server,
+ *  so the returned QR code points at the same place. */
+export const pairOwnDevice = (name: string, origin: string) =>
+  invoke<PairResult & { qr: string | null }>("pair_own_device", { name, origin });
+export const unpairMyDevice = (id: number) => invoke<MyDevice[]>("unpair_my_device", { id });
 
 // ---- this computer as the server ----
 export const serverPrefs = () => invoke<ServerPrefs>("server_prefs");

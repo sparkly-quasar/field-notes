@@ -349,9 +349,20 @@ pub enum DispatchError {
     Failed(String),
 }
 
-/// The caller's own devices, and only theirs.
-fn mine<R: Runtime>(app: &AppHandle<R>, who: Caller) -> Vec<crate::devices::DeviceInfo> {
-    app.state::<Devices>().list().into_iter().filter(|d| d.person == who.person).collect()
+/// The caller's own devices, and only theirs, with the one asking marked `this`
+/// so the phone can say which is itself.
+fn mine<R: Runtime>(app: &AppHandle<R>, who: Caller) -> Vec<Value> {
+    app.state::<Devices>()
+        .list()
+        .into_iter()
+        .filter(|d| d.person == who.person)
+        .map(|d| {
+            let this = d.id == who.device;
+            let mut v = json!(d);
+            v["this"] = json!(this);
+            v
+        })
+        .collect()
 }
 
 /// Pull a named argument out of the request body, the way Tauri's `invoke` would.
@@ -678,9 +689,16 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "my_devices" => ok(mine(app, who)),
         "pair_own_device" => {
             let name: String = arg(&args, "name")?;
+            // The phone says where it reached us (its own address bar), so the new
+            // device's link and code point at the same place. Only drawn into the
+            // code; nothing here is stored.
+            let origin: Option<String> = arg(&args, "origin")?;
             let (device, token) =
                 app.state::<Devices>().pair_for(&name, who.person).map_err(DispatchError::Failed)?;
-            ok(json!({ "device": device, "token": token }))
+            let qr = origin
+                .filter(|o| o.starts_with("https://") || o.starts_with("http://"))
+                .and_then(|o| commands::portal_qr(format!("{}/m#t={token}", o.trim_end_matches('/'))).ok());
+            ok(json!({ "device": device, "token": token, "qr": qr }))
         }
         "unpair_my_device" => {
             app.state::<Devices>().revoke_own(who.person, arg(&args, "id")?).map_err(DispatchError::Failed)?;
@@ -840,6 +858,7 @@ mod tests {
         app.manage(Knowledge(None));
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
+        app.manage(crate::prefs::Prefs::load(dir.join("server.json")));
         let people = People::load(&dir);
         let sam = people.add("Sam").unwrap();
         app.manage(people);
@@ -923,6 +942,8 @@ mod tests {
         assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
         let (_, body) = post(port, "my_devices", Some(&sam), json!({}));
         assert!(body.contains("Sam phone") && !body.contains("Owner phone"), "{body}");
+        let list: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(list[0]["this"], true, "the asking device is marked as itself");
 
         // Sam can't un-pair the owner's phone, however the id is guessed.
         let owner_id = app.state::<Devices>().list().iter().find(|d| d.person == OWNER).unwrap().id;
@@ -931,9 +952,14 @@ mod tests {
         assert_eq!(post(port, "list_experiences", Some(&owner), json!({})).0, 200);
 
         // A second device of Sam's opens Sam's journal.
-        let (status, body) = post(port, "pair_own_device", Some(&sam), json!({ "name": "Sam laptop" }));
+        let (status, body) =
+            post(port, "pair_own_device", Some(&sam), json!({ "name": "Sam laptop", "origin": "https://box.example.ts.net" }));
         assert_eq!(status, 200, "{body}");
-        let token2 = serde_json::from_str::<Value>(&body).unwrap()["token"].as_str().unwrap().to_string();
+        let paired: Value = serde_json::from_str(&body).unwrap();
+        assert!(paired["qr"].as_str().is_some_and(|q| q.contains("<svg")), "{body}");
+        let token2 = paired["token"].as_str().unwrap().to_string();
+        let (_, body) = post(port, "my_devices", Some(&token2), json!({}));
+        assert!(body.contains("Sam laptop") && body.contains("Sam phone") && !body.contains("Owner phone"), "{body}");
         assert_eq!(post(port, "list_experiences", Some(&token2), json!({})).0, 200);
 
         // Removing Sam un-pairs every device of theirs at once.
