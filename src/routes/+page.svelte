@@ -1249,9 +1249,6 @@
     await loadJournal();
     await openExperienceKeepWarnings(r.id);
     lastWarnings = r.warnings;
-    // Same escalation as logging a dose by hand: has this combination become dangerous?
-    const c = await crisisScan("", r.id).catch(() => null);
-    if (c && c.level !== "none") { crisis = c; crisisResourcesShown = false; }
   }
 
   async function openExperienceKeepWarnings(id: number) {
@@ -1604,9 +1601,6 @@
     if (res.warnings.length) lastWarnings = res.warnings;
     await refreshSelected();
     await loadJournal();
-    // A newly dangerous combination should raise the crisis banner deterministically.
-    const c = await crisisScan("", selected.id);
-    if (c.level !== "none") { crisis = c; crisisResourcesShown = false; }
   }
 
   // ---- standalone combination check (the Check view) ----

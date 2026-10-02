@@ -435,21 +435,6 @@ pub fn scan_recent(recent: &[String]) -> CrisisResult {
     }
 }
 
-/// Force a result to at least `floor` (e.g. a dangerous interaction flag elevates
-/// a message to a medical concern regardless of its wording).
-pub fn escalate(mut r: CrisisResult, floor: Level, reason: &str) -> CrisisResult {
-    if floor > r.level {
-        r.level = floor;
-        r.headline = headline_for(floor).to_string();
-        r.resources = resources_for(floor);
-        r.presentation = presentation_for(floor);
-    }
-    if floor >= Level::Medical {
-        r.matched.push(reason.to_string());
-    }
-    r
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,16 +580,4 @@ mod tests {
         assert_eq!(n, 1, "emergency services should appear once");
     }
 
-    #[test]
-    fn escalation_to_medical_stops_asking() {
-        let r = escalate(scan("i'm freaking out"), Level::Medical, "dangerous interaction");
-        assert_eq!(r.presentation, Presentation::Direct);
-    }
-
-    #[test]
-    fn escalation_floor_raises_level() {
-        let r = escalate(scan("having a nice time"), Level::Medical, "dangerous interaction flagged");
-        assert_eq!(r.level, Level::Medical);
-        assert!(r.matched.iter().any(|m| m.contains("interaction")));
-    }
 }
