@@ -13,6 +13,13 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.18.0
 
+- **A cleaner, quieter look.** On the desktop, content now sits directly on the
+  page instead of inside cards, with a thin bar at the top of each view for its
+  actions (Paste a log, Import, Note, Session, + Dose). The sidebar is smaller
+  and quieter, and the journal is grouped by month with the date on the left.
+  On the phone, sections are divided by lines instead of floating as cards, and
+  headings are smaller. The live session screen, Help, + Dose and + Moment
+  keep their size.
 - **Buttons look like buttons.** Every button is now a rounded pill, and cards,
   sheets and text boxes stay rectangles, so anything you can tap is recognisable
   by its shape, even on the dim red screen. Main actions are filled; the rest
