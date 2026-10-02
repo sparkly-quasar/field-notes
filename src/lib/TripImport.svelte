@@ -32,6 +32,14 @@
   let datedFromLog = $state<string | null>(null); // the date the log itself gave
   let startAt = $state(""); // datetime-local, for offset/untimed logs
   let title = $state("");
+  /** A 12-hour log with no am/pm: which half of the day its first time was in. */
+  let halfAsked = $state(false);
+  let half = $state<"am" | "pm" | null>(null);
+  let datedGuess = $state<"am" | "pm" | null>(null); // from a time on the log's date line
+  /** People the log tags doses with, and which of them wrote it ("" = none of them). */
+  let people = $state<string[]>([]);
+  let me = $state<string | null>(null);
+  let writeup = $state("");
   let err = $state<string | null>(null);
   let tip = $state<string | null>(null);
   let busy = $state(false);
@@ -103,11 +111,13 @@
     timing = out.timing;
     startClock = out.startClockMin;
     datedFromLog = out.date;
+    halfAsked = !!out.half;
+    half = datedGuess = out.half?.guess ?? null;
+    people = out.people;
+    me = null;
+    writeup = out.reflection;
     if (timing === "clock" && startClock != null) {
-      // The log's own date if it gave one. Otherwise: today if that time has
-      // already passed, else last night's.
-      const now = new Date();
-      day = out.date ?? (startClock <= now.getHours() * 60 + now.getMinutes() ? daysAgo(0) : daysAgo(1));
+      day = out.date ?? likelyDay();
     } else {
       let d = new Date();
       d.setDate(d.getDate() - 1);
@@ -121,19 +131,40 @@
     }
   }
 
+  /** The first line's time of day, once the half of the day is settled. */
+  const firstClock = $derived(startClock == null ? null : startClock + (halfAsked && half === "pm" ? 720 : 0));
+  /** The log's own date if it gave one. Otherwise: today if that time has already
+   *  passed, else last night's. */
+  function likelyDay() {
+    const now = new Date();
+    return firstClock != null && firstClock <= now.getHours() * 60 + now.getMinutes() ? daysAgo(0) : daysAgo(1);
+  }
+  function pickHalf(h: "am" | "pm") {
+    half = h;
+    if (!datedFromLog) day = likelyDay();
+  }
+  const clockText = (min: number, h: "am" | "pm") => `${Math.floor(min / 60) % 12 || 12}:${pad2(min % 60)}${h}`;
+
+  /** Someone else's dose: kept, as a line on the timeline rather than a dose of yours. */
+  const theirs = (r: ParsedRow) => r.kind === "dose" && !!r.who && r.who !== me;
+  const theirNote = (r: ParsedRow) =>
+    `${r.who}: ${r.amount != null ? `${r.amount}${r.unit} ` : ""}${r.substance}${r.route !== "oral" ? ` (${r.route})` : ""}`;
+  const missing = $derived(halfAsked && !half ? "am or pm" : people.length && me == null ? "who you are" : null);
+
   /** Absolute time of the first line. */
   const start = $derived.by((): Date | null => {
-    if (timing === "clock" && startClock != null && day) {
+    if (timing === "clock" && firstClock != null && day) {
+      if (halfAsked && !half) return null;
       const [y, m, d] = day.split("-").map(Number);
-      return new Date(y, m - 1, d, Math.floor(startClock / 60), startClock % 60);
+      return new Date(y, m - 1, d, Math.floor(firstClock / 60), firstClock % 60);
     }
     return startAt ? new Date(startAt) : null;
   });
 
   const at = (r: ParsedRow) => (start ? new Date(start.getTime() + r.offsetMin * 60000) : null);
   const hhmm = (d: Date | null) => (d ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : "—");
-  /** T+ as the journal will show it: from the first dose. */
-  const t0 = $derived(rows?.find((r) => r.kind === "dose")?.offsetMin ?? null);
+  /** T+ as the journal will show it: from the first dose (of yours). */
+  const t0 = $derived(rows?.find((r) => r.kind === "dose" && !theirs(r))?.offsetMin ?? null);
   const rel = (r: ParsedRow) => {
     if (t0 == null) return "";
     const d = r.offsetMin - t0;
@@ -147,7 +178,7 @@
   }
 
   async function save() {
-    if (!rows || !start) return;
+    if (!rows || !start || missing) return;
     err = null;
     if (inFuture) {
       err = "Some of these times are in the future — check the date.";
@@ -156,16 +187,16 @@
     busy = true;
     try {
       const lines: TripLine[] = rows.map((r) => ({
-        kind: r.kind,
+        kind: theirs(r) ? "moment" : r.kind,
         at: at(r)!.toISOString(),
-        text: r.text,
+        text: theirs(r) ? theirNote(r) : r.text,
         substance: r.substance,
         amount: r.amount,
         unit: r.unit,
         route: r.route,
         intensity: r.intensity,
       }));
-      const res = await saveTripLog(title, lines);
+      const res = await saveTripLog(title, lines, writeup);
       onsaved(res);
     } catch (e) {
       err = e instanceof Error ? e.message : String(e);
@@ -199,6 +230,24 @@
       <button type="button" class="primary" disabled={!raw.trim()} onclick={parse}>Read it</button>
     </div>
   {:else}
+    {#if timing === "clock" && halfAsked && startClock != null}
+      <p class="ask">The log doesn't say am or pm. When was the first line?</p>
+      <div class="chips" role="group" aria-label="Morning or evening">
+        <button type="button" class="chip" class:on={half === "am"} aria-pressed={half === "am"} onclick={() => pickHalf("am")}>{clockText(startClock, "am")}</button>
+        <button type="button" class="chip" class:on={half === "pm"} aria-pressed={half === "pm"} onclick={() => pickHalf("pm")}>{clockText(startClock, "pm")}</button>
+      </div>
+      {#if half && half === datedGuess}<p class="muted small dated">Guessed from the time at the top of the log.</p>{/if}
+    {/if}
+    {#if people.length}
+      <p class="ask">Doses in this log are marked as {people.join(" and ")}'s. Which one is you?</p>
+      <div class="chips" role="group" aria-label="Which one is you">
+        {#each people as p}
+          <button type="button" class="chip" class:on={me === p} aria-pressed={me === p} onclick={() => (me = p)}>{p}</button>
+        {/each}
+        <button type="button" class="chip" class:on={me === ""} aria-pressed={me === ""} onclick={() => (me = "")}>None of them</button>
+      </div>
+      <p class="muted small dated">Your doses are logged as doses. Everyone else's stay on the timeline as notes.</p>
+    {/if}
     {#if timing === "clock"}
       <label for="ti-day">Which day did it start?</label>
       <div class="chips">
@@ -220,9 +269,10 @@
     <p class="muted small">{rows.length} line{rows.length === 1 ? "" : "s"}. Tap Dose / Moment to switch one, × to drop it.</p>
     <ol class="rows">
       {#each rows as r, i (i)}
-        <li class:dose={r.kind === "dose"}>
+        <li class:dose={r.kind === "dose" && !theirs(r)}>
           <div class="head">
             <span class="time">{hhmm(at(r))}<span class="rel">{rel(r)}</span></span>
+            {#if r.kind === "dose" && r.who}<span class="who" class:mine={!theirs(r)}>{r.who}</span>{/if}
             <span class="seg" role="group" aria-label="Line type">
               <button type="button" class:on={r.kind === "dose"} aria-pressed={r.kind === "dose"} onclick={() => (r.kind = "dose")}>Dose</button>
               <button type="button" class:on={r.kind === "moment"} aria-pressed={r.kind === "moment"} onclick={() => (r.kind = "moment")}>Moment</button>
@@ -236,7 +286,7 @@
               <select aria-label="Unit" bind:value={r.unit}>{#each UNITS as u}<option>{u}</option>{/each}</select>
               <select aria-label="Route" bind:value={r.route}>{#each ROUTES as rt}<option>{rt}</option>{/each}</select>
             </div>
-            {#if r.text}<p class="orig">“{r.text}”</p>{/if}
+            {#if theirs(r)}<p class="orig">Saved as a note: “{theirNote(r)}”</p>{:else if r.text}<p class="orig">“{r.text}”</p>{/if}
           {:else}
             <textarea aria-label="Moment" rows="2" bind:value={r.text}></textarea>
             {#if r.intensity != null}<p class="orig">Intensity {r.intensity}/10</p>{/if}
@@ -245,11 +295,15 @@
       {/each}
     </ol>
 
+    <label for="ti-writeup">Write-up</label>
+    <textarea id="ti-writeup" rows={writeup ? 6 : 2} bind:value={writeup} placeholder="Anything written after the log lands here"></textarea>
+
+    {#if missing}<p class="muted small">Choose {missing} above to save.</p>{/if}
     {#if inFuture}<p class="bad" role="alert">Some of these times are in the future — check the day.</p>{/if}
     {#if err}<p class="bad" role="alert">{err}</p>{/if}
     <div class="pair">
       <button type="button" onclick={() => (rows = null)}>Back</button>
-      <button type="button" class="primary" disabled={busy || !start} onclick={save}>{busy ? "Saving…" : "Save as a past session"}</button>
+      <button type="button" class="primary" disabled={busy || !start || !!missing} onclick={save}>{busy ? "Saving…" : "Save as a past session"}</button>
     </div>
   {/if}
 </div>
@@ -286,6 +340,9 @@
   .chip { border-radius: 999px; font-weight: 500; font-size: 0.92em; }
   .chip.on { background: var(--ti-accent); color: var(--ti-on-accent); border-color: var(--ti-accent); }
   .dated { margin: -0.25rem 0 0.5rem; }
+  .ask { margin: 0.6rem 0 0.35rem; font-weight: 600; }
+  .who { font-size: 0.8em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--ti-border); color: var(--ti-text-2); }
+  .who.mine { border-color: var(--ti-accent); color: inherit; }
   .bad { color: var(--ti-danger); font-weight: 600; }
   .tip { color: var(--text-2, var(--muted)); }
 

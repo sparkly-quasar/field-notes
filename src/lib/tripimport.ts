@@ -6,16 +6,24 @@
  *
  * **Deterministic on purpose.** The desktop's text import asks a local model; this
  * is for the phone, mid-morning-after, where there may be no model and there must
- * be no guessing you can't see. Every line becomes exactly one visible row in a
- * preview, which the person corrects before anything is saved.
+ * be no guessing you can't see. Every line becomes at least one visible row in a
+ * preview (a list of doses becomes one row each), which the person corrects
+ * before anything is saved.
  *
  * Pure: no API calls, no DOM. The caller passes the substance catalogue in.
  *
  * Handles, per line:
- * - clock times: `8:43am`, `8:43 am`, `8.43pm`, `11am`, `20:15`, `[20:15]`, `(08:43)`
- * - offsets: `T+1:30`, `t+90m`, `+1h30`, `+45m`, `1h30 in`, `90 min in`
+ * - clock times: `8:43am`, `8:43 am`, `8.43pm`, `11am`, `20:15`, `[20:15]`, `(08:43)`,
+ *   `11:30ish`, `~11:30`. A log written in 12-hour times without am/pm can't say
+ *   whether it started in the morning or the evening: `ParsedLog.half` says so and
+ *   the preview asks.
+ * - offsets: `T+0`, `T+1:30`, `t+90m`, `+1h30`, `+45m`, `1h30 in`, `90 min in`
  * - separators after the time: `-`, `–`, `—`, `:`, `|`, `>`, or just a space
- * - lines with no time: continue the row above (or start the log, untimed)
+ * - lines with no time: continue the row above (or start the log, untimed). After
+ *   the last timed line and a blank line, they're the write-up instead.
+ * - lists: `150mg MDMA, zofran`, `150mg 4mmc + 2C-D` are a dose per item
+ * - other people: `40mg DMT - Emily`, `Elle 40mg dmt`, `2C-D (11 Elle 6 Emily)`
+ *   tag the dose with whose it was; the preview asks which of them is you
  * - `(6/10)` / `6/10` anywhere: the moment's intensity
  *
  * And, before the first timed line, a line that's just a date (`Date: 02-28-2026
@@ -37,6 +45,8 @@ export interface ParsedRow {
   unit: Unit;
   route: string;
   intensity: number | null;
+  /** Whose dose it was, when the log names someone (`- Emily`). Null: the writer's. */
+  who: string | null;
 }
 
 export interface ParsedLog {
@@ -45,8 +55,17 @@ export interface ParsedLog {
    *  when they were T+ offsets — the start time is needed. "none" when nothing was
    *  timed, so rows fall at the start. */
   timing: "clock" | "offset" | "none";
-  /** Minutes after midnight of the first timed line, for clock logs. */
+  /** Minutes after midnight of the first timed line, for clock logs. When `half`
+   *  is set this is the morning reading: add 720 for the evening. */
   startClockMin: number | null;
+  /** Set when every time was 12-hour with no am/pm, so the log can't say whether it
+   *  started in the morning or the evening. `guess` comes from a time on the date
+   *  line, when there was one; otherwise null and the person has to say. */
+  half: { guess: "am" | "pm" | null } | null;
+  /** The people the log names as taking doses (see `ParsedRow.who`), in order. */
+  people: string[];
+  /** Untimed paragraphs after the last timed line: the write-up, not the timeline. */
+  reflection: string;
   /** The day the log says it's from (yyyy-mm-dd), from a date line at the top. */
   date: string | null;
   /** A time of day written with that date (minutes after midnight), if any. */
@@ -88,6 +107,10 @@ const FILLER = new Set([
   "re-dose", "re-dosed", "another", "more", "of", "a", "an", "the", "some", "my", "first", "second", "third",
   "booster", "boost", "top", "up", "topped", "around", "about", "approx", "approximately", "~", "roughly", "and",
   "then", "i", "we", "orally", "oral", "snorted", "smoked", "vaped", "sublingual", "insufflated", "plus", "+",
+  // How it was taken goes in the route, never the name ("75mg 4mmc rectal").
+  "rectal", "rectally", "boof", "boofed", "plug", "plugged", "im", "intramuscular", "intramuscularly", "iv",
+  "intravenous", "intravenously", "inject", "injected", "sublingually", "buccal", "nasal", "nasally", "snort",
+  "smoke", "vape", "vaporized", "vaporised", "insufflate",
 ]);
 
 /** A catalogue name for what was written: exact name or alias first, then a unique
@@ -125,7 +148,12 @@ const AMBIGUOUS = new Set([
 /** A known substance mentioned anywhere in a line ("took another 20mg of the ketamine"
  *  finds Ketamine). Word n-grams against a name index; the longest match wins. */
 function findKnown(text: string, index: Map<string, string>): string | null {
-  const words = text.toLowerCase().replace(/[^a-z0-9µ\-' ]+/g, " ").split(/\s+/).filter(Boolean);
+  const words = text
+    .toLowerCase()
+    .replace(/(?<!\d),|,(?!\d)/g, " ") // a comma inside "1,4b" is part of the name
+    .replace(/[^a-z0-9µ\-', ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
   let best: { name: string; len: number } | null = null;
   for (let n = Math.min(4, words.length); n >= 1; n--) {
     for (let i = 0; i + n <= words.length; i++) {
@@ -151,7 +179,9 @@ export function nameIndex(catalogue: CatalogueEntry[]): Map<string, string> {
   return idx;
 }
 
-type Stamp = { kind: "clock"; min: number; label: string } | { kind: "offset"; min: number };
+/** `ap`: written with am/pm. `bare12`: a 12-hour time without ("5:30"), so `min`
+ *  is its morning reading. */
+type Stamp = { kind: "clock"; min: number; label: string; ap: boolean; bare12: boolean } | { kind: "offset"; min: number };
 
 /** Pull a leading time off a line. Returns the stamp and the rest of the line. */
 export function takeStamp(line: string): { stamp: Stamp | null; rest: string } {
@@ -163,7 +193,7 @@ export function takeStamp(line: string): { stamp: Stamp | null; rest: string } {
   if (m && (/[:h]/i.test(m[0]) || m[2])) {
     return { stamp: { kind: "offset", min: Number(m[1]) * 60 + Number(m[2] ?? 0) }, rest: strip(s.slice(m[0].length)) };
   }
-  m = s.match(/^[[(]?\s*t?\s*\+\s*(\d+)\s*(m|min|mins|minutes)\b\s*[\])]?/i);
+  m = s.match(/^[[(]?\s*t?\s*\+\s*(\d+)\s*(m|min|mins|minutes)\b\s*[\])]?/i) ?? s.match(/^[[(]?\s*t\s*\+\s*(0)\b\s*[\])]?/i);
   if (m) return { stamp: { kind: "offset", min: Number(m[1]) }, rest: strip(s.slice(m[0].length)) };
   // "1h30 in", "90 min in", "2 hours in"
   m = s.match(/^(\d+)\s*(h|hr|hrs|hours?)\s*(\d{1,2})?\s*(m|min|mins)?\s+in\b/i);
@@ -171,20 +201,24 @@ export function takeStamp(line: string): { stamp: Stamp | null; rest: string } {
   m = s.match(/^(\d+)\s*(m|min|mins|minutes)\s+in\b/i);
   if (m) return { stamp: { kind: "offset", min: Number(m[1]) }, rest: strip(s.slice(m[0].length)) };
 
-  // Clock: 8:43am, 8.43 pm, 20:15, [20:15], 11am, 11 pm
-  m = s.match(/^[[(]?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*[\])]?/i);
-  if (m && (m[2] !== undefined || m[3])) {
-    let h = Number(m[1]);
+  // Clock: 8:43am, 8.43 pm, 20:15, [20:15], 11am, 11 pm, 11:30ish, ~11:30, 11ish
+  m = s.match(/^[[(]?\s*~?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(\s*ish\b)?\s*(am|pm|a\.m\.|p\.m\.)?\s*[\])]?/i);
+  if (m && (m[2] !== undefined || m[3] || m[4] || m[5])) {
+    const written = Number(m[1]);
+    let h = written;
     const min = Number(m[2] ?? 0);
-    const ap = m[3]?.toLowerCase().replace(/\./g, "");
+    const ap = (m[3] ?? m[5])?.toLowerCase().replace(/\./g, "");
     if (h > 23 || min > 59) return { stamp: null, rest: s };
+    if (ap && (h < 1 || h > 12)) return { stamp: null, rest: s };
     if (ap === "pm" && h < 12) h += 12;
     if (ap === "am" && h === 12) h = 0;
     // A bare "8" isn't a time; "8:43" is. And "35mg" must never read as 35 o'clock.
     const after = s.slice(m[0].length);
     if (!ap && /^\s*(mg|µg|ug|mcg|g|ml|tab|cap|pill|x\b)/i.test(after)) return { stamp: null, rest: s };
     const label = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-    return { stamp: { kind: "clock", min: h * 60 + min, label }, rest: strip(after) };
+    // "5:30" could be either half of the day; "05:30", "17:30" and "5:30pm" can't.
+    const bare12 = !ap && written >= 1 && written <= 12 && !m[1].startsWith("0");
+    return { stamp: { kind: "clock", min: h * 60 + min, label, ap: !!ap, bare12 }, rest: strip(after) };
   }
   return { stamp: null, rest: s };
 }
@@ -196,7 +230,7 @@ function doseOf(text: string, catalogue: CatalogueEntry[], index: Map<string, st
   const amount = Number(m[1].replace(",", "."));
   const unit = normUnit(m[2]);
   const around = (text.slice(0, m.index) + " " + text.slice(m.index! + m[0].length))
-    .replace(/[(),.;!]/g, " ")
+    .replace(/[().;!]|(?<!\d),|,(?!\d)/g, " ")
     .split(/\s+/)
     .filter((w) => w && !FILLER.has(w.toLowerCase()));
   // A substance we know, named anywhere in the line, wins: "took 20mg of the
@@ -297,36 +331,205 @@ export function takeDate(line: string, dayFirst = false): { date: string; clockM
   return { date, clockMin: stamp.min };
 }
 
-/** What a line says, apart from when: dose or moment, and the details. */
-function rowOf(line: string, catalogue: CatalogueEntry[], index: Map<string, string>): Omit<ParsedRow, "offsetMin" | "clock"> {
-  const { intensity, text } = intensityOf(line);
-  const dose = doseOf(text, catalogue, index);
-  return {
-    kind: dose ? "dose" : "moment",
-    text,
-    substance: dose?.substance ?? "",
-    amount: dose?.amount ?? null,
-    unit: dose?.unit ?? "mg",
-    route: dose?.route ?? "oral",
-    intensity,
+
+/** Words that make a list item a sentence ("150mg MDMA, feeling nervous"), so it's
+ *  a note on the dose before it rather than a substance of its own. */
+const SENTENCE = new Set([
+  "i", "i'm", "im", "i've", "ive", "we", "we're", "me", "my", "us", "our", "you", "it", "it's", "its", "is", "was",
+  "were", "are", "be", "been", "feel", "feeling", "feels", "felt", "so", "very", "really", "just", "still", "not",
+  "no", "now", "like", "bit", "starting", "started", "kicking", "coming", "came", "getting", "got", "went", "going",
+  "nothing", "yet", "much", "too", "but", "think", "maybe", "with", "for", "at", "in", "on", "to", "from",
+]);
+
+/** Capitalised words that sit where a name could but aren't one. */
+const NOT_NAMES = new Set([
+  "me", "myself", "us", "both", "everyone", "all", "them", "him", "her", "peak", "comeup", "come", "morning",
+  "night", "evening", "afternoon", "total", "booster", "redose", "later", "again", "home", "bed", "sleep",
+]);
+
+const AMOUNT_UNITS = "mg|mgs|µg|ug|mcg|g|ml|mls";
+/** "11 Elle", "6mg Emily" — a person's share of a dose, inside brackets. */
+const PAIR_RE = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${AMOUNT_UNITS})?\\s+([A-Z][a-zA-Z'’]+)`, "g");
+
+/** Could this capitalised word be a person, not a substance or a filler word? */
+function nameLike(word: string, index: Map<string, string>): boolean {
+  const w = word.toLowerCase();
+  if (!/^[A-Z][a-zA-Z'’]{1,}$/.test(word)) return false;
+  if (FILLER.has(w) || NOT_NAMES.has(w) || SENTENCE.has(w)) return false;
+  return !index.has(w) || AMBIGUOUS.has(w);
+}
+
+/** A bracket of "amount Name" pairs, e.g. "(11 Elle 6 Emily)": the pairs, or null. */
+function sharesIn(bracket: string, index: Map<string, string>): { amount: number; unit: Unit | null; who: string }[] | null {
+  const inner = bracket.slice(1, -1);
+  const pairs = [...inner.matchAll(PAIR_RE)];
+  if (!pairs.length) return null;
+  // Nothing in the bracket but the pairs and the odd separator.
+  if (inner.replace(PAIR_RE, "").replace(/[\s,;&/+]|and/gi, "")) return null;
+  if (!pairs.every((p) => nameLike(p[3], index))) return null;
+  return pairs.map((p) => ({ amount: Number(p[1].replace(",", ".")), unit: p[2] ? normUnit(p[2]) : null, who: p[3] }));
+}
+
+/** Names the log tags doses with, in the order they first appear. Only from
+ *  patterns that can't be much else: a trailing "- Name" on a dose line, and a
+ *  bracket of shares. A leading "Elle 40mg dmt" counts only for a name found so. */
+function peopleIn(lines: string[], index: Map<string, string>): string[] {
+  const out: string[] = [];
+  const add = (n: string) => out.includes(n) || out.push(n);
+  for (const line of lines) {
+    const dash = line.match(/\s[-–—]\s*([A-Z][a-zA-Z'’]+)\s*$/);
+    if (dash && UNIT_RE.test(line) && nameLike(dash[1], index)) add(dash[1]);
+    for (const b of line.match(/\([^()]*\)/g) ?? []) for (const s of sharesIn(b, index) ?? []) add(s.who);
+  }
+  return out;
+}
+
+/** Split on "+" and on commas, but not inside brackets or between digits ("1,4b"). */
+function splitList(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(" || ch === "[") depth++;
+    if ((ch === ")" || ch === "]") && depth > 0) depth--;
+    const digitComma = ch === "," && /\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? "");
+    const timePlus = ch === "+" && (!cur.trim() || /\bt\s*$/i.test(cur)); // "T+0", "+45m"
+    if (depth === 0 && ((ch === "+" && !timePlus) || (ch === "," && !digitComma))) {
+      parts.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  parts.push(cur);
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+type Body = Omit<ParsedRow, "offsetMin" | "clock">;
+
+/** What a line says, apart from when: one row, or one per item of a list of doses. */
+function rowsOf(line: string, catalogue: CatalogueEntry[], index: Map<string, string>, people: string[]): Body[] {
+  const { intensity, text: full } = intensityOf(line);
+  let text = full;
+  let who: string | null = null;
+  // "40mg IM DMT - Emily", "Elle 40mg dmt", "Emily: 40mg"
+  const dash = text.match(/\s[-–—]\s*([A-Z][a-zA-Z'’]+)\s*$/);
+  const lead = text.match(/^([A-Z][a-zA-Z'’]+)\s*[:,-]?\s+(?=[~\d])/);
+  if (dash && people.includes(dash[1])) {
+    who = dash[1];
+    text = text.slice(0, dash.index).trim();
+  } else if (lead && people.includes(lead[1])) {
+    who = lead[1];
+    text = text.slice(lead[0].length).trim();
+  }
+  const lineRoute = routeOf(full);
+  const base = { intensity, who };
+
+  const one = (part: string, rowText: string): Body[] => {
+    const route = /\b(snort|insufflat|nasal|bump|line|smok|vap|joint|bong|dab|sublingual|tongue|sl|buccal|rectal|boof|plug|inject|iv|intravenous|im|intramuscular)/i.test(part)
+      ? routeOf(part)
+      : lineRoute;
+    // "2C-D (11 Elle 6 Emily)": a dose each, for each of them.
+    for (const b of part.match(/\([^()]*\)/g) ?? []) {
+      const shares = sharesIn(b, index);
+      if (!shares) continue;
+      const rest = part.replace(b, " ");
+      const named = doseOf(rest, catalogue, index)?.substance || resolveSubstance(words(rest).join(" "), catalogue);
+      const lineUnit = full.match(UNIT_RE);
+      const unit = lineUnit ? normUnit(lineUnit[2]) : "mg";
+      return shares.map((s) => ({ ...base, kind: "dose", text: rowText, substance: named, amount: s.amount, unit: s.unit ?? unit, route, who: s.who }));
+    }
+    const dose = doseOf(part, catalogue, index);
+    if (dose) return [{ ...base, kind: "dose", text: rowText, ...dose, route }];
+    return [];
   };
+
+  // A list of doses ("150mg MDMA, zofran", "150mg 4mmc + 2C-D") is a row per item,
+  // but only when every item reads like a substance, not a sentence, and at least
+  // one is plainly a dose (an amount, or a name we know).
+  const items = splitList(text);
+  if (items.length >= 2) {
+    const listy = items.every((it) => {
+      const ws = words(it.replace(/\([^()]*\)/g, " ").replace(UNIT_RE, " "));
+      return ws.length >= 1 && ws.length <= 3 && !ws.some((w) => SENTENCE.has(w.toLowerCase()));
+    });
+    // Known means the whole item is the name: "alpha lipoic acid" is not LSD.
+    const known = (it: string) => index.has(words(it.replace(/\([^()]*\)/g, " ")).join(" ").toLowerCase());
+    const anchored = items.some((it) => UNIT_RE.test(it) || known(it));
+    if (listy && anchored) {
+      return items.flatMap((it) => {
+        const got = one(it, it);
+        if (got.length) return got;
+        const name = resolveSubstance(words(it).join(" "), catalogue);
+        return [{ ...base, kind: "dose" as const, text: it, substance: name, amount: null, unit: "mg" as Unit, route: lineRoute }];
+      });
+    }
+  }
+  const got = one(text, text);
+  if (got.length) return got;
+  return [{ ...base, kind: "moment", text, substance: "", amount: null, unit: "mg", route: "oral" }];
+}
+
+/** The words of a list item that could be a name: no amounts, filler or brackets. */
+function words(text: string): string[] {
+  return text
+    .replace(/[().;!]|(?<!\d),|,(?!\d)/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !FILLER.has(w.toLowerCase()));
+}
+
+/**
+ * Where each clock time falls, in minutes from the midnight before the first one,
+ * rolled forward across midnight. 24-hour logs roll a day when a time goes
+ * backwards. A log in 12-hour times rolls half a day instead, so "11:30, 12:30,
+ * 1:15" reads as an hour and three quarters, not thirteen hours; its bare times
+ * are read as morning, and `pmStart` moves the first one to the evening.
+ */
+function placeClocks(stamps: Extract<Stamp, { kind: "clock" }>[], pmStart: boolean): number[] {
+  const twelve = stamps.every((s) => s.bare12 || s.ap);
+  const out: number[] = [];
+  let last: number | null = null;
+  for (const s of stamps) {
+    let abs: number;
+    if (twelve && s.bare12) {
+      abs = (s.min % 720) + (last == null && pmStart ? 720 : 0);
+      while (last != null && abs < last) abs += 720;
+    } else {
+      abs = s.min;
+      while (last != null && abs < last) abs += 1440;
+    }
+    out.push(abs);
+    last = abs;
+  }
+  return out;
 }
 
 export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { dayFirst?: boolean } = {}): ParsedLog {
   const index = nameIndex(catalogue);
-  const rows: ParsedRow[] = [];
+  const lines = raw.split(/\r?\n/);
+  const people = peopleIn(lines, index);
   let date: string | null = null;
   let dateClockMin: number | null = null;
-  let timing: ParsedLog["timing"] = "none";
-  let firstClock: number | null = null;
-  let lastClockAbs: number | null = null; // minutes, rolled across midnight
-  let lastOffset = 0;
 
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim()) continue;
+  // First, what each line says and its stamp; the times are worked out after,
+  // because whether "5:30" is morning or evening depends on the whole log.
+  const entries: { stamp: Stamp | null; bodies: Body[] }[] = [];
+  let blankSinceTimed = false;
+  let tail: string[][] = []; // paragraphs after a blank line, not yet claimed
+  const flushTail = () => {
+    const last = entries.at(-1)?.bodies.at(-1);
+    if (last && tail.length) last.text = [last.text, ...tail.flat()].join(" ").trim();
+    tail = [];
+  };
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      if (entries.length) blankSinceTimed = true;
+      if (tail.at(-1)?.length) tail.push([]);
+      continue;
+    }
     // Before the first timed line, a date on its own line dates the log. (Checked
     // before takeStamp, which would read "12.02.2026" as 12:02.)
-    if (date == null && timing === "none") {
+    if (date == null && !entries.some((e) => e.stamp)) {
       const d = takeDate(line, opts.dayFirst);
       if (d) {
         date = d.date;
@@ -337,42 +540,86 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { d
     const { stamp, rest } = takeStamp(line);
 
     if (!stamp) {
-      // No time: it continues the line above, however it was written.
-      const prev = rows.at(-1);
+      const prev = entries.at(-1);
       if (prev) {
-        if (!prev.text) {
+        const last = prev.bodies.at(-1)!;
+        if (!last.text) {
           // The time was alone on its line ("12:30pm", then the words below it):
           // this is the line's real start, so read it as one.
-          Object.assign(prev, rowOf(rest, catalogue, index));
+          prev.bodies = rowsOf(rest, catalogue, index, people);
+        } else if (blankSinceTimed && prev.stamp) {
+          // Past a blank line after a timed one: maybe the write-up, maybe more
+          // log to come. The next timed line decides.
+          if (!tail.length) tail.push([]);
+          tail.at(-1)!.push(rest);
         } else {
-          prev.text = `${prev.text} ${rest}`.trim();
+          last.text = `${last.text} ${rest}`.trim();
         }
         continue;
       }
     }
+    flushTail();
+    blankSinceTimed = false;
+    entries.push({ stamp, bodies: stamp && !rest ? [{ kind: "moment", text: "", substance: "", amount: null, unit: "mg", route: "oral", intensity: null, who: null }] : rowsOf(rest, catalogue, index, people) });
+  }
+  const reflection = tail
+    .filter((p) => p.length)
+    .map((p) => p.join("\n"))
+    .join("\n\n");
 
+  // Then the times.
+  const first = entries.find((e) => e.stamp)?.stamp ?? null;
+  const timing: ParsedLog["timing"] = first ? first.kind : "none";
+  const clocks = entries.flatMap((e) => (e.stamp?.kind === "clock" ? [e.stamp] : []));
+  let pmStart = false;
+  let half: ParsedLog["half"] = null;
+  if (clocks.length && clocks[0].bare12 && clocks.every((c) => c.bare12)) {
+    // No am/pm anywhere: the times between lines are clear, the half of the day isn't.
+    let guess: "am" | "pm" | null = null;
+    if (dateClockMin != null) {
+      const gap = (t: number) => Math.min(Math.abs(t - dateClockMin!), 1440 - Math.abs(t - dateClockMin!));
+      guess = gap(clocks[0].min % 720 + 720) < gap(clocks[0].min % 720) ? "pm" : "am";
+    }
+    half = { guess };
+  } else if (clocks.length && clocks[0].bare12 && clocks.some((c) => c.ap)) {
+    // An am/pm further down settles it: whichever start makes the shorter night.
+    const span = (pm: boolean) => {
+      const p = placeClocks(clocks, pm);
+      return p[p.length - 1] - p[0];
+    };
+    pmStart = span(true) <= span(false);
+  }
+  const placed = placeClocks(clocks, pmStart);
+  const firstClock = placed[0] ?? null;
+
+  const rows: ParsedRow[] = [];
+  let lastOffset = 0;
+  let ci = 0;
+  for (const e of entries) {
     let offsetMin = lastOffset;
     let clock: string | null = null;
-    if (stamp?.kind === "clock") {
-      if (timing === "none") timing = "clock";
-      let abs = stamp.min;
-      // Earlier than the line before? It's after midnight.
-      while (lastClockAbs != null && abs < lastClockAbs) abs += 1440;
-      if (firstClock == null) firstClock = abs;
-      lastClockAbs = abs;
-      offsetMin = abs - firstClock;
-      clock = stamp.label;
-    } else if (stamp?.kind === "offset") {
-      if (timing === "none") timing = "offset";
-      offsetMin = stamp.min;
+    if (e.stamp?.kind === "clock") {
+      const abs = placed[ci++];
+      offsetMin = abs - firstClock!;
+      clock = `${String(Math.floor(abs / 60) % 24).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+    } else if (e.stamp?.kind === "offset") {
+      offsetMin = e.stamp.min;
     }
     lastOffset = offsetMin;
-
-    rows.push({ offsetMin, clock, ...rowOf(rest, catalogue, index) });
+    for (const b of e.bodies) rows.push({ offsetMin, clock, ...b });
   }
 
   // T+ in the journal counts from the first *dose*. If the log opened with a note
   // ("feeling nervous"), offsets above are from that line, which is the start of the
   // session — the journal recomputes T+ from the first dose itself.
-  return { rows, timing, startClockMin: firstClock == null ? null : firstClock % 1440, date, dateClockMin };
+  return {
+    rows,
+    timing,
+    startClockMin: firstClock == null ? null : firstClock % 1440,
+    date,
+    dateClockMin,
+    half,
+    people: people.filter((p) => rows.some((r) => r.who === p)),
+    reflection,
+  };
 }
