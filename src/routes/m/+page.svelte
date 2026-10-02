@@ -1481,10 +1481,10 @@
           {/if}
           {@render timeline({ ...live, doses: live.doses.slice(-4), timeline: live.timeline.slice(-3) })}
           <div class="pair">
-            <button class="primary" onclick={() => startDose(live)}>+ Dose</button>
-            <button class="primary" onclick={() => startMoment(live)}>+ Moment</button>
+            <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
+            <button class="moment log" onclick={() => startMoment(live)}>+ Moment</button>
           </div>
-          <button onclick={openLive}>Open session</button>
+          <button class="ghost small open-link" onclick={openLive}>Open session ›</button>
           <!-- Ending sits apart from logging and from Help, so it isn't hit by accident. -->
           <div class="end-row">
             <button class="ghost small" onclick={toggleNight}>{night ? "Normal screen" : "Dim (red) screen"}</button>
@@ -1607,8 +1607,8 @@
         <!-- Sticky, at the thumb: the things you do to an entry. -->
         <div class="actionbar">
           {#if e.kind === "session"}
-            <button class="primary" onclick={() => startDose(e)}>+ Dose</button>
-            <button class="primary" onclick={() => startMoment(e)}>+ Moment</button>
+            <button class="primary log" onclick={() => startDose(e)}>+ Dose</button>
+            <button class="moment log" onclick={() => startMoment(e)}>+ Moment</button>
             {#if building || !e.ended_at}
               <button onclick={() => startEnd(e)}>{building ? "Finish" : "End…"}</button>
             {/if}
@@ -2224,8 +2224,10 @@
     --divider: #322c25;
     --text: #eee7dc;
     --text-2: #b8ad9c;
-    --accent: #a4b8e6;
+    --accent: #b9a3c9;
     --on-accent: #11141c;
+    /* Outline of secondary buttons: 3:1 or better on every surface. */
+    --edge: #8f8576;
     /* Help has its own colour: warm, filled, unmistakable, and not the red of
        danger or Delete. Red means only "these two don't mix". */
     --help-bg: #f2dcc4;
@@ -2234,7 +2236,7 @@
     --danger-bg: #f2897a24;
     --caution: #e6b062;
     --caution-bg: #e6b0621f;
-    --note-bg: #a4b8e61a;
+    --note-bg: #b9a3c91a;
     --ok: #93cf9e;
     --focus: #ffd866;
     --fs-title: 1.45rem;
@@ -2247,7 +2249,7 @@
     --radius: 12px;
     --sa-t: env(safe-area-inset-top);
     --sa-b: env(safe-area-inset-bottom);
-    --nav-h: calc(60px + var(--sa-b));
+    --nav-h: calc(69px + var(--sa-b));
   }
   @media (prefers-color-scheme: light) {
     :global(:root) {
@@ -2259,15 +2261,16 @@
       --divider: #e2d8c8;
       --text: #211b13;
       --text-2: #5a5043;
-      --accent: #36549e;
+      --accent: #5f4a72;
       --on-accent: #ffffff;
+      --edge: #8a7e6d;
       --help-bg: #5a3214;
       --help-ink: #fff6ec;
       --danger: #ad2b1f;
       --danger-bg: #ad2b1f14;
       --caution: #855000;
       --caution-bg: #8550001a;
-      --note-bg: #36549e12;
+      --note-bg: #5f4a7212;
       --ok: #2c7339;
     }
   }
@@ -2288,6 +2291,7 @@
     --text-2: #d9533a;
     --accent: #ff5a36;
     --on-accent: #000000;
+    --edge: #a8432c;
     --help-bg: #ff7a5c;
     --help-ink: #000000;
     --danger: #ffb199;
@@ -2380,21 +2384,35 @@
   .grid3 { display: grid; grid-template-columns: 1.3fr 1fr 1.4fr; gap: 0.5rem; }
 
   /* ---------- buttons ---------- */
+  /* One rule you can see: rectangles hold things (cards, sheets, text boxes),
+     pills do things. Three tiers by shape, so they still read in dim red where
+     colour can't help: filled (the one main action), outlined, plain text. */
   button {
-    font: inherit; font-size: var(--fs-body); font-weight: 600; border-radius: var(--radius);
-    border: 1px solid transparent; background: var(--surface-2); color: var(--text);
-    padding: 0.7rem 1rem; width: 100%; min-height: var(--tap); margin: 0 0 0.5rem; cursor: pointer;
+    font: inherit; font-size: var(--fs-body); font-weight: 600; border-radius: 999px;
+    border: 1.5px solid var(--edge); background: transparent; color: var(--text);
+    padding: 0.5rem 1.1rem; width: 100%; min-height: var(--tap-min); margin: 0 0 0.5rem; cursor: pointer;
+    position: relative;
   }
-  /* Borders belong to fields (3:1, WCAG 1.4.11); buttons are set apart by fill. */
+  /* The visible button is smaller than the area that takes the tap: actions keep
+     48px, and the session's + Dose / + Moment keep 56px, even though they look
+     lighter. Taps a few pixels outside still count. */
+  button::after { content: ""; position: absolute; inset: -2px -1px; }
+  button:active:not(:disabled) { transform: translateY(1px); background: var(--surface-2); }
   button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-  button.big { min-height: 56px; font-size: var(--fs-h); }
+  button.primary:active:not(:disabled) { background: var(--accent); filter: brightness(0.93); }
+  /* + Moment: the same size and place as + Dose, outlined so + Dose leads. */
+  button.moment { border-color: var(--accent); color: var(--accent); }
+  .pair > button.log, .actionbar button.log { min-height: 46px; }
+  .pair > button.log::after, .actionbar button.log::after { inset: -5px -1px; }
+  button.big { min-height: 50px; font-size: var(--fs-body); }
+  button.big::after { inset: -3px -1px; }
   button.ghost { background: transparent; border-color: transparent; color: var(--accent); }
   button.small { width: auto; min-height: var(--tap-min); padding: 0 0.7rem; margin: 0; font-size: var(--fs-sm); }
   button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
   /* Delete reads as an ordinary action until its confirm step, which is red. */
   button.danger-text { width: auto; margin: 0; background: transparent; border-color: transparent; color: var(--text-2); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; min-height: var(--tap-min); }
   button.danger-text.wide { width: 100%; }
-  button:disabled { background: var(--surface-2); color: var(--text-2); border-color: var(--divider); cursor: default; }
+  button:disabled { background: var(--surface-2); color: var(--text-2); border-color: transparent; cursor: default; }
   .pair { display: flex; gap: 0.5rem; }
   .err { color: var(--danger); margin: -0.2rem 0 0.6rem; }
   .steps { padding-left: 1.2rem; margin: 0 0 0.8rem; }
@@ -2406,10 +2424,11 @@
   .chips.scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.2rem; scrollbar-width: none; }
   .chip {
     width: auto; flex: none; margin: 0; min-height: var(--tap-min); padding: 0 0.9rem;
-    font-size: var(--fs-sm); font-weight: 500; border-radius: 999px; background: var(--surface-2); white-space: nowrap;
+    font-size: var(--fs-sm); font-weight: 500; border-radius: 999px; border-width: 1px; background: transparent; white-space: nowrap;
   }
   /* Selected chips are tinted, not slabs: a row of filters stays calm. */
   .chip.on { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); color: var(--accent); border-color: transparent; font-weight: 700; }
+  .chip.num { border-radius: 12px; }
   .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.4rem; margin-bottom: 0.7rem; }
   .chip.num { width: 100%; min-height: var(--tap); padding: 0; font-variant-numeric: tabular-nums; }
 
@@ -2475,7 +2494,7 @@
   .month-label { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin-bottom: 0.2rem; }
 
   /* ---------- check ---------- */
-  .seg { display: flex; gap: 0.3rem; background: var(--surface-2); border-radius: var(--radius); padding: 0.25rem; margin-bottom: 0.8rem; }
+  .seg { display: flex; gap: 0.3rem; background: var(--surface-2); border-radius: 999px; padding: 0.25rem; margin-bottom: 0.8rem; }
   .seg button { margin: 0; border: none; background: transparent; }
   .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--divider); }
   .roa { margin-bottom: 0.7rem; }
@@ -2552,7 +2571,8 @@
   .sheet-head h2 { margin: 0; }
   .sheet-actions { position: sticky; bottom: calc(-1rem - var(--sa-b)); background: var(--surface); padding-top: 0.5rem; margin-top: 0.4rem; }
   .menu { list-style: none; padding: 0; margin: 0 0 0.4rem; }
-  .menu button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 0.1rem; }
+  .menu button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 0.1rem; border-radius: var(--radius); border-color: transparent; background: var(--surface-2); }
+  .open-link { display: block; padding-left: 0; margin: -0.2rem 0 0.2rem; color: var(--text); }
   .menu .muted { font-weight: 400; font-size: var(--fs-sm); }
   .danger-zone { border-top: 1px solid var(--divider); margin-top: 1.2rem; padding-top: 0.8rem; }
 

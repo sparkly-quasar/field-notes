@@ -11,6 +11,21 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.18.0
+
+- **Buttons look like buttons.** Every button is now a rounded pill, and cards,
+  sheets and text boxes stay rectangles, so anything you can tap is recognisable
+  by its shape, even on the dim red screen. Main actions are filled; the rest
+  are outlined instead of a block of colour that blended into the card.
+- **+ Dose leads.** In a live session, + Dose is the one filled button and
+  + Moment is outlined beside it, the same size and in the same place. Both are
+  a little smaller to look at, but take a tap just as easily as before.
+- **A softer accent colour**, a muted violet that sits with the warm colours
+  instead of the old cool blue. Green, amber, red and Help's cream keep their
+  meanings.
+- **"Open session ›"** on the live card is now a simple link, so the card shows
+  the session first and the buttons second.
+
 ## v0.17.0
 
 - **Setting up your phone, step by step.** Settings → Devices & server now has a
