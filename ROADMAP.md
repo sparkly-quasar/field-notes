@@ -1249,18 +1249,23 @@ emotional presence.
    are never compared against mg ranges; optionally record the product's THC %.
    Edibles stay in mg THC.
 5. **Stats: trends.** A section that spots and reports patterns over time, in the
-   same neutral voice as the rest of Stats ("nothing here is a judgement"), and
-   only once there's enough data to mean something. Each trend comes with a
-   **visual**: a small chart of the thing it describes (sessions per month with
-   the change marked, a dose line, gaps between sessions), not a sentence alone.
-   - **Frequency of use increasing** is the headline trend: this period against
-     the one before, per substance and overall.
-   - **Doses drifting up:** report it for non-psychedelics, but **not as a concern
-     for psychedelics**, where starting low and working up is a normal, intended
-     way to work. For psychedelics, show the dose line without a "rising" flag.
-   - Also: gaps between sessions of the same substance shortening (with the
-     tolerance note), redosing becoming more common, combinations becoming more
-     common, and ratings against spacing.
+   same neutral voice as the rest of Stats ("nothing here is a judgement"). A trend
+   appears only once each period has **at least 3 experiences** of what it's
+   about. Each trend comes with a **visual**: a small chart of the thing it
+   describes, not a sentence alone. Owner-approved preview (2026-10-02):
+   - **How often** is the headline: experiences per month as bars, the earlier
+     period hollow and the recent one filled, each period's average dashed.
+   - **Time between:** experiences of one substance on a timeline with the gap
+     in days above each, and the tolerance note underneath.
+   - **Dose over time:** a dose line against the reference bands. For
+     psychedelics it carries the note that starting low and working up gradually
+     is a common way to work with them. No "flagged" or "not flagged" language
+     anywhere.
+   - **Redosing:** one square per experience, filled when there was a redose,
+     with the number of doses inside.
+   - Wording describes rather than evaluates ("More experiences lately",
+     "closer together"); direction chips (↑ / ↓) in neutral grey, never warning
+     colours. Tap any chart for details, as elsewhere in Stats.
 6. **Check whether `server_update_status` can hang the portal** (unverified).
    While taking screenshots against a test portal with no internet, a second call
    from the phone blocked, and every later request queued behind it until restart;
