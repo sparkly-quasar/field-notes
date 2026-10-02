@@ -112,9 +112,15 @@ function writtenRoute(text: string): string | null {
   return null;
 }
 
-/** Rarely swallowed without an MAOI to make them active, so a dose of one with no
- *  route written isn't read as oral, unless the log mentions an MAOI. */
-const RARELY_ORAL: Record<string, string> = { dmt: "vaporized", "5-meo-dmt": "vaporized", salvia: "vaporized" };
+/** Rarely swallowed, so a dose of one with no route written isn't read as oral.
+ *  `maoi`: swallowed with one (ayahuasca, pharmahuasca), so a log that mentions an
+ *  MAOI leaves it oral. */
+const RARELY_ORAL: Record<string, { route: string; maoi?: boolean }> = {
+  dmt: { route: "vaporized", maoi: true },
+  "5-meo-dmt": { route: "vaporized", maoi: true },
+  salvia: { route: "vaporized" },
+  ketamine: { route: "insufflated" },
+};
 const MAOI_RE =
   /\b(maoi|rima|harmal\w*|harmine|harmaline|syrian rue|rue|peganum|caapi|banisteriopsis|ayahuasca|pharmahuasca|yage|yaj[eé]|moclobemide|phenelzine|nardil|tranylcypromine|parnate|selegiline|isocarboxazid|marplan)\b/i;
 
@@ -635,7 +641,7 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { d
     const key = r.substance.toLowerCase();
     if (r.routeFrom === "written") seen.set(key, r.route);
     else if (seen.has(key)) [r.route, r.routeFrom] = [seen.get(key)!, "log"];
-    else if (RARELY_ORAL[key] && !maoi) [r.route, r.routeFrom] = [RARELY_ORAL[key], "typical"];
+    else if (RARELY_ORAL[key] && !(maoi && RARELY_ORAL[key].maoi)) [r.route, r.routeFrom] = [RARELY_ORAL[key].route, "typical"];
   }
 
   // T+ in the journal counts from the first *dose*. If the log opened with a note

@@ -152,7 +152,7 @@
   }
   const ROUTE_FROM: Record<string, string> = {
     log: "Route not written: taken from an earlier dose of this in the log.",
-    typical: "Route not written: this is rarely taken orally without an MAOI.",
+    typical: "Route not written: the way this is usually taken.",
     mine: "Route not written: the one you usually log this with.",
   };
   const clockText = (min: number, h: "am" | "pm") => `${Math.floor(min / 60) % 12 || 12}:${pad2(min % 60)}${h}`;
