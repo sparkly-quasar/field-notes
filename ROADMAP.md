@@ -940,6 +940,121 @@ using the model switch and reading the screens as a first-timer would.
    the never-scan-the-journal rule; warnings that stay until dismissed; undo deletes;
    the phone's date-column journal; the Shulgin quote.
 
+4. **Tailscale built into the app — phone access without installing anything on the
+   computer.** *Proposed 2026-10-02, not started.* Today a new user installs Tailscale
+   on the computer, signs in, installs it on the phone, signs in again, then pairs. That
+   first half is where people get lost (the README's "too much to ask of an end user").
+   Bundling Tailscale into Field Notes removes it: the computer joins the user's tailnet
+   by itself, and the only thing anyone installs is Tailscale on the phone.
+
+   **Owner's decisions (2026-10-02):**
+   - **Reachable from anywhere**, not only on home Wi-Fi. A LAN-only mode is out.
+   - **Keep the home-server model** (one computer holds the journal; phones and laptops
+     reach it, as built in v0.12.0).
+   - **Bundle Tailscale** rather than build a new transport (see "Considered: a
+     peer-to-peer tunnel" below for what this was weighed against).
+   - **First-time setup must be really easy**, and the screen must say plainly, in
+     order, what to do on the phone: install Tailscale, sign in, scan the QR code.
+
+   **What the user sees (the target flow).** One screen, Settings → Devices & server →
+   **Set up phone access**, with numbered steps and a live check beside each. Draft copy:
+
+   > **Use Field Notes on your phone, anywhere.**
+   > Your phone connects to this computer through Tailscale, a private connection
+   > between your own devices. Tailscale can see which of your devices are connected,
+   > never what's in your journal.
+   >
+   > **1. Connect this computer.** [Connect] opens Tailscale's sign-in page. Sign in
+   > with Google, Apple, Microsoft or GitHub. No account yet? Signing in creates one.
+   > ✓ *Connected as you@example.com*
+   >
+   > **2. Install Tailscale on your phone.** Get it from the App Store or Google Play.
+   > (QR codes for both store pages, so the phone camera opens the right one.)
+   >
+   > **3. Sign in on your phone with the same account: you@example.com.**
+   > Allow the VPN when your phone asks. Make sure Tailscale shows *Connected*.
+   >
+   > **4. Scan this code with your phone's camera.** (The pairing QR.) Field Notes
+   > opens, already set up. Tip: Share → Add to Home Screen to keep it as an app.
+   > ✓ *Paired successfully* (the existing green light)
+
+   - Steps 2–4 stay visible but muted until step 1 is done, so the whole path is
+     readable up front. The account name from step 1 is repeated in step 3 because
+     **signing in with a different account on the phone is the most likely mistake**
+     (Google on the computer, Apple on the phone).
+   - No terminal, no admin console, no command shown. If a Tailscale setting does have
+     to change (see "HTTPS" below), the screen gives a single button that opens the
+     exact page, says what to click, and re-checks on return.
+
+   **When it doesn't work, say which step broke.** The phone page (`portal.ts`) and the
+   desktop error copy each name a cause the user can act on:
+   - Phone can't reach the computer at all → "Is Tailscale switched on on this phone,
+     and signed in as you@example.com? Another VPN app can switch it off."
+   - Computer offline or asleep → "Your computer isn't answering. Is it on, with Field
+     Notes open?" (existing 502 handling, reworded).
+   - Locked journal → existing 503 wording.
+   - Token refused → existing "no longer paired" wording.
+
+   **How it's built.**
+   - **Library:** Tailscale's **`tailscale-rs`** (native Rust, announced as a preview
+     April 2026) is the natural fit for a Tauri app. The fallback is **`libtailscale`**
+     (C bindings over Go `tsnet`), which works today but embeds a Go runtime in the
+     process and needs Go in the build on all three OSes. Pick at build time by
+     maturity: don't ship on a preview crate without checking its status and
+     security posture first.
+   - **State** (the node key) lives beside the journal in its own file, like
+     `devices.json`, so it survives restarts and is removed by "Erase all data". The
+     computer appears in the user's Tailscale admin as "Field Notes (<computer name>)".
+   - **Replaces `tailscale serve`.** `portal_serve` / `portal_unserve` stop shelling out
+     to the `tailscale` CLI; the embedded node listens on the tailnet over HTTPS and
+     hands requests to the same loopback handler.
+   - **Existing Tailscale installs keep working.** If the computer already runs the
+     Tailscale app, offer "Use the Tailscale app already on this computer" and keep
+     today's path, so current users don't have to re-pair.
+   - **Client mode** (`remote.rs`, laptop → server) needs no change: the laptop still
+     reaches the server's `*.ts.net` address through its own Tailscale. Bundling there
+     too is a later, separate decision.
+
+   ⚠️ **The four rules in `portal.rs` don't move.** The tailnet listener forwards to
+   the same token-checked, lock-checked, allowlisted dispatcher. Rule 1's wording
+   changes from "only reachable via `tailscale serve`" to "only reachable via the
+   embedded tailnet node"; the point (never a LAN or public listener) holds, and a
+   test should assert the embedded node never enables Funnel (public exposure).
+
+   ⚠️ **Open risks to settle before building:**
+   - **HTTPS certificates.** A `*.ts.net` HTTPS cert needs MagicDNS and HTTPS enabled
+     on the tailnet. New tailnets have MagicDNS on; HTTPS may need one click in the
+     admin console. Confirm what a brand-new account needs, and make that click a
+     guided step if it can't be avoided.
+   - **Build weight and signing.** Measure binary size and confirm notarization
+     (macOS) and SmartScreen (Windows) still pass with the library in.
+   - **Phone side unchanged:** iOS/Android allow one VPN at a time, so a user on
+     Mullvad/Proton/work VPN still has a conflict. The copy should say so rather than
+     hide it.
+
+   **Tests:** state file created beside the journal and erased with it; Funnel never
+   enabled; a server that already runs the Tailscale app keeps the old path; the
+   step checks report correctly for signed-out / signed-in / paired; error copy maps
+   each failure (no route, 502, 503, 401) to its own message.
+
+   **Considered: a peer-to-peer tunnel with a relay (e.g. iroh). Not chosen; revisit
+   later.** Devices would dial each other by public key and fall back to an encrypted
+   relay; the QR code alone would carry everything, with **no account and no app to
+   install on the phone**, which is the setup this item can't reach. Why not now:
+   - **The phone is a browser page.** Browsers can't send raw UDP, so iroh in a browser
+     (WASM, since 0.33) is **relay-only**: every phone request goes through a relay
+     server. That's a dependency on n0's relays or on running our own, which is a
+     public service to operate, and it sits awkwardly with "no network requests" even
+     though relays can't read the traffic.
+   - **It's a new transport layer**: replacing `portal.ts`'s `fetch` and the HTTP
+     server with an iroh connection on both ends, plus key handling, reconnects and
+     relay failure cases, all on the path the safety features depend on. Tailscale's
+     security, NAT traversal and key rotation are already proven; ours wouldn't be.
+   - **Revisit if** a native phone app ever happens (the native side can hole-punch
+     directly, so relays become a fallback), or if Tailscale's account requirement
+     turns out to be the thing that stops users. Pairing tokens and `EXPOSED` would
+     carry over unchanged either way, since they sit above the transport.
+
 ---
 
 ## Companion design principles (peer-support model)
