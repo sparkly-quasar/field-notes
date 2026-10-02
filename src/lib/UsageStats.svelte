@@ -325,7 +325,7 @@
         <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "session" : "sessions"}</span></div>
         <div class="tile"><span class="big">{sub.doses}</span><span class="cap">{sub.doses === 1 ? "dose" : "doses"}</span></div>
         {#if lastT != null}
-          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last session</span></div>
+          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last experience</span></div>
         {/if}
       </div>
     {:else if family}
@@ -429,7 +429,7 @@
               <div><span class="big">{fmtNum(median(sub.gaps_days) ?? 0)}</span><span class="cap">median days between</span></div>
               <div><span class="big">{fmtNum(Math.min(...sub.gaps_days))}</span><span class="cap">shortest gap (days)</span></div>
             {:else}
-              <p class="note">Only one session in this range, so there's no gap to measure yet.</p>
+              <p class="note">Only one experience in this range, so there's no gap to measure yet.</p>
             {/if}
           </div>
           <!-- The guidance names substances, so it would give a stand-in away. -->
@@ -437,7 +437,7 @@
             <p class="note guide">{n}</p>
           {/each}
           {#if subRatings.length}
-            <p class="note">Average rating of these sessions: {fmtNum(subRatings.reduce((a, b) => a + b, 0) / subRatings.length)} ({plural(subRatings.length, "rated session")}).</p>
+            <p class="note">Average rating of these experiences: {fmtNum(subRatings.reduce((a, b) => a + b, 0) / subRatings.length)} ({plural(subRatings.length, "rated experience")}).</p>
           {/if}
           {#if sub.routes.length > 1 || (sub.routes[0] && sub.routes[0][0])}
             <h4>Routes</h4>
@@ -461,12 +461,12 @@
               <div><span class="big">{fmtNum(median(famGaps) ?? 0)}</span><span class="cap">median days between</span></div>
               <div><span class="big">{fmtNum(Math.min(...famGaps))}</span><span class="cap">shortest gap (days)</span></div>
             {:else}
-              <p class="note">Only one session in this range, so there's no gap to measure yet.</p>
+              <p class="note">Only one experience in this range, so there's no gap to measure yet.</p>
             {/if}
           </div>
-          <p class="note">Counted across every session with anything in this family, whichever substance it was.</p>
+          <p class="note">Counted across every experience with anything in this family, whichever substance it was.</p>
           {#if SPACING_NOTE[family] && !hiding()}<p class="note guide">{SPACING_NOTE[family]}</p>{/if}
-          <h4>In this family (sessions)</h4>
+          <h4>In this family (experiences)</h4>
           <ul class="bars">
             {#each famSubs as s}
               <li><span class="lbl">{label(s.key)}</span><span class="track"><span class="fill" style:width={`${(s.sessions / Math.max(1, sessions.length)) * 100}%`}></span></span><span class="n" title={plural(s.sessions, "session")}>{s.sessions}</span></li>
@@ -477,9 +477,9 @@
 
       <!-- frequency -->
       <section class="card">
-        <h3>Sessions per {freq[0]?.unit ?? "week"}{scope ? ` · ${scope}` : ""}</h3>
+        <h3>Experiences per {freq[0]?.unit ?? "week"}{scope ? ` · ${scope}` : ""}</h3>
         <div class="chart" bind:clientWidth={freqW}>
-          <svg width={freqW} height={FH} role="img" aria-label="Number of sessions in each period">
+          <svg width={freqW} height={FH} role="img" aria-label="Number of experiences in each period">
             {#each [0, freqScale.max] as t}
               <line x1="28" x2={freqW} y1={8 + (1 - t / freqScale.max) * (FH - 32)} y2={8 + (1 - t / freqScale.max) * (FH - 32)} class="grid-l" />
               <text x="22" y={12 + (1 - t / freqScale.max) * (FH - 32)} text-anchor="end" class="axis">{t}</text>
@@ -490,7 +490,7 @@
               {@const bx = 30 + i * ((freqW - 30) / freq.length)}
               {#if f.count}
                 <path class="bar" d={`M${bx},${FH - 24} v${-(bh - Math.min(4, bw / 2))} q0,${-Math.min(4, bw / 2)} ${Math.min(4, bw / 2)},${-Math.min(4, bw / 2)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, bw / 2)} v${bh - Math.min(4, bw / 2)} z`}>
-                  <title>{f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" })}: {plural(f.count, "session")}</title>
+                  <title>{f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" })}: {plural(f.count, "experience")}</title>
                 </path>
               {/if}
             {/each}
@@ -505,7 +505,7 @@
       <!-- calendar -->
       <section class="card wide">
         <div class="head">
-          <h3>Days with a session{scope ? ` · ${scope}` : ""}</h3>
+          <h3>Days with an experience{scope ? ` · ${scope}` : ""}</h3>
           {#if heatPages > 1}
             <div class="pager">
               <button class="link" disabled={heatPage >= heatPages - 1} onclick={() => heatPage++} aria-label="Earlier">‹ Earlier</button>
@@ -514,7 +514,7 @@
           {/if}
         </div>
         <div class="chart" bind:clientWidth={heatW}>
-          <svg width={heatW} height={7 * (CELL + GAP) + 18} role="img" aria-label="Sessions per day">
+          <svg width={heatW} height={7 * (CELL + GAP) + 18} role="img" aria-label="Experiences per day">
             {#each ["M", "", "W", "", "F", "", ""] as d, i}
               <text x="0" y={18 + i * (CELL + GAP) + CELL - 3} class="axis">{d}</text>
             {/each}
@@ -528,7 +528,7 @@
                 {#if t <= now}
                   <rect x={20 + wi * (CELL + GAP)} y={18 + dow * (CELL + GAP)} width={CELL} height={CELL} rx="3"
                     class={n ? "cell on" : "cell"} fill-opacity={n ? 0.35 + 0.65 * (n / heatMax) : 1}>
-                    <title>{fmtDayYear(t)}: {n ? plural(n, "session") : "none"}</title>
+                    <title>{fmtDayYear(t)}: {n ? plural(n, "experience") : "none"}</title>
                   </rect>
                 {/if}
               {/each}
@@ -545,7 +545,7 @@
             {#each pairs.slice(0, 8) as p}
               <li>
                 <span>{label(p.a)} + {label(p.b)}</span>
-                <span class="n">{plural(p.sessions, "session")}</span>
+                <span class="n">{plural(p.sessions, "experience")}</span>
                 {#if onCheck && !hiding()}
                   <button class="link" onclick={() => onCheck?.([realName.get(p.a) ?? p.a, realName.get(p.b) ?? p.b])}>Check</button>
                 {/if}
@@ -553,7 +553,7 @@
             {/each}
           </ul>
         {:else}
-          <p class="note">{scope ? `${scope} ${family ? "weren't" : "wasn't"} taken with anything else in this range.` : "No two substances in the same session in this range."}</p>
+          <p class="note">{scope ? `${scope} ${family ? "weren't" : "wasn't"} taken with anything else in this range.` : "No two substances in the same experience in this range."}</p>
         {/if}
       </section>
 

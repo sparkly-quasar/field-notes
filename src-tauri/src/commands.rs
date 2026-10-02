@@ -404,12 +404,12 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
     // (has an `ended_at`) is framed as past; an open one stays current.
     let (header, doses_label) = if detail.experience.ended_at.is_some() {
         (
-            "A PAST SESSION the person wants to talk through — for reflection or integration, \
+            "A PAST EXPERIENCE the person wants to talk through — for reflection or integration, \
              not happening now. Do not treat these doses as still active.",
             "Doses that were logged",
         )
     } else {
-        ("CURRENT SESSION CONTEXT (from the user's private journal).", "Doses logged so far")
+        ("CURRENT EXPERIENCE CONTEXT (from the user's private journal).", "Doses logged so far")
     };
     let mut s = format!("{header}\nExperience: \"{title}\".\n{doses_label}:\n");
     for d in &detail.doses {
@@ -645,7 +645,7 @@ fn journal_tools() -> serde_json::Value {
     serde_json::json!([
         { "type": "function", "function": {
             "name": "log_dose",
-            "description": "Record a dose the person reports having just taken, in the current session. Only call this when they clearly state they took something. Never suggest or initiate dosing.",
+            "description": "Record a dose the person reports having just taken, in the live trip report. Only call this when they clearly state they took something. Never suggest or initiate dosing.",
             "parameters": { "type": "object", "properties": {
                 "substance": { "type": "string" },
                 "amount": { "type": "number", "description": "amount taken; omit if unknown" },
@@ -656,7 +656,7 @@ fn journal_tools() -> serde_json::Value {
         }},
         { "type": "function", "function": {
             "name": "add_note",
-            "description": "Add a note/feeling to the session timeline at the current time.",
+            "description": "Add a note/feeling to the live trip report's timeline at the current time.",
             "parameters": { "type": "object", "properties": {
                 "note": { "type": "string" },
                 "mood": { "type": "string" },
@@ -665,7 +665,7 @@ fn journal_tools() -> serde_json::Value {
         }},
         { "type": "function", "function": {
             "name": "session_status",
-            "description": "Get a summary of the current session: doses logged so far and any known interaction flags. Use for 'how am I doing?'.",
+            "description": "Get a summary of the live trip report: doses logged so far and any known interaction flags. Use for 'how am I doing?'.",
             "parameters": { "type": "object", "properties": {} }
         }}
     ])
@@ -698,7 +698,7 @@ fn run_companion_tool(
     match name {
         "log_dose" => {
             let Some(id) = experience_id else {
-                return Ok(("No active session to log into.".into(), None, false));
+                return Ok(("No live trip report to log into.".into(), None, false));
             };
             let substance = s("substance");
             if substance.trim().is_empty() {
@@ -731,7 +731,7 @@ fn run_companion_tool(
         }
         "add_note" => {
             let Some(id) = experience_id else {
-                return Ok(("No active session to note into.".into(), None, false));
+                return Ok(("No live trip report to note into.".into(), None, false));
             };
             let note = s("note");
             if note.trim().is_empty() {
@@ -753,10 +753,10 @@ fn run_companion_tool(
         }
         "session_status" => {
             let Some(id) = experience_id else {
-                return Ok(("No active session.".into(), None, false));
+                return Ok(("No live trip report.".into(), None, false));
             };
             let ctx = db.with(|c| Ok(session_context(c, id)))?;
-            Ok((ctx.unwrap_or_else(|| "No doses logged in this session yet.".into()), None, false))
+            Ok((ctx.unwrap_or_else(|| "No doses logged in this trip report yet.".into()), None, false))
         }
         "lookup_dose" => {
             let substance = s("substance");

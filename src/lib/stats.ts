@@ -131,11 +131,11 @@ export function fmtNum(n: number): string {
  */
 export const SPACING_NOTE: Record<string, string> = {
   psychedelics:
-    "Tolerance builds after one session and carries across psychedelics: LSD one day dulls mushrooms the next. It mostly fades over 3 to 7 days, so a common guide is at least 3 days apart, and a week or more for the full effect. Many people leave longer still for integration.",
+    "Tolerance builds after a single experience and carries across psychedelics: LSD one day dulls mushrooms the next. It mostly fades over 3 to 7 days, so a common guide is at least 3 days apart, and a week or more for the full effect. Many people leave longer still for integration.",
   entactogens:
-    "A common harm-reduction guide is at least a month between MDMA sessions, and three months is widely recommended. The three-month rule is a community convention rather than a tested limit. It allows time for serotonin to recover and for the experience not to dull. Clinical MDMA trials gave sessions about a month apart.",
+    "A common harm-reduction guide is at least a month between MDMA experiences, and three months is widely recommended. The three-month rule is a community convention rather than a tested limit. It allows time for serotonin to recover and for the experience not to dull. Clinical MDMA trials spaced dosing sessions about a month apart.",
   dissociatives:
-    "Tolerance to ketamine builds quickly, and frequent use, more than any single dose, is what's tied to bladder damage and dependence. A common guide is to keep sessions days apart rather than back to back, and to notice if the gaps are shrinking.",
+    "Tolerance to ketamine builds quickly, and frequent use, more than any single dose, is what's tied to bladder damage and dependence. A common guide is to keep experiences days apart rather than back to back, and to notice if the gaps are shrinking.",
   cannabinoids:
     "With regular use, the brain's cannabinoid receptors turn down. They begin recovering within about 2 days of stopping and are close to normal after about 4 weeks, so a few days off eases tolerance and a month resets it.",
   opioids:

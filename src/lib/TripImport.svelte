@@ -316,7 +316,7 @@
     {#if err}<p class="bad" role="alert">{err}</p>{/if}
     <div class="pair">
       <button type="button" onclick={() => (rows = null)}>Back</button>
-      <button type="button" class="primary" disabled={busy || !start || !!missing} onclick={save}>{busy ? "Saving…" : "Save as a past session"}</button>
+      <button type="button" class="primary" disabled={busy || !start || !!missing} onclick={save}>{busy ? "Saving…" : "Save as a past experience"}</button>
     </div>
   {/if}
 </div>
