@@ -47,6 +47,11 @@ export interface ParsedRow {
   intensity: number | null;
   /** Whose dose it was, when the log names someone (`- Emily`). Null: the writer's. */
   who: string | null;
+  /** Where the route came from: the line itself, an earlier dose of the same
+   *  substance in this log, the substance's usual route (`RARELY_ORAL`), or
+   *  nowhere (null: "oral", by default). The preview puts the person's own usual
+   *  route ("mine", from quick log) in place of the last two. */
+  routeFrom: "written" | "log" | "typical" | "mine" | null;
 }
 
 export interface ParsedLog {
@@ -91,6 +96,11 @@ function normUnit(u: string): Unit {
 }
 
 function routeOf(text: string): string {
+  return writtenRoute(text) ?? "oral";
+}
+
+/** The route a line actually says, if it says one. */
+function writtenRoute(text: string): string | null {
   const t = text.toLowerCase();
   if (/\b(snort|snorted|insufflat|nasal|bump|line)/.test(t)) return "insufflated";
   if (/\b(smok|vap|vape|vaped|joint|bong|dab)/.test(t)) return "vaporized";
@@ -98,8 +108,15 @@ function routeOf(text: string): string {
   if (/\b(rectal|boof|plug)/.test(t)) return "rectal";
   if (/\b(inject|iv\b|intravenous)/.test(t)) return "IV";
   if (/\b(im\b|intramuscular)/.test(t)) return "IM";
-  return "oral";
+  if (/\b(oral|orally|swallow|swallowed|drank|drink|ate|eaten)\b/.test(t)) return "oral";
+  return null;
 }
+
+/** Rarely swallowed without an MAOI to make them active, so a dose of one with no
+ *  route written isn't read as oral, unless the log mentions an MAOI. */
+const RARELY_ORAL: Record<string, string> = { dmt: "vaporized", "5-meo-dmt": "vaporized", salvia: "vaporized" };
+const MAOI_RE =
+  /\b(maoi|rima|harmal\w*|harmine|harmaline|syrian rue|rue|peganum|caapi|banisteriopsis|ayahuasca|pharmahuasca|yage|yaj[eé]|moclobemide|phenelzine|nardil|tranylcypromine|parnate|selegiline|isocarboxazid|marplan)\b/i;
 
 /** Words that sit around a dose without naming the substance. */
 const FILLER = new Set([
@@ -421,13 +438,13 @@ function rowsOf(line: string, catalogue: CatalogueEntry[], index: Map<string, st
     who = lead[1];
     text = text.slice(lead[0].length).trim();
   }
-  const lineRoute = routeOf(full);
-  const base = { intensity, who };
+  const lineRoute = writtenRoute(full);
+  const base = { intensity, who, routeFrom: null as ParsedRow["routeFrom"] };
 
   const one = (part: string, rowText: string): Body[] => {
-    const route = /\b(snort|insufflat|nasal|bump|line|smok|vap|joint|bong|dab|sublingual|tongue|sl|buccal|rectal|boof|plug|inject|iv|intravenous|im|intramuscular)/i.test(part)
-      ? routeOf(part)
-      : lineRoute;
+    const said = writtenRoute(part) ?? lineRoute;
+    const route = said ?? "oral";
+    const routeFrom = said ? ("written" as const) : null;
     // "2C-D (11 Elle 6 Emily)": a dose each, for each of them.
     for (const b of part.match(/\([^()]*\)/g) ?? []) {
       const shares = sharesIn(b, index);
@@ -436,10 +453,10 @@ function rowsOf(line: string, catalogue: CatalogueEntry[], index: Map<string, st
       const named = doseOf(rest, catalogue, index)?.substance || resolveSubstance(words(rest).join(" "), catalogue);
       const lineUnit = full.match(UNIT_RE);
       const unit = lineUnit ? normUnit(lineUnit[2]) : "mg";
-      return shares.map((s) => ({ ...base, kind: "dose", text: rowText, substance: named, amount: s.amount, unit: s.unit ?? unit, route, who: s.who }));
+      return shares.map((s) => ({ ...base, kind: "dose", text: rowText, substance: named, amount: s.amount, unit: s.unit ?? unit, route, routeFrom, who: s.who }));
     }
     const dose = doseOf(part, catalogue, index);
-    if (dose) return [{ ...base, kind: "dose", text: rowText, ...dose, route }];
+    if (dose) return [{ ...base, kind: "dose", text: rowText, ...dose, route, routeFrom }];
     return [];
   };
 
@@ -460,7 +477,7 @@ function rowsOf(line: string, catalogue: CatalogueEntry[], index: Map<string, st
         const got = one(it, it);
         if (got.length) return got;
         const name = resolveSubstance(words(it).join(" "), catalogue);
-        return [{ ...base, kind: "dose" as const, text: it, substance: name, amount: null, unit: "mg" as Unit, route: lineRoute }];
+        return [{ ...base, kind: "dose" as const, text: it, substance: name, amount: null, unit: "mg" as Unit, route: lineRoute ?? "oral", routeFrom: lineRoute ? ("written" as const) : null }];
       });
     }
   }
@@ -560,7 +577,7 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { d
     }
     flushTail();
     blankSinceTimed = false;
-    entries.push({ stamp, bodies: stamp && !rest ? [{ kind: "moment", text: "", substance: "", amount: null, unit: "mg", route: "oral", intensity: null, who: null }] : rowsOf(rest, catalogue, index, people) });
+    entries.push({ stamp, bodies: stamp && !rest ? [{ kind: "moment", text: "", substance: "", amount: null, unit: "mg", route: "oral", intensity: null, who: null, routeFrom: null }] : rowsOf(rest, catalogue, index, people) });
   }
   const reflection = tail
     .filter((p) => p.length)
@@ -607,6 +624,18 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { d
     }
     lastOffset = offsetMin;
     for (const b of e.bodies) rows.push({ offsetMin, clock, ...b });
+  }
+
+  // A dose with no route written: the route of the same substance earlier in the
+  // log ("12:30 40mg IM DMT", then "1:30 40mg dmt"), else its usual one.
+  const maoi = MAOI_RE.test(raw);
+  const seen = new Map<string, string>();
+  for (const r of rows) {
+    if (r.kind !== "dose" || !r.substance) continue;
+    const key = r.substance.toLowerCase();
+    if (r.routeFrom === "written") seen.set(key, r.route);
+    else if (seen.has(key)) [r.route, r.routeFrom] = [seen.get(key)!, "log"];
+    else if (RARELY_ORAL[key] && !maoi) [r.route, r.routeFrom] = [RARELY_ORAL[key], "typical"];
   }
 
   // T+ in the journal counts from the first *dose*. If the log opened with a note
