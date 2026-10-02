@@ -710,7 +710,7 @@ fn flush<R: Runtime>(app: &AppHandle<R>) -> Result<Flushed, String> {
             db.with(|c| {
                 c.execute(
                     "UPDATE remote_outbox SET failed = ?2 WHERE seq = ?1",
-                    params![seq, "Its session couldn't be saved on the server, so this couldn't either."],
+                    params![seq, "Its experience couldn't be saved on the server, so this couldn't either."],
                 )
             })?;
             continue;
@@ -913,7 +913,7 @@ fn offline<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: Value, why: &str) ->
             Err(format!("{why} The Companion runs on the server, so it's unavailable until it's back."))
         }
         _ => Err(format!(
-            "{why} Editing and deleting need the connection. New sessions, doses and notes still save here and are sent when it's back."
+            "{why} Editing and deleting need the connection. New experiences, doses and notes still save here and are sent when it's back."
         )),
     }
 }
@@ -953,7 +953,7 @@ fn queue(conn: &mut Connection, cmd: &str, args: &Value) -> rusqlite::Result<Res
             let exp_id = input["experience_id"].as_i64().unwrap_or(0);
             let detail = overlay_detail(conn, exp_id);
             if detail.as_ref().is_some_and(|d| d["kind"] == "note") {
-                return Ok(Err("This entry is a plain note, not a session — it can't have doses.".into()));
+                return Ok(Err("This entry is a plain note, not an experience — it can't have doses.".into()));
             }
             let id = next_temp_id(conn)?;
             let name = input["substance_name"].as_str().unwrap_or("").to_string();
@@ -993,7 +993,7 @@ fn queue(conn: &mut Connection, cmd: &str, args: &Value) -> rusqlite::Result<Res
         "end_experience" => {
             let id = args["id"].as_i64().unwrap_or(0);
             let Some(mut exp) = overlay_detail(conn, id) else {
-                return Ok(Err("Can't reach your Field Notes server, and this session isn't saved on this computer.".into()));
+                return Ok(Err("Can't reach your Field Notes server, and this experience isn't saved on this computer.".into()));
             };
             exp["ended_at"] = args["endedAt"].clone();
             exp["rating"] = args["rating"].clone();

@@ -423,7 +423,7 @@ fn require_session(conn: &Connection, experience_id: i64, what: &str) -> rusqlit
         // `Db::with`'s to_string() hands the UI.
         return Err(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-            Some(format!("This entry is a plain note, not a session — it can't have {what}.")),
+            Some(format!("This entry is a plain note, not an experience — it can't have {what}.")),
         ));
     }
     Ok(())
