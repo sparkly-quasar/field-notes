@@ -963,7 +963,7 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.14.0** (2026-10-01): usage stats, import timestamps in the
+**Current release: v0.14.1** (2026-10-01; v0.14.0 plus code cleanup, no behaviour change). v0.14.0 brought usage stats, import timestamps in the
 backend, the whole-word combo-matching fix, split date/time fields, a manual update
 check, and phone-installed server updates. Next:
 
