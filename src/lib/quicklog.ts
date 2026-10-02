@@ -54,6 +54,10 @@ export interface QuickLogResult {
   /** Its title, which for a fresh entry the backend has just named after the substance. */
   title: string;
   warnings: Warning[];
+  /** The dose just logged, so it can be undone (null for a pasted log). */
+  doseId: number | null;
+  /** True when this dose made a new entry (undoing it removes the entry too). */
+  fresh: boolean;
 }
 
 /**
@@ -90,7 +94,13 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
   }
 
   const entry = await getExperience(id);
-  return { id, title: entry.title, warnings: await allWarnings(substance, input.at, logged.warnings) };
+  return {
+    id,
+    title: entry.title,
+    warnings: await allWarnings(substance, input.at, logged.warnings),
+    doseId: logged.dose.id,
+    fresh,
+  };
 }
 
 /**
@@ -299,5 +309,5 @@ export async function saveTripLog(title: string, lines: TripLine[]): Promise<Qui
     return true;
   });
   const entry = await getExperience(id);
-  return { id, title: entry.title, warnings };
+  return { id, title: entry.title, warnings, doseId: null, fresh: true };
 }

@@ -74,6 +74,8 @@
   import { acceptPairing, captureToken, hasToken, inTauri, isIos, isStandalone, pairingLink } from "$lib/portal";
   import TripImport from "$lib/TripImport.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
+  import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
+  import { discreet, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import {
     quickLog,
@@ -144,11 +146,14 @@
   let dRoute = $state("oral");
   let dWhen = $state("");
   /** What just saved, with its warnings — shown in the sheet, next to the button pressed. */
-  let receipt = $state<{ id: number; title: string; line: string; warnings: Warning[] } | null>(null);
+  let receipt = $state<{ id: number; title: string; line: string; warnings: Warning[]; doseId: number | null; fresh: boolean } | null>(null);
   const qRecents = $derived(recentSubstances(recent));
 
   // moment (timeline note)
   let mText = $state("");
+  /** One-tap states for a moment, so nothing has to be typed mid-session. */
+  const MOODS = ["Coming up", "Peaking", "Calm", "Anxious", "Nauseous", "Need water", "Coming down"];
+  let mMood = $state("");
   let mIntensity = $state("");
   let mWhen = $state("");
 
@@ -158,6 +163,7 @@
 
   // start a live session
   let sTitle = $state("");
+  let sIntention = $state("");
 
   // log a past session, step 1
   let pWhen = $state("");
@@ -282,11 +288,51 @@
    *  sitter glancing at a stale elapsed time is worse than no number at all. */
   let nowTick = $state(Date.now());
 
+  // ---------- discreet mode ($lib/discreet) ----------
+  /** A title can name a drug ("Quiet LSD day"), so in discreet mode titles become
+   *  what the entry is. The opened entry still shows its own words. */
+  const titleOf = (e: { title: string; kind: string }, fallback = "Untitled") =>
+    discreet.on ? (e.kind === "note" ? "Journal note" : "Session") : e.title || fallback;
+  const subsOf = (names: string[]) => names.map(nameShown).join(", ");
+
+  // ---------- dim (red) night theme ----------
+  const NIGHT_KEY = "fieldnotes.night";
+  function loadNight(): boolean {
+    try { return localStorage.getItem(NIGHT_KEY) === "1"; } catch { return false; }
+  }
+  let night = $state(loadNight());
+  let wake: { release: () => Promise<void> } | null = null;
+  function setNight(on: boolean) {
+    night = on;
+    try { localStorage.setItem(NIGHT_KEY, on ? "1" : "0"); } catch {}
+  }
+  const toggleNight = () => setNight(!night);
+  /** While dim, also keep the screen from locking in someone's hand. Browsers can
+   *  refuse; that's fine, it's a convenience. Re-requested when the page returns. */
+  async function holdWake() {
+    if (!night || document.visibilityState !== "visible" || wake) return;
+    try {
+      wake = await (navigator as unknown as { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void>; addEventListener: (e: string, f: () => void) => void }> } })
+        .wakeLock?.request("screen") ?? null;
+      (wake as unknown as { addEventListener?: (e: string, f: () => void) => void })?.addEventListener?.("release", () => (wake = null));
+    } catch {
+      wake = null;
+    }
+  }
+  $effect(() => {
+    const root = document.documentElement;
+    if (night) root.dataset.theme = "night";
+    else delete root.dataset.theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", night ? "#000000" : "#14161a");
+    if (night) holdWake();
+    else if (wake) { wake.release().catch(() => {}); wake = null; }
+  });
+
   onMount(() => {
     const tick = () => (nowTick = Date.now());
     const clock = setInterval(tick, 30_000);
     const onVisible = () => {
-      if (document.visibilityState === "visible") tick();
+      if (document.visibilityState === "visible") { tick(); holdWake(); }
     };
     document.addEventListener("visibilitychange", onVisible);
     captureToken();
@@ -651,6 +697,8 @@
         title: res.title,
         line: `${substance} ${fmtAmt({ amount, unit: dUnit })} · ${hhmm(at)} ${fmtDay(at)}`,
         warnings: res.warnings,
+        doseId: res.doseId,
+        fresh: res.fresh,
       };
       dSub = dAmt = "";
       await refresh();
@@ -660,11 +708,34 @@
       await checkCrisis(res.id);
     });
 
+  /** Undo the dose just logged, from its receipt: the same few-seconds Undo as a
+   *  delete. A dose that started its own entry takes that entry with it. */
+  function undoLastLog() {
+    const rc = receipt;
+    if (!rc || rc.doseId == null) return;
+    receipt = null;
+    closeSheet();
+    if (rc.fresh) scheduleDelete(`${rc.line.split(" · ")[0]} removed`, `e:${rc.id}`, () => deleteExperience(rc.id));
+    else scheduleDelete(`${rc.line.split(" · ")[0]} removed`, `d:${rc.doseId}`, () => deleteDose(rc.doseId!));
+  }
+
+  /** "Last LSD: 100 µg, 2h 05m before this one": the fact that matters before a
+   *  redose, against the time being logged rather than the clock. */
+  const sinceSame = $derived.by(() => {
+    if (!target || !dSub.trim() || !dWhen) return null;
+    const prev = latestDose(target.doses, dSub);
+    if (!prev) return null;
+    const at = new Date(dWhen).getTime();
+    const was = Date.parse(prev.taken_at);
+    if (!(at > was)) return null;
+    return `Last ${prev.substance_name}: ${fmtAmt(prev)}, ${gapText(was, at)} before this one`;
+  });
+
   // ---------- adding: moments ----------
 
   function startMoment(into: ExperienceDetail) {
     target = into;
-    mText = mIntensity = "";
+    mText = mIntensity = mMood = "";
     mWhen = into.ended_at ? isoToLocalInput(lastAt(into)) : nowLocalInput();
     sheet = "moment";
   }
@@ -689,7 +760,7 @@
 
   const submitMoment = () =>
     run("moment", async () => {
-      if (!target || !mText.trim()) return;
+      if (!target || !(mText.trim() || mMood || mIntensity)) return;
       const at = localInputToIso(mWhen);
       // Saved as written. Nothing reads the journal over the user's shoulder: crisis
       // guardrails live where the user is *talking to* something (the Companion) and
@@ -698,6 +769,7 @@
         experience_id: target.id,
         at,
         note: mText.trim(),
+        mood: mMood,
         intensity: num(mIntensity, "intensity"),
       });
       if (target.ended_at) await stretchToCover(target.id, at);
@@ -728,8 +800,9 @@
   // after the first substance logged into it (`name_after_first_dose` in db.rs).
   const submitStart = () =>
     run("start", async () => {
-      await createExperience({ title: sTitle.trim(), started_at: new Date().toISOString() });
+      await createExperience({ title: sTitle.trim(), intention: sIntention.trim(), started_at: new Date().toISOString() });
       sTitle = "";
+      sIntention = "";
       closeSheet();
       await refresh();
       view = "today";
@@ -1231,11 +1304,11 @@
             <span class="when"><span>{hhmm(r.at)}</span>{#if t0}<span class="rel">{rel(r.at, t0)}</span>{/if}</span>
             <span class="what">
               {#if r.kind === "dose"}
-                <span class="dot dose" aria-hidden="true"></span><strong>{r.dose.substance_name}</strong>
+                <span class="dot dose" aria-hidden="true"></span><strong>{nameShown(r.dose.substance_name)}</strong>
                 {fmtAmt(r.dose)} <span class="muted">{r.dose.route}</span>
                 {#if r.dose.note}<span class="sub">{r.dose.note}</span>{/if}
               {:else}
-                <span class="dot moment" aria-hidden="true"></span>{r.ev.note}
+                <span class="dot moment" aria-hidden="true"></span>{#if r.ev.mood}<strong>{r.ev.mood}</strong>{r.ev.note ? " · " : ""}{/if}{r.ev.note}
                 {#if r.ev.intensity != null}<span class="muted"> · {r.ev.intensity}/10</span>{/if}
               {/if}
             </span>
@@ -1257,17 +1330,17 @@
     </span>
     <span class="body">
       <span class="title">
-        {e.title || (e.kind === "note" ? "Untitled note" : "Untitled")}
+        {titleOf(e, e.kind === "note" ? "Untitled note" : "Untitled")}
         {#if e.kind === "note"}<span class="tag">note</span>{/if}
         {#if e.kind === "session" && !e.ended_at}<span class="tag live">live</span>{/if}
       </span>
       {#if e.kind === "session"}
         <span class="meta">
-          {[e.substances.join(", ") === e.title ? "" : e.substances.join(", "), dur(e.started_at, e.ended_at), e.rating != null ? `${e.rating}/10` : ""].filter(Boolean).join(" · ")}
+          {[!discreet.on && e.substances.join(", ") === e.title ? "" : subsOf(e.substances), dur(e.started_at, e.ended_at), e.rating != null ? `${e.rating}/10` : ""].filter(Boolean).join(" · ")}
         </span>
       {/if}
       {#if e.notes.trim()}
-        <span class="excerpt">{excerpt(e.notes)}</span>
+        {#if !discreet.on}<span class="excerpt">{excerpt(e.notes)}</span>{/if}
       {:else if needsWriteup(e)}
         <span class="excerpt pending">Add a write-up when you're ready</span>
       {/if}
@@ -1317,9 +1390,20 @@
       <span class="top-right">
         {#if session && !(view === "journal" && open?.id === session.id)}
           <button class="pill live" onclick={openLive} aria-label="Open the live session">
-            <span class="live-dot" aria-hidden="true"></span>{session.title || "Live session"}
+            <span class="live-dot" aria-hidden="true"></span>{discreet.on ? "Live" : session.title || "Live session"}
           </button>
         {/if}
+        <button class="discreet" class:on={discreet.on} aria-pressed={discreet.on} onclick={() => setDiscreet(!discreet.on)}
+          aria-label={discreet.on ? "Discreet mode is on: show names" : "Discreet mode: hide substance names and titles"}
+          title={discreet.on ? "Discreet mode is on" : "Discreet mode"}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            {#if discreet.on}
+              <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3 3.8M6.2 6.2A17 17 0 0 0 2.5 12s3.5 7 9.5 7a9.6 9.6 0 0 0 4.2-.9"/>
+            {:else}
+              <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="3"/>
+            {/if}
+          </svg>
+        </button>
         <button class="help" onclick={openHelp}>Help</button>
       </span>
     </header>
@@ -1381,10 +1465,16 @@
         {@const live = session}
         <section class="pane live-card">
           <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Live session</p>
-          <h1 class="entry-title">{live.title || "Untitled session"}</h1>
+          <h1 class="entry-title">{titleOf(live, "Untitled session")}</h1>
           <p class="muted">
             Started {hhmm(live.started_at)}{#if t0Of(live)} · now {rel(new Date(nowTick).toISOString(), t0Of(live))}{/if}
           </p>
+          {#if latestDose(live.doses)}
+            {@const ld = latestDose(live.doses)!}
+            <!-- The question before any redose: when was the last one? Big and
+                 always on the card, never behind a tap. -->
+            <p class="last-dose">Last: <strong>{nameShown(ld.substance_name)} {fmtAmt(ld)}</strong> · {gapText(Date.parse(ld.taken_at), nowTick)} ago</p>
+          {/if}
           {#if warnFor[live.id]?.length}
             {@render warnings(warnFor[live.id])}
             <button class="ghost small" onclick={() => (warnFor = { ...warnFor, [live.id]: [] })}>Dismiss warnings</button>
@@ -1394,9 +1484,11 @@
             <button class="primary" onclick={() => startDose(live)}>+ Dose</button>
             <button class="primary" onclick={() => startMoment(live)}>+ Moment</button>
           </div>
-          <div class="pair">
-            <button onclick={openLive}>Open session</button>
-            <button onclick={() => startEnd(live)}>End…</button>
+          <button onclick={openLive}>Open session</button>
+          <!-- Ending sits apart from logging and from Help, so it isn't hit by accident. -->
+          <div class="end-row">
+            <button class="ghost small" onclick={toggleNight}>{night ? "Normal screen" : "Dim (red) screen"}</button>
+            <button class="ghost small" onclick={() => startEnd(live)}>End session…</button>
           </div>
         </section>
       {:else}
@@ -1420,8 +1512,8 @@
               <li class="with-skip">
                 <button class="entry" onclick={async () => { await openEntry(e.id); startWriteup(open); }}>
                   <span class="body">
-                    <span class="title">{e.title || "Untitled"}</span>
-                    <span class="meta">{[fmtDay(e.started_at), e.substances.join(", ") === e.title ? "" : e.substances.join(", ")].filter(Boolean).join(" · ")}</span>
+                    <span class="title">{titleOf(e)}</span>
+                    <span class="meta">{[fmtDay(e.started_at), !discreet.on && e.substances.join(", ") === e.title ? "" : subsOf(e.substances)].filter(Boolean).join(" · ")}</span>
                   </span>
                   <span class="chev" aria-hidden="true">›</span>
                 </button>
@@ -1550,7 +1642,7 @@
           {#if listSubs.length}
             <div class="chips scroll" role="group" aria-label="Filter by substance">
               {#each listSubs as s}
-                <button class="chip" class:on={subFilter === s} aria-pressed={subFilter === s} onclick={() => pickSubFilter(s)}>{s}</button>
+                <button class="chip" class:on={subFilter === s} aria-pressed={subFilter === s} onclick={() => pickSubFilter(s)}>{nameShown(s)}</button>
               {/each}
             </div>
           {/if}
@@ -1584,7 +1676,7 @@
           {:else}
             <ul class="plain">
               {#each usage as u}
-                <li><strong>{u.substance_name}</strong> <span class="muted">· {u.times_used} time{u.times_used === 1 ? "" : "s"}</span></li>
+                <li><strong>{nameShown(u.substance_name)}</strong> <span class="muted">· {u.times_used} time{u.times_used === 1 ? "" : "s"}</span></li>
               {/each}
             </ul>
           {/if}
@@ -1821,7 +1913,8 @@
 
           {#if receipt}
             <div class="receipt" role="status">
-              <p><strong>✓ Saved</strong> · {receipt.line}</p>
+              <p class="receipt-line"><span><strong>✓ Saved</strong> · {receipt.line}</span>
+                {#if receipt.doseId != null}<button class="ghost small" onclick={undoLastLog}>Undo</button>{/if}</p>
               {@render warnings(receipt.warnings)}
             </div>
           {/if}
@@ -1856,6 +1949,9 @@
             {/each}
           </div>
           <DateTimeField id="d-when" bind:value={dWhen} variant="phone" />
+          {#if sinceSame}
+            <p class="since-same">{sinceSame}</p>
+          {/if}
           {#if target && t0Of(target) && dWhen}
             <p class="hint">{rel(new Date(dWhen).toISOString(), t0Of(target))} from the first dose</p>
           {/if}
@@ -1879,8 +1975,14 @@
             <h2 id="sheet-title">Moment</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
-          <label for="m-text">What's happening?</label>
-          <textarea id="m-text" rows="3" bind:value={mText}></textarea>
+          <p class="label">How is it? (one tap is enough)</p>
+          <div class="chips" role="group" aria-label="How it is">
+            {#each MOODS as m}
+              <button class="chip" class:on={mMood === m} aria-pressed={mMood === m} onclick={() => (mMood = mMood === m ? "" : m)}>{m}</button>
+            {/each}
+          </div>
+          <label for="m-text">Anything to add? (optional)</label>
+          <textarea id="m-text" rows="2" bind:value={mText}></textarea>
           <p class="label">Intensity (optional)</p>
           {@render scale(mIntensity, (v) => (mIntensity = v), "Intensity 0 to 10")}
           <label for="m-when">When</label>
@@ -1891,7 +1993,7 @@
           </div>
           <DateTimeField id="m-when" bind:value={mWhen} variant="phone" />
           <div class="sheet-actions">
-            <button class="primary" disabled={busy || !mText.trim()} onclick={submitMoment}>{busyKey === "moment" ? "Saving…" : "Add moment"}</button>
+            <button class="primary" disabled={busy || !(mText.trim() || mMood || mIntensity)} onclick={submitMoment}>{busyKey === "moment" ? "Saving…" : "Add moment"}</button>
           </div>
 
         {:else if sheet === "jot"}
@@ -1912,9 +2014,12 @@
             <h2 id="sheet-title">Start a live session</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
+          <label for="s-intention">What's your intention?</label>
+          <textarea id="s-intention" class="reflect" rows="2" bind:value={sIntention} placeholder="Optional"></textarea>
           <label for="s-title">Title (optional)</label>
           <input id="s-title" bind:value={sTitle} />
           <p class="hint">Leave it blank and it takes the name of the first substance you log.</p>
+          <label class="check"><input type="checkbox" checked={night} onchange={(e) => setNight(e.currentTarget.checked)} /> Dim (red) screen for this session</label>
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={submitStart}>{busyKey === "start" ? "Starting…" : "Start"}</button>
           </div>
@@ -2014,8 +2119,11 @@
             <h2 id="sheet-title">{open.kind === "note" ? "Note" : "Write-up"}</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
-          <label class="sr" for="wu">{open.kind === "note" ? "Note" : "How was it?"}</label>
-          <textarea id="wu" rows="10" placeholder={open.kind === "note" ? "" : "How was it? What would you do differently?"} bind:value={wuText}></textarea>
+          {#if open.kind === "session" && open.intention.trim()}
+            <p class="set-out">You set out to: <em>{open.intention.trim()}</em></p>
+          {/if}
+          <label class="sr" for="wu">{open.kind === "note" ? "Note" : "Write-up"}</label>
+          <textarea id="wu" class="reflect" rows="10" placeholder={open.kind === "note" ? "" : "What came up? What do you want to carry forward?"} bind:value={wuText}></textarea>
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={saveWriteup}>{busyKey === "writeup" ? "Saving…" : "Save"}</button>
           </div>
@@ -2033,13 +2141,18 @@
             </div>
           {/if}
           <DateTimeField id="end-at" bind:value={endAt} variant="phone" />
-          <p class="label">Rating (optional)</p>
-          {@render scale(endRating, (v) => (endRating = v), "Rating 0 to 10")}
+          <!-- Story first, score after: rating a session before anything is written
+               about it grades the person instead of inviting reflection. -->
+          {#if open.intention.trim()}
+            <p class="set-out">You set out to: <em>{open.intention.trim()}</em></p>
+          {/if}
           <label for="end-notes">Write-up (optional, now or later)</label>
-          <textarea id="end-notes" rows="5" bind:value={endNotes} disabled={endSkip}></textarea>
+          <textarea id="end-notes" class="reflect" rows="5" bind:value={endNotes} disabled={endSkip} placeholder="What came up? What do you want to carry forward?"></textarea>
           {#if !endNotes.trim()}
             <label class="check"><input type="checkbox" bind:checked={endSkip} /> This one doesn't need a write-up</label>
           {/if}
+          <p class="label">Rating (optional)</p>
+          {@render scale(endRating, (v) => (endRating = v), "Rating 0 to 10")}
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={saveEnd}>{busyKey === "end" ? "Saving…" : open.ended_at ? "Finish" : "End session"}</button>
           </div>
@@ -2153,6 +2266,33 @@
       --note-bg: #1f5fd112;
       --ok: #1a7f37;
     }
+  }
+
+  /* Dim (red) night theme: true black and red-shifted text, so a glance doesn't
+     wreck dark adaptation. Every pair here meets 4.5:1 or better on black; warnings
+     still carry their words ("Known dangerous:"), never hue alone. Help stays a
+     filled pill, its shape setting it apart now that everything is red. */
+  :global(:root[data-theme="night"]) {
+    color-scheme: dark;
+    --bg: #000000;
+    --surface: #0a0100;
+    --surface-2: #170403;
+    --field: #000000;
+    --field-border: #8a3322;
+    --divider: #2a0a06;
+    --text: #ff7a5c;
+    --text-2: #d9533a;
+    --accent: #ff5a36;
+    --on-accent: #000000;
+    --help-bg: #ff7a5c;
+    --help-ink: #000000;
+    --danger: #ffb199;
+    --danger-bg: #ffb19922;
+    --caution: #ff9a6b;
+    --caution-bg: #ff9a6b1c;
+    --note-bg: #ff5a3614;
+    --ok: #ff9a6b;
+    --focus: #ffb199;
   }
 
   :global(body) {
@@ -2296,6 +2436,15 @@
   .excerpt { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Muted, not amber: an unwritten reflection isn't a warning or overdue homework. */
   .excerpt.pending { color: var(--text-2); font-style: italic; }
+  .discreet { width: var(--tap-min); min-height: var(--tap-min); margin: 0; padding: 0; display: grid; place-items: center; border-radius: 999px; background: transparent; border: 0; color: var(--text-2); }
+  .discreet.on { color: var(--accent); background: var(--surface-2); }
+  .last-dose { font-size: 1.25rem; margin: 0.2rem 0 0.6rem; font-variant-numeric: tabular-nums; }
+  .since-same { font-size: var(--fs-body); font-weight: 600; margin: -0.2rem 0 0.4rem; font-variant-numeric: tabular-nums; }
+  .receipt-line { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .receipt-line .ghost { width: auto; margin: 0; flex: none; }
+  .end-row { display: flex; justify-content: space-between; gap: 1.5rem; margin-top: 1.2rem; padding-top: 0.6rem; border-top: 1px solid var(--divider); }
+  .end-row .ghost { width: auto; margin: 0; }
+  .set-out { margin: 0 0 0.6rem; color: var(--text-2); }
   .with-skip { display: flex; align-items: center; gap: 0.3rem; }
   .with-skip .entry { flex: 1; min-width: 0; }
   .with-skip .skip { width: auto; flex: none; margin: 0; }

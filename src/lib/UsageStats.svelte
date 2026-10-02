@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import { discreet, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
@@ -32,7 +33,8 @@
   const saved = loadPref();
 
   let range = $state<RangeKey>(saved.range ?? "90d");
-  let hideNames = $state(saved.hide ?? false);
+  // Names follow the app-wide discreet mode ($lib/discreet), so a stand-in here is
+  // the same stand-in on the journal.
   /** `key|unit` of the series on the dose chart. */
   let pick = $state<string>(saved.pick ?? "");
   let data = $state<UsageStats | null>(null);
@@ -46,7 +48,7 @@
   let heatPage = $state(0);
 
   $effect(() => {
-    try { localStorage.setItem(PREF, JSON.stringify({ range, hide: hideNames, pick })); } catch {}
+    try { localStorage.setItem(PREF, JSON.stringify({ range, pick })); } catch {}
   });
 
   async function load() {
@@ -70,12 +72,8 @@
   }
 
   // ---- naming (with the shoulder-surfing toggle) ----
-  const alias = $derived.by(() => {
-    const keys = (data?.substances ?? []).map((s) => s.key).sort();
-    return new Map(keys.map((k, i) => [k, `Substance ${String.fromCharCode(65 + (i % 26))}${i >= 26 ? Math.floor(i / 26) : ""}`]));
-  });
   const realName = $derived(new Map((data?.substances ?? []).map((s) => [s.key, s.name])));
-  const label = (key: string) => (hideNames ? alias.get(key) : realName.get(key)) ?? key;
+  const label = (key: string) => nameShown(realName.get(key) ?? key);
 
   // ---- series choice ----
   const choices = $derived(
@@ -243,7 +241,7 @@
       {/each}
     </div>
     <label class="hide">
-      <input type="checkbox" bind:checked={hideNames} /> Hide substance names
+      <input type="checkbox" checked={discreet.on} onchange={(e) => setDiscreet(e.currentTarget.checked)} /> Hide substance names
     </label>
   </div>
 
@@ -449,7 +447,7 @@
               <li>
                 <span>{label(p.a)} + {label(p.b)}</span>
                 <span class="n">{plural(p.sessions, "session")}</span>
-                {#if onCheck && !hideNames}
+                {#if onCheck && !discreet.on}
                   <button class="link" onclick={() => onCheck?.([realName.get(p.a) ?? p.a, realName.get(p.b) ?? p.b])}>Check</button>
                 {/if}
               </li>

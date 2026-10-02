@@ -130,6 +130,8 @@
   import TripImport from "$lib/TripImport.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
+  import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
+  import { discreet, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -1518,6 +1520,7 @@
       taken_at: nowIso(),
       note: qNote,
     });
+    lastLogged = { id: res.dose.id, label: `${res.dose.substance_name}${res.dose.amount != null ? ` ${res.dose.amount} ${res.dose.unit}` : ""}` };
     qSub = ""; qAmt = ""; qNote = "";
     if (res.warnings.length) lastWarnings = res.warnings;
     await refreshSelected();
@@ -1527,11 +1530,25 @@
     if (c.level !== "none") { crisis = c; crisisResourcesShown = false; }
   }
 
-  async function quickNote() {
-    if (!selected || !lsNote.trim()) return;
-    await addTimelineEvent({ experience_id: selected.id, at: nowIso(), note: lsNote.trim(), mood: "", intensity: null });
+  /** One-tap states, so a moment never needs typing mid-session. */
+  const MOODS = ["Coming up", "Peaking", "Calm", "Anxious", "Nauseous", "Need water", "Coming down"];
+  async function quickNote(mood = "") {
+    if (!selected || !(lsNote.trim() || mood)) return;
+    await addTimelineEvent({ experience_id: selected.id, at: nowIso(), note: lsNote.trim(), mood, intensity: null });
     lsNote = "";
     await refreshSelected();
+  }
+
+  /** Undo the dose just logged on the live screen. */
+  let lastLogged = $state<{ id: number; label: string } | null>(null);
+  async function undoLastLogged() {
+    const l = lastLogged;
+    if (!l) return;
+    lastLogged = null;
+    await deleteDose(l.id);
+    lastWarnings = [];
+    await refreshSelected();
+    await loadJournal();
   }
 
   async function goTab(t: Tab) {
@@ -2292,6 +2309,9 @@
           <div class="exp-head">
             <h2>Journal</h2>
             <span class="row-actions">
+              <label class="discreet-toggle" title="Hide substance names and titles in lists, for screen-sharing or public places">
+                <input type="checkbox" checked={discreet.on} onchange={(e) => setDiscreet(e.currentTarget.checked)} /> Discreet
+              </label>
               <button class="ghost small-btn" onclick={() => { showPaste = !showPaste; showImport = false; }}>Paste a trip log</button>
               {#if !remote.connected}
                 <button class="ghost small-btn" onclick={openImport}>Import from text</button>
@@ -2402,7 +2422,7 @@
               {#if nePast}
                 <DateTimeField bind:value={neEnd} title="When it ended (optional)" />
               {/if}
-              <input placeholder="Intention (optional)" bind:value={neIntention} />
+              <input placeholder={nePast ? "What was your intention? (optional)" : "What's your intention? (optional)"} bind:value={neIntention} />
               <input placeholder="Set & setting (optional)" bind:value={neSetting} />
               <button class="primary small-btn" onclick={submitNewExperience}>{nePast ? "Log it" : "Start"}</button>
             </div>
@@ -2510,7 +2530,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                   <button class="exp-row" onclick={() => openExperience(e.id)}>
                     {#if e.kind === "note"}
                       <div>
-                        <strong>{e.title || "Untitled note"}</strong>
+                        <strong>{discreet.on ? "Journal note" : e.title || "Untitled note"}</strong>
                         <span class="muted small">{fmtDate(e.started_at)}</span>
                       </div>
                       <div class="exp-meta">
@@ -2518,7 +2538,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                       </div>
                     {:else}
                       <div>
-                        <strong>{e.title || "Untitled"}</strong>
+                        <strong>{discreet.on ? "Session" : e.title || "Untitled"}</strong>
                         <!-- A gentle marker for an entry that may still want its story,
                              unless it's been marked as not needing one. -->
                         <span class="muted small">
@@ -2530,7 +2550,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                         </span>
                       </div>
                       <div class="exp-meta">
-                        {#each e.substances as s}<span class="pill">{s}</span>{/each}
+                        {#each e.substances as s}<span class="pill">{nameShown(s)}</span>{/each}
                         <span class="muted small">{e.dose_count} dose{e.dose_count === 1 ? "" : "s"}</span>
                       </div>
                     {/if}
@@ -3551,11 +3571,13 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                  wants at a glance, against which every row below is read. -->
             {#if sessionT0}<span class="rel live-rel">· now {relTime(new Date(lsNow).toISOString(), sessionT0)}</span>{/if}
           </div>
+          {#if latestDose(selected.doses)}
+            {@const ld = latestDose(selected.doses)!}
+            <!-- The question before any redose, answered without looking for it. -->
+            <div class="live-last">Last: <strong>{nameShown(ld.substance_name)} {ld.amount ?? "?"} {ld.unit}</strong> · {gapText(Date.parse(ld.taken_at), lsNow)} ago</div>
+          {/if}
         </div>
-        <div class="row-actions">
-          <button class="help-btn" onclick={openHelp}>Get help now</button>
-          <button class="ghost" onclick={endLiveSession}>Exit</button>
-        </div>
+        <button class="help-btn" onclick={openHelp}>Get help now</button>
       </div>
 
       <div class="live-alerts">
@@ -3569,7 +3591,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if selected.doses.length}
             <ul class="live-doses">
               {#each selected.doses as d}
-                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {d.substance_name} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
+                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
               {/each}
             </ul>
           {:else}
@@ -3584,16 +3606,22 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <input placeholder="Route" bind:value={qRoute} />
             <button class="primary" disabled={!qSub.trim()} onclick={logIntoSession}>Log dose</button>
           </div>
+          {#if lastLogged}
+            <p class="small live-saved">✓ Logged {lastLogged.label}. <button class="link" onclick={undoLastLogged}>Undo</button></p>
+          {/if}
 
           <h3>Timeline</h3>
           <div class="quick-log">
             <input placeholder="How are you feeling right now?" bind:value={lsNote} onkeydown={(e) => e.key === "Enter" && quickNote()} />
-            <button class="primary" disabled={!lsNote.trim()} onclick={quickNote}>Add moment</button>
+            <button class="primary" disabled={!lsNote.trim()} onclick={() => quickNote()}>Add moment</button>
+          </div>
+          <div class="mood-row" role="group" aria-label="Add a moment in one click">
+            {#each MOODS as m}<button class="chip-btn" onclick={() => quickNote(m)}>{m}</button>{/each}
           </div>
           {#if selected.timeline.length}
             <ul class="live-events">
               {#each selected.timeline as t}
-                <li><span class="muted">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span> {t.note}</li>
+                <li><span class="muted">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span> {#if t.mood}<strong>{t.mood}</strong>{t.note ? " · " : ""}{/if}{t.note}</li>
               {/each}
             </ul>
           {/if}
@@ -3624,6 +3652,10 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             {/if}
           </section>
         {/if}
+      </div>
+      <!-- Leaving sits at the bottom, away from Get help and logging. -->
+      <div class="live-foot">
+        <button class="ghost" onclick={endLiveSession}>Leave live view</button>
       </div>
     </div>
   {/if}
@@ -3928,6 +3960,14 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .live { position: fixed; inset: 0; background: var(--bg); z-index: 40; display: flex; flex-direction: column; padding: 1.2rem clamp(1rem, 4vw, 3rem); overflow-y: auto; }
   .live-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
   .live-title { font-size: 1.5rem; font-weight: 700; }
+  .discreet-toggle { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.85rem; margin-right: 0.4rem; cursor: pointer; }
+  .discreet-toggle input { width: auto; }
+  .live-last { font-size: 1.25rem; margin-top: 0.35rem; font-variant-numeric: tabular-nums; }
+  .live-saved { margin: 0.4rem 0 0; color: var(--muted); }
+  .mood-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+  .chip-btn { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 0.4rem 0.8rem; font: inherit; font-size: 0.9rem; cursor: pointer; }
+  .chip-btn:hover { border-color: var(--accent); }
+  .live-foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
   .live-body { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.2rem; align-items: start; }
   @media (max-width: 780px) { .live-body { grid-template-columns: 1fr; } }
   .live-timeline h3, .live-companion h3 { margin: 1.1rem 0 0.5rem; }
