@@ -3854,7 +3854,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <h3>Timeline</h3>
           <div class="quick-log">
             <input placeholder="How are you feeling right now?" bind:value={lsNote} onkeydown={(e) => e.key === "Enter" && quickNote()} />
-            <button class="primary" disabled={!lsNote.trim()} onclick={() => quickNote()}>Add moment</button>
+            <button class="moment-btn" disabled={!lsNote.trim()} onclick={() => quickNote()}>Add moment</button>
           </div>
           <div class="mood-row" role="group" aria-label="Add a moment in one click">
             {#each MOODS as m}<button class="chip-btn" onclick={() => quickNote(m)}>{m}</button>{/each}
@@ -3909,8 +3909,10 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     --ink: #eee7dc;
     --muted: #b8ad9c;
     --line: #322c25;
-    --accent: #a4b8e6;
+    --accent: #b9a3c9;
     --accent-ink: #11141c;
+    /* Outline of secondary buttons, 3:1 or better on the card. */
+    --edge: #8f8576;
     /* Help's own colour, apart from danger red (see the phone page). */
     --help-bg: #f2dcc4;
     --help-ink: #1d140b;
@@ -3930,6 +3932,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     --line: #2a0a06;
     --accent: #ff5a36;
     --accent-ink: #000000;
+    --edge: #a8432c;
     --help-bg: #ff7a5c;
     --help-ink: #000000;
     --danger: #ffb199;
@@ -4007,10 +4010,18 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .small { font-size: 0.85rem; }
 
   button { font: inherit; cursor: pointer; border-radius: 9px; border: 1px solid transparent; }
-  .primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 0.7rem 1rem; }
+  /* As on the phone: rectangles hold things, pills do things. Filled for the main
+     action, outlined for the rest, plain text for the least. */
+  .primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 0.55rem 1.15rem; border-radius: 999px; }
   .primary:hover { filter: brightness(1.08); }
-  .ghost { background: transparent; color: var(--muted); border-color: var(--line); padding: 0.7rem 1rem; margin-top: 0.8rem; }
-  .small-btn { padding: 0.5rem 0.85rem; margin: 0; }
+  .ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--edge); font-weight: 600; padding: 0.55rem 1.15rem; margin-top: 0.8rem; border-radius: 999px; }
+  .ghost:hover { background: var(--surface-2); }
+  .primary:active:not(:disabled), .ghost:active:not(:disabled) { transform: translateY(1px); }
+  .small-btn { padding: 0.4rem 0.9rem; margin: 0; white-space: nowrap; font-size: 0.92rem; }
+  /* + Moment on the live screen: outlined in the accent, so Log dose leads. */
+  .moment-btn { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); font-weight: 600; padding: 0.55rem 1.15rem; border-radius: 999px; }
+  .moment-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  button:disabled { opacity: 0.55; cursor: default; }
   .link { background: none; border: none; color: var(--accent); padding: 0; font-weight: 600; cursor: pointer; margin-bottom: 0.6rem; }
   .link-inline { background: none; border: none; color: var(--accent); padding: 0; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
   .prereq { border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem 0.8rem; margin: 0.2rem 0 0.9rem; }
@@ -4021,7 +4032,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   input { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem; }
   input.narrow { width: 5.5rem; }
 
-  .exp-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; }
+  .exp-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.8rem; }
   .exp-list, .sub-list, .doses, .timeline { list-style: none; padding: 0; margin: 0.6rem 0 0; }
   /* Flat rows with dividers: the card is the only box, not a card of cards. */
   .exp-row { width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0.85rem 0.4rem; margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; color: var(--ink); font: inherit; cursor: pointer; }
@@ -4106,7 +4117,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .usage { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; }
   .usage-head { display: flex; justify-content: space-between; align-items: baseline; }
 
-  .row-actions { display: inline-flex; gap: 0.5rem; align-items: center; margin-left: auto; }
+  .row-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; align-items: center; margin-left: auto; }
   .icon-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.15rem 0.35rem; border-radius: 6px; font-size: 0.85rem; line-height: 1; }
   .icon-btn:hover { color: var(--ink); border-color: var(--line); }
   /* Neutral until confirmed: Delete isn't danger, and red is kept for danger. */
