@@ -36,9 +36,10 @@ which of your devices are connected, never what's in your journal.
   journal as "Untitled" — rename it whenever you like.
 - **Plain notes** — not everything is a session. Write ordinary journal entries
   (a title, your words, a date) alongside them.
-- **Combination warnings** — every dose is checked against the others for
-  well-documented dangerous combinations, and there's a standalone checker to
-  consult *before* taking anything.
+- **Combination warnings** — every dose is checked against the others taken
+  around the same time for well-documented risky combinations. Each shows as a
+  quiet note you can tap for what the risk is and what lowers it, and there's a
+  standalone checker to consult *before* taking anything.
 - **Dose reference** — dose ranges, durations, and graded interaction data for
   hundreds of substances, bundled with the app and available offline. Search the
   reference prose, or read any of the 575 substance entries **in full** —
@@ -64,10 +65,10 @@ which of your devices are connected, never what's in your journal.
   experience: elapsed time, one-tap logging, the companion, and an always-visible
   **Get help now** button. Timeline notes can be edited after the fact — on the
   desktop and from the phone.
-- **Crisis resources** — if a chat with the Companion shows signs of crisis, or a
-  dangerous combination is logged, real emergency and peer-support contacts
-  appear. This is driven by fixed rules, never by the AI — and your journal
-  writing is never scanned.
+- **Crisis resources** — if something you write to the Companion sounds like it
+  might be urgent, real emergency and peer-support contacts are offered, calmly.
+  What you've logged never raises this on its own. This is driven by fixed rules,
+  never by the AI — and your journal writing is never scanned.
 - **Import from text** — paste a past experience in any form, from a one-line note
   to a full trip report with T+ timestamps, and the local model pulls out the
   substances, doses, and timeline into a structured entry you review before saving.
