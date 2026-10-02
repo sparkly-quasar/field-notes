@@ -214,6 +214,32 @@ function intensityOf(text: string): { intensity: number | null; text: string } {
   return { intensity: Number(m[1]), text: text.replace(m[0], "").replace(/\s{2,}/g, " ").trim() };
 }
 
+/**
+ * Undo percent-encoding that came along with a paste. Some apps and share sheets
+ * copy text as it appeared in a link ("I%20don%E2%80%99t%20want"), which no one can
+ * read and nothing below can parse. Only decodes when the text is clearly encoded:
+ * percent sequences and few or no real spaces, so a log that merely mentions "50%"
+ * is left alone. Anything that won't decode cleanly is returned as it was.
+ */
+export function decodePasted(text: string): string {
+  const escapes = text.match(/%[0-9A-Fa-f]{2}/g)?.length ?? 0;
+  if (escapes < 3) return text;
+  const spaces = text.match(/ /g)?.length ?? 0;
+  if (spaces > escapes / 4) return text;
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    // A stray "%" that isn't an escape: decode the valid runs and keep the rest.
+    return text.replace(/(%[0-9A-Fa-f]{2})+/g, (run) => {
+      try {
+        return decodeURIComponent(run);
+      } catch {
+        return run;
+      }
+    });
+  }
+}
+
 export function parseTripLog(raw: string, catalogue: CatalogueEntry[]): ParsedLog {
   const index = nameIndex(catalogue);
   const rows: ParsedRow[] = [];

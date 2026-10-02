@@ -11,7 +11,7 @@
 <script lang="ts">
   import DateTimeField from "./DateTimeField.svelte";
   import { listSubstances, pwNames, type Warning } from "$lib/api";
-  import { parseTripLog, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
+  import { parseTripLog, decodePasted, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
   import { saveTripLog, UNITS, type TripLine } from "$lib/quicklog";
 
   let {
@@ -32,6 +32,7 @@
   let startAt = $state(""); // datetime-local, for offset/untimed logs
   let title = $state("");
   let err = $state<string | null>(null);
+  let tip = $state<string | null>(null);
   let busy = $state(false);
   let catalogue: CatalogueEntry[] = [];
   let clipboardOk = $state(typeof navigator !== "undefined" && !!navigator.clipboard?.readText);
@@ -48,17 +49,31 @@
   async function pasteFromClipboard() {
     err = null;
     try {
-      raw = await navigator.clipboard.readText();
+      raw = decodePasted(await navigator.clipboard.readText());
       if (raw.trim()) await parse();
     } catch {
       // Some browsers only allow it from a secure page, or the person said no.
+      // Not an error worth red: the box below works, so just point there.
       clipboardOk = false;
-      err = "Couldn't read the clipboard here — paste into the box instead.";
+      tip = "This browser didn't let Field Notes read the clipboard. Paste into the box instead: press and hold, then Paste.";
     }
+  }
+
+  /** A paste into the box gets the same clean-up as "Paste from clipboard". */
+  function onPaste(e: ClipboardEvent) {
+    const text = e.clipboardData?.getData("text/plain");
+    if (!text) return;
+    const clean = decodePasted(text);
+    if (clean === text) return;
+    e.preventDefault();
+    const box = e.currentTarget as HTMLTextAreaElement;
+    raw = raw.slice(0, box.selectionStart) + clean + raw.slice(box.selectionEnd);
   }
 
   async function parse() {
     err = null;
+    tip = null;
+    raw = decodePasted(raw);
     if (!raw.trim()) return;
     if (!catalogue.length) {
       // Your own catalogue first (its spelling wins), then the dose reference's
@@ -159,7 +174,8 @@
       <button type="button" class="primary" onclick={pasteFromClipboard}>Paste from clipboard</button>
     {/if}
     <label for="ti-raw">{clipboardOk ? "Or paste it here" : "Paste it here"}</label>
-    <textarea id="ti-raw" rows="8" bind:value={raw} placeholder={"8:43am - 35mg mesc\n10:43am - some nausea\n11am - feeling much better"}></textarea>
+    <textarea id="ti-raw" rows="8" bind:value={raw} onpaste={onPaste} placeholder={"8:43am - 35mg mesc\n10:43am - some nausea\n11am - feeling much better"}></textarea>
+    {#if tip}<p class="tip" role="status">{tip}</p>{/if}
     {#if err}<p class="bad" role="alert">{err}</p>{/if}
     <div class="pair">
       <button type="button" onclick={oncancel}>Cancel</button>
@@ -251,6 +267,7 @@
   .chip { border-radius: 999px; font-weight: 500; font-size: 0.92em; }
   .chip.on { background: var(--ti-accent); color: var(--ti-on-accent); border-color: var(--ti-accent); }
   .bad { color: var(--ti-danger); font-weight: 600; }
+  .tip { color: var(--text-2, var(--muted)); }
 
   .rows { list-style: none; padding: 0; margin: 0.4rem 0; }
   .rows li { border: 1px solid var(--ti-border); border-radius: 12px; padding: 0.5rem 0.6rem; margin-bottom: 0.5rem; }
