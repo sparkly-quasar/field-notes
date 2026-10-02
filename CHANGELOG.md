@@ -11,6 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.1
+
+- **Install a server update from your phone even when someone else's journal is
+  unlocked.** Before, the phone just said to install it at the computer. Now it
+  says whose journal the restart would lock and offers **Install anyway**. They
+  unlock it again from their phone afterwards. It still won't let you if
+  someone else has a session going and has used Field Notes in the last two
+  hours: wait until they've ended it. A session nobody has touched for longer
+  than that doesn't hold the update up.
+
 ## v0.21.0
 
 - **Phone access without installing Tailscale on your computer.** Tailscale is
