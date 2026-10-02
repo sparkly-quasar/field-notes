@@ -122,6 +122,9 @@ pub struct PwRoa {
     pub common: Range,
     pub strong: Range,
     pub heavy: Option<f64>,
+    /// The top of the heavy band, when a source gives one (most give only "N+").
+    #[serde(default)]
+    pub heavy_max: Option<f64>,
     pub onset: Option<String>,
     pub come_up: Option<String>,
     pub peak: Option<String>,
@@ -139,6 +142,9 @@ pub struct PwInfo {
     pub chemical: Vec<String>,
     pub roas: Vec<PwRoa>,
     pub interactions: Vec<PwInteraction>,
+    /// Where the dose figures come from, when it isn't DoseWiki (see [`ROUTE_OVERRIDES`]).
+    #[serde(default)]
+    pub dose_note: Option<String>,
 }
 
 fn range(g: &Option<DwRange>) -> Range {
@@ -206,6 +212,7 @@ fn map_sub(s: DwSub) -> PwInfo {
                 common: range(&d.moderate), // DoseWiki calls our "common" tier "moderate"
                 strong: range(&d.strong),
                 heavy: d.heavy.as_ref().and_then(|h| h.min),
+                heavy_max: None,
                 onset: fmt_stage(&r.stages.onset),
                 come_up: fmt_stage(&r.stages.come_up),
                 peak: fmt_stage(&r.stages.peak),
@@ -231,15 +238,90 @@ fn map_sub(s: DwSub) -> PwInfo {
         }
     }
 
-    PwInfo {
+    let mut info = PwInfo {
         name: s.title,
         common_names,
         psychoactive: s.psychoactive_class,
         chemical: s.chemical_class,
         roas,
         interactions,
+        dose_note: None,
+    };
+    if let Some((_, note, routes)) = ROUTE_OVERRIDES.iter().find(|(n, ..)| n.eq_ignore_ascii_case(&info.name)) {
+        info.roas = routes.iter().map(RouteSpec::roa).collect();
+        info.dose_note = Some(note.to_string());
+    }
+    info
+}
+
+/// One route's figures, written out by hand (see [`ROUTE_OVERRIDES`]). Amounts in
+/// `units`; durations as display text, like DoseWiki's.
+struct RouteSpec {
+    name: &'static str,
+    units: &'static str,
+    threshold: Option<f64>,
+    light: (f64, f64),
+    common: (f64, f64),
+    strong: (f64, f64),
+    heavy: Option<(f64, Option<f64>)>,
+    onset: Option<&'static str>,
+    peak: Option<&'static str>,
+    after_effects: Option<&'static str>,
+    total: Option<&'static str>,
+}
+
+impl RouteSpec {
+    fn roa(&self) -> PwRoa {
+        let r = |(a, b): (f64, f64)| Range { min: Some(a), max: Some(b) };
+        PwRoa {
+            name: self.name.to_string(),
+            units: Some(self.units.to_string()),
+            threshold: self.threshold,
+            light: r(self.light),
+            common: r(self.common),
+            strong: r(self.strong),
+            heavy: self.heavy.map(|h| h.0),
+            heavy_max: self.heavy.and_then(|h| h.1),
+            onset: self.onset.map(String::from),
+            come_up: None,
+            peak: self.peak.map(String::from),
+            offset: None,
+            after_effects: self.after_effects.map(String::from),
+            total: self.total.map(String::from),
+            half_life: None,
+        }
     }
 }
+
+/// Substances whose DoseWiki routes are wrong enough to replace outright, kept here
+/// so a fresh snapshot doesn't bring the error back. Each fix is also worth sending
+/// upstream (contribute.rs). (name, where the figures come from, routes)
+///
+/// 5-MeO-DMT: DoseWiki listed an oral route (it isn't orally active) with "heavy"
+/// below "strong", and "inhaled" duplicated "smoked". Smoked and insufflated are
+/// Erowid's figures; intramuscular is the owner's, from practice. Sublingual is
+/// left out: Erowid gives only a single light figure for it.
+const ROUTE_OVERRIDES: &[(&str, &str, &[RouteSpec])] = &[(
+    "5-MeO-DMT",
+    "Smoked and insufflated ranges from Erowid. Intramuscular ranges from the Field Notes maintainer. Not orally active.",
+    &[
+        RouteSpec {
+            name: "smoked", units: "mg", threshold: Some(1.0),
+            light: (2.0, 5.0), common: (5.0, 10.0), strong: (10.0, 20.0), heavy: None,
+            onset: Some("0–30 seconds"), peak: Some("1–15 minutes"), after_effects: Some("1 hour"), total: Some("30 minutes"),
+        },
+        RouteSpec {
+            name: "insufflated", units: "mg", threshold: Some(3.0),
+            light: (5.0, 10.0), common: (8.0, 15.0), strong: (10.0, 25.0), heavy: None,
+            onset: Some("5 minutes"), peak: Some("10–30 minutes"), after_effects: Some("1–3 hours"), total: Some("30–45 minutes"),
+        },
+        RouteSpec {
+            name: "IM", units: "mg", threshold: None,
+            light: (0.5, 1.0), common: (1.5, 3.0), strong: (5.0, 7.0), heavy: Some((8.0, Some(12.0))),
+            onset: None, peak: None, after_effects: None, total: None,
+        },
+    ],
+)];
 
 /// Parse the slimmed DoseWiki JSON (the bundled `dosewiki.json`) into our shape.
 pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
@@ -275,6 +357,18 @@ mod tests {
         assert!(r.is_none());
 
         assert!(split_interaction("   ").is_none());
+    }
+
+    #[test]
+    fn five_meo_dmt_routes_are_replaced() {
+        let subs = parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        let s = subs.iter().find(|s| s.name == "5-MeO-DMT").unwrap();
+        let names: Vec<&str> = s.roas.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["smoked", "insufflated", "IM"]);
+        let im = &s.roas[2];
+        assert_eq!((im.light.min, im.light.max), (Some(0.5), Some(1.0)));
+        assert_eq!((im.heavy, im.heavy_max), (Some(8.0), Some(12.0)));
+        assert!(s.dose_note.as_deref().unwrap().contains("Erowid"));
     }
 
     #[test]

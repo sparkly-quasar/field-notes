@@ -210,7 +210,7 @@ fn family_of_label(label: &str) -> Option<&'static str> {
 fn family_of_class(class: &str) -> Option<&'static str> {
     match class {
         "psychedelic" => Some("psychedelics"),
-        "serotonin_releaser" => Some("entactogens"),
+        "serotonin_releaser" | "entactogen" => Some("entactogens"),
         "dissociative" => Some("dissociatives"),
         "stimulant" => Some("stimulants"),
         "depressant" | "benzodiazepine" => Some("depressants"),

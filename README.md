@@ -32,7 +32,8 @@ show you how to get past it.
 ## Features
 
 - **Journal** — log experiences with intention, set & setting, doses, and a
-  running timeline of how you feel. Edit, delete, or backdate anything. Logging
+  running timeline of how you feel. Alcohol logs in standard drinks (beer, wine
+  and shot quick picks) and smoked cannabis in hits. Edit, delete, or backdate anything. Logging
   something that already happened is a first-class option — tick "this already
   happened" on a new experience and it's saved as a finished trip, with doses
   defaulting to when it occurred rather than now. Every timestamp in an experience
@@ -120,7 +121,9 @@ show you how to get past it.
   review your history grouped by substance.
 - **Stats** (desktop and phone): dose over time against the reference's dose
   ranges, spacing between experiences, how often, a calendar, and what you've taken
-  together. Descriptive only: no streaks, scores or warnings, and a toggle hides
+  together, plus **Trends**: what changed lately against the period before (how
+  often, time between, amount per experience, redosing), each with a small chart.
+  Descriptive only: no streaks, scores or warnings, and a toggle hides
   substance names for screen-sharing.
 - **Updates** — automatic, a **Check for updates** button in Settings, and
   (opt-in, set at the computer) a paired phone can install an update on the

@@ -9,6 +9,7 @@
   import { onMount } from "svelte";
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
+  import Trends from "$lib/Trends.svelte";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
     niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
@@ -322,7 +323,7 @@
 
     {#if sub}
       <div class="tiles">
-        <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "session" : "sessions"}</span></div>
+        <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{sub.doses}</span><span class="cap">{sub.doses === 1 ? "dose" : "doses"}</span></div>
         {#if lastT != null}
           <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last experience</span></div>
@@ -333,7 +334,7 @@
         {#if famLastT != null}
           <div class="tile"><span class="big">{daysSince(famLastT)}</span><span class="cap">{daysSince(famLastT) === 1 ? "day" : "days"} since the last {FAMILY_ONE[family]}</span></div>
         {/if}
-        <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "session" : "sessions"}</span></div>
+        <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{famDoses}</span><span class="cap">{famDoses === 1 ? "dose" : "doses"}</span></div>
       </div>
       {#if family === "other"}
@@ -341,12 +342,20 @@
       {/if}
     {:else}
       <div class="tiles">
-        <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "session" : "sessions"}</span></div>
+        <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
         <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
       </div>
       <p class="note pickhint">Pick a family or a substance to narrow everything below to it.</p>
     {/if}
+
+    {#key range}
+      <Trends
+        days={RANGES.find((r) => r.key === range)?.days ?? 90}
+        focus={sub ? new Set([sub.key]) : family ? famKeys : null}
+        {onOpen}
+      />
+    {/key}
 
     <div class="grid">
       <!-- dose over time -->

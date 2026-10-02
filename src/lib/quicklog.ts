@@ -235,7 +235,23 @@ export function recallDoseShape(substance: string): DoseShape | null {
 }
 
 /** The units every dose form offers. One list, so the phone and desktop agree. */
-export const UNITS = ["mg", "µg", "g", "ml", "tab", "capsule", "pill"];
+export const UNITS = ["mg", "µg", "g", "ml", "tab", "capsule", "pill", "drink", "hit"];
+
+/**
+ * One standard drink, as the app counts it: the US definition (14 g of alcohol).
+ * Shown wherever "drink" is the unit, so a number of drinks always means the same
+ * thing. DoseWiki's alcohol ranges mix UK units (8 g) with drinks, so a logged
+ * number of drinks is never compared against them.
+ */
+export const STANDARD_DRINK =
+  "1 drink = one standard drink: a 12 oz beer (5%), a 5 oz glass of wine (12%), or a 1.5 oz shot of spirits (40%). A mixed drink is as many drinks as it has shots.";
+
+/** A hit is not a fixed amount, so it's never compared with mg ranges. */
+export const HIT_NOTE =
+  "A hit varies a lot with strength, device and how deep you inhale, so hits aren't compared with the reference's mg ranges.";
+
+/** Quick picks for counting drinks: each adds one standard drink. */
+export const DRINK_PICKS = ["Beer", "Glass of wine", "Shot"];
 
 /**
  * Substances nobody measures in milligrams. Picking one of these switches the
@@ -253,10 +269,20 @@ const DEFAULT_UNITS: Record<string, string> = Object.fromEntries([
     "psilocybin mushrooms", "magic mushrooms", "mushrooms", "shrooms", "mushies",
     "psychedelic mushrooms", "magic truffles", "truffles",
   ].map((n) => [n, "g"]),
+  ...[
+    "alcohol", "ethanol", "booze", "beer", "wine", "cider", "vodka", "whiskey", "whisky",
+    "rum", "gin", "tequila", "mezcal", "liquor", "spirits", "sake", "champagne",
+  ].map((n) => [n, "drink"]),
 ]);
 
-export function defaultUnitFor(substance: string): string | null {
-  return DEFAULT_UNITS[substance.trim().toLowerCase()] ?? null;
+const CANNABIS = new Set(["cannabis", "weed", "marijuana", "thc", "pot", "bud", "flower", "herb", "ganja"]);
+
+/** The unit a substance is usually counted in, when it isn't mg. Smoked or vaped
+ *  cannabis is counted in hits; eaten, it stays in mg of THC. */
+export function defaultUnitFor(substance: string, route = ""): string | null {
+  const s = substance.trim().toLowerCase();
+  if (CANNABIS.has(s)) return /^(vaporized|smoked|inhaled)$/i.test(route) ? "hit" : null;
+  return DEFAULT_UNITS[s] ?? null;
 }
 
 /** DoseWiki writes micrograms as both "ug" and "µg"; the forms only offer "µg". */

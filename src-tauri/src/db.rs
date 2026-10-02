@@ -630,7 +630,13 @@ fn active_minutes(info: &PwInfo, route: &str) -> Option<f64> {
         let unit = s.to_lowercase();
         Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
     };
-    let on_route = info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(&want)).and_then(|r| r.total.as_deref()).and_then(parse);
+    let on_route = info
+        .roas
+        .iter()
+        .find(|r| r.name.eq_ignore_ascii_case(route))
+        .or_else(|| info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(&want)))
+        .and_then(|r| r.total.as_deref())
+        .and_then(parse);
     on_route.or_else(|| info.roas.iter().filter_map(|r| r.total.as_deref().and_then(parse)).reduce(f64::max))
 }
 
@@ -1122,6 +1128,7 @@ mod tests {
             chemical: v(chem),
             roas: vec![],
             interactions: vec![],
+            dose_note: None,
         }
     }
 
