@@ -14,7 +14,9 @@ function load(): boolean {
   }
 }
 
-export const discreet = $state({ on: load() });
+/** `available`: offered at all (Settings, on the computer that holds the
+ *  journal). `on`: hiding names right now, on this device. */
+export const discreet = $state({ on: load(), available: false });
 
 export function setDiscreet(on: boolean) {
   discreet.on = on;
@@ -23,6 +25,11 @@ export function setDiscreet(on: boolean) {
   } catch {
     // Not remembered on this device; it still applies until the page closes.
   }
+}
+
+/** Hiding names right now: switched on here, and offered at all. */
+export function hiding(): boolean {
+  return discreet.available && discreet.on;
 }
 
 /** A stand-in that is the same for a name everywhere and every day, so "K7" on
@@ -41,5 +48,5 @@ export function aliasOf(name: string): string {
 
 /** The name to show: real, or its stand-in when discreet mode is on. */
 export function shown(name: string): string {
-  return discreet.on && name.trim() ? aliasOf(name) : name;
+  return discreet.available && discreet.on && name.trim() ? aliasOf(name) : name;
 }

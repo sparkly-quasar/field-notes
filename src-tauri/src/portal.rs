@@ -379,6 +379,9 @@ pub const EXPOSED: &[&str] = &[
     "list_substances",
     "db_status",
     "companion_enabled",
+    // Whether to offer the discreet-mode toggle. Read only; the switch itself,
+    // `set_discreet_available`, lives in Settings on the computer.
+    "discreet_available",
     "create_experience",
     "end_experience",
     "log_dose",
@@ -438,6 +441,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         "list_substances" => done(commands::list_substances(db)),
         "db_status" => ok(commands::db_status(db)),
         "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
+        "discreet_available" => ok(app.state::<crate::prefs::Prefs>().get().discreet_available),
 
         // --- writing to the journal: the whole point of the portal ---
         "create_experience" => done(commands::create_experience(db, arg(&args, "input")?)),
@@ -1016,6 +1020,8 @@ mod tests {
     fn the_phone_can_read_the_companion_switch_but_not_flip_it() {
         assert!(EXPOSED.contains(&"companion_enabled"));
         assert!(!EXPOSED.contains(&"set_companion_enabled"));
+        assert!(EXPOSED.contains(&"discreet_available"));
+        assert!(!EXPOSED.contains(&"set_discreet_available"));
     }
 
     /// Both halves of the job flow must be on the allowlist, and the blocking call

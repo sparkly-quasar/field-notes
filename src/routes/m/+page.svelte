@@ -47,6 +47,7 @@
     crisisScan,
     emergencyResources,
     companionEnabled as companionEnabledPref,
+    discreetAvailable,
     companionChat,
     companionChatStart,
     companionChatPoll,
@@ -75,7 +76,8 @@
   import TripImport from "$lib/TripImport.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
-  import { discreet, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
+  import { discreet, hiding, shown as nameShown } from "$lib/discreet.svelte";
+  import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import {
     quickLog,
@@ -292,7 +294,7 @@
   /** A title can name a drug ("Quiet LSD day"), so in discreet mode titles become
    *  what the entry is. The opened entry still shows its own words. */
   const titleOf = (e: { title: string; kind: string }, fallback = "Untitled") =>
-    discreet.on ? (e.kind === "note" ? "Journal note" : "Session") : e.title || fallback;
+    hiding() ? (e.kind === "note" ? "Journal note" : "Session") : e.title || fallback;
   const subsOf = (names: string[]) => names.map(nameShown).join(", ");
 
   // ---------- dim (red) night theme ----------
@@ -434,6 +436,8 @@
   }
 
   async function refresh() {
+    // Older servers don't know this command: then discreet mode isn't offered.
+    discreetAvailable().then((v) => (discreet.available = v)).catch(() => (discreet.available = false));
     try {
       recent = await listExperiences();
       // Only a *session* can be live — a plain note has no ended_at either, but
@@ -1336,11 +1340,11 @@
       </span>
       {#if e.kind === "session"}
         <span class="meta">
-          {[!discreet.on && e.substances.join(", ") === e.title ? "" : subsOf(e.substances), dur(e.started_at, e.ended_at), e.rating != null ? `${e.rating}/10` : ""].filter(Boolean).join(" · ")}
+          {[!hiding() && e.substances.join(", ") === e.title ? "" : subsOf(e.substances), dur(e.started_at, e.ended_at), e.rating != null ? `${e.rating}/10` : ""].filter(Boolean).join(" · ")}
         </span>
       {/if}
       {#if e.notes.trim()}
-        {#if !discreet.on}<span class="excerpt">{excerpt(e.notes)}</span>{/if}
+        {#if !hiding()}<span class="excerpt">{excerpt(e.notes)}</span>{/if}
       {:else if needsWriteup(e)}
         <span class="excerpt pending">Add a write-up when you're ready</span>
       {/if}
@@ -1390,20 +1394,10 @@
       <span class="top-right">
         {#if session && !(view === "journal" && open?.id === session.id)}
           <button class="pill live" onclick={openLive} aria-label="Open the live session">
-            <span class="live-dot" aria-hidden="true"></span>{discreet.on ? "Live" : session.title || "Live session"}
+            <span class="live-dot" aria-hidden="true"></span>{hiding() ? "Live" : session.title || "Live session"}
           </button>
         {/if}
-        <button class="discreet" class:on={discreet.on} aria-pressed={discreet.on} onclick={() => setDiscreet(!discreet.on)}
-          aria-label={discreet.on ? "Discreet mode is on: show names" : "Discreet mode: hide substance names and titles"}
-          title={discreet.on ? "Discreet mode is on" : "Discreet mode"}>
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            {#if discreet.on}
-              <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3 3.8M6.2 6.2A17 17 0 0 0 2.5 12s3.5 7 9.5 7a9.6 9.6 0 0 0 4.2-.9"/>
-            {:else}
-              <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="3"/>
-            {/if}
-          </svg>
-        </button>
+        <DiscreetToggle />
         <button class="help" onclick={openHelp}>Help</button>
       </span>
     </header>
@@ -1513,7 +1507,7 @@
                 <button class="entry" onclick={async () => { await openEntry(e.id); startWriteup(open); }}>
                   <span class="body">
                     <span class="title">{titleOf(e)}</span>
-                    <span class="meta">{[fmtDay(e.started_at), !discreet.on && e.substances.join(", ") === e.title ? "" : subsOf(e.substances)].filter(Boolean).join(" · ")}</span>
+                    <span class="meta">{[fmtDay(e.started_at), !hiding() && e.substances.join(", ") === e.title ? "" : subsOf(e.substances)].filter(Boolean).join(" · ")}</span>
                   </span>
                   <span class="chev" aria-hidden="true">›</span>
                 </button>
@@ -2436,8 +2430,6 @@
   .excerpt { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Muted, not amber: an unwritten reflection isn't a warning or overdue homework. */
   .excerpt.pending { color: var(--text-2); font-style: italic; }
-  .discreet { width: var(--tap-min); min-height: var(--tap-min); margin: 0; padding: 0; display: grid; place-items: center; border-radius: 999px; background: transparent; border: 0; color: var(--text-2); }
-  .discreet.on { color: var(--accent); background: var(--surface-2); }
   .last-dose { font-size: 1.25rem; margin: 0.2rem 0 0.6rem; font-variant-numeric: tabular-nums; }
   .since-same { font-size: var(--fs-body); font-weight: 600; margin: -0.2rem 0 0.4rem; font-variant-numeric: tabular-nums; }
   .receipt-line { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }

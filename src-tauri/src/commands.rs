@@ -1798,6 +1798,19 @@ pub fn server_update_install(app: AppHandle) -> Result<crate::server_update::Ser
     crate::server_update::install(&app)
 }
 
+/// Is discreet mode offered? Read by the phone, so enabling it in Settings on the
+/// computer brings the toggle to every paired device.
+#[tauri::command]
+pub fn discreet_available(prefs: State<'_, Prefs>) -> bool {
+    prefs.get().discreet_available
+}
+
+/// Offer discreet mode, or stop offering it. Settings on the computer only.
+#[tauri::command]
+pub fn set_discreet_available(prefs: State<'_, Prefs>, available: bool) -> Result<ServerPrefs, String> {
+    prefs.update(|p| p.discreet_available = available)
+}
+
 /// Let paired phones install updates. Desktop only: never on the portal allowlist.
 #[tauri::command]
 pub fn set_phone_can_update(prefs: State<'_, Prefs>, allowed: bool) -> Result<ServerPrefs, String> {

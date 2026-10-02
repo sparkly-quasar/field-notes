@@ -864,7 +864,7 @@ using the model switch and reading the screens as a first-timer would.
    altered, trauma-informed mental health UX, information architecture) read the
    code and screenshots. Their combined plan, in shippable phases:
 
-   **Phase 0: live-session bugs. ✅ Shipped in v0.14.4.** The desktop live screen hid
+   **Phase 0: live-session bugs. ✅ Shipped in v0.16.0.** The desktop live screen hid
    interaction warnings and the crisis banner; the phone's "now T+…" never updated;
    phone Help scrolled away and hit the status bar; desktop Help closed on a stray
    click and didn't lead with the emergency line.
@@ -872,8 +872,13 @@ using the model switch and reading the screens as a first-timer would.
    **Owner's decisions (2026-10-02), binding for the phases below:**
    - **Warm, not cool.** A warm near-black and one soft accent: "a field notebook,
      not a dashboard or an ER." Not the blue-black the app uses today.
-   - **A serif for reflection.** A bundled humanist serif for the reflective fields
-     (intention, write-up, moments) and a sans for data. Bundled, never fetched.
+   - **A serif for reflection: Literata** (owner's pick, 2026-10-02, from six OFL
+     candidates) for the reflective fields (intention, write-up, moments), with a
+     sans for data (Atkinson Hyperlegible recommended for its unambiguous I/l/1 and
+     O/0). Bundled, never fetched.
+   - **Discreet mode is opt-in** (owner, 2026-10-02): enabled in Settings on the
+     computer that holds the journal (`discreet_available` in server.json, readable
+     by the phone); once enabled, an eye toggle sits next to Help on every device.
    - **A reflection is never owed.** Any session can be marked as not needing a
      write-up (a dose of 1,4-butanediol may need none), in one tap, from the entry
      and from the "Waiting for a write-up" list. Marked entries leave that list and
@@ -881,7 +886,7 @@ using the model switch and reading the screens as a first-timer would.
    - **"What's your intention?"** is the prompt when a session starts. Plain, one
      question, optional.
 
-   **Phase 1: tone and wording (S). ✅ Shipped in v0.15.0**, with the write-up skip.
+   **Phase 1: tone and wording (S). ✅ Shipped in v0.16.0**, with the write-up skip.
    - Red means only interaction danger. Help gets its own calm, unmistakable filled
      style ("Get help"); Delete is a neutral text button that turns red only inside
      its confirm step.

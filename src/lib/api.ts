@@ -607,6 +607,8 @@ export interface ServerPrefs {
   served_https: number | null;
   /** Paired phones may install updates on this computer. Set only at the computer. */
   phone_can_update: boolean;
+  /** Discreet mode is offered (its toggle sits next to Help). */
+  discreet_available: boolean;
 }
 export interface KeychainStatus {
   /** The journal is encrypted, so there's a password to remember at all. */
@@ -662,6 +664,11 @@ export const portalRevoke = (id: number) => invoke<DeviceInfo[]>("portal_revoke"
 export const serverPrefs = () => invoke<ServerPrefs>("server_prefs");
 export const setServerPrefs = (serveOnLaunch: boolean) =>
   invoke<ServerPrefs>("set_server_prefs", { serveOnLaunch });
+/** Is discreet mode offered? Readable from the phone. */
+export const discreetAvailable = () => invoke<boolean>("discreet_available");
+/** Offer discreet mode. Settings on the computer only; not on the portal allowlist. */
+export const setDiscreetAvailable = (available: boolean) =>
+  invoke<ServerPrefs>("set_discreet_available", { available });
 /** Desktop only: let paired phones install updates here. Not on the portal allowlist. */
 export const setPhoneCanUpdate = (allowed: boolean) => invoke<ServerPrefs>("set_phone_can_update", { allowed });
 
