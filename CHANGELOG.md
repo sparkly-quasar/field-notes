@@ -11,6 +11,11 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.14.1
+
+- **Maintenance release.** Internal code tidying with no change to how the app
+  works or to your journal. Nothing to do after updating.
+
 ## v0.14.0
 
 - **Fixed: the combination check flagged safe-sounding pairs as dangerous.**
