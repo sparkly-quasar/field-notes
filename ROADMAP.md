@@ -1218,12 +1218,25 @@ emotional presence.
    miss. Give it a clear indicator (a filled pill or bar behind the active tab),
    still readable in Dim (red) and discreet mode.
 2. **5-MeO-DMT dose ranges are wrong in the lookup.** The bundled DoseWiki entry
-   lists an **Oral** route as if it were orally active on its own (it isn't without
-   an MAOI, and with one it's a dangerous combination), with "heavy" a flat 30 mg
-   above "strong" 8–15 mg; "Inhaled" duplicates "Smoked". Correct values come from
-   the owner. Put them in a small override table in `pw.rs` (like
-   `EXTRA_ALIASES`) so they survive a DoseWiki refresh, and draft the fix upstream
-   via `contribute.rs`.
+   lists an **Oral** route (it is not orally active), with "heavy" a flat 30 mg
+   above "strong" 8–15 mg, and "Inhaled" duplicates "Smoked". Replace its routes
+   with the owner's spec below, in a small override table in `pw.rs` (like
+   `EXTRA_ALIASES`) so it survives a DoseWiki refresh, credit Erowid for the
+   smoked and insufflated figures where the ranges are shown, and draft the fix
+   upstream via `contribute.rs`.
+   - **Oral: remove.** Not orally active.
+   - **Inhaled: remove** (duplicate of smoked).
+   - **Smoked/vaporized** (Erowid): threshold 1–2 mg, light 2–5, common 5–10,
+     strong 10–20. Onset 0–30 s, peak 1–15 min, duration 30 min, after-effects 1 h.
+   - **Insufflated** (Erowid): threshold 3–5 mg, light 5–10, common 8–15, strong
+     10–25. Onset 5 min, peak 10–30 min, duration 30–45 min, after-effects 1–3 h.
+   - **Intramuscular** (owner): low 0.5–1 mg, medium 1.5–3, medium-high 5–7,
+     high 8–12. The app's tiers are threshold/light/common/strong/heavy, so map
+     low → light, medium → common, medium-high → strong, high → heavy (8–12), and
+     leave the gaps between bands as gaps. The route must be named `IM` to match
+     the dose form's route list.
+   - **Sublingual:** Erowid has only "light 10 mg", the rest unknown. Owner to
+     decide whether to keep it as a single light figure or drop it.
 3. **Alcohol in drinks.** The dose form's units (mg, µg, g, ml, tab, capsule, pill)
    can't say "1 beer". Add a **drink** unit (one standard drink) with quick picks
    for beer, wine, a shot and a mixed drink (a mixed drink counts its shots, since
@@ -1237,11 +1250,17 @@ emotional presence.
    Edibles stay in mg THC.
 5. **Stats: trends.** A section that spots and reports patterns over time, in the
    same neutral voice as the rest of Stats ("nothing here is a judgement"), and
-   only once there's enough data to mean something. Candidates: how often (this
-   period against the one before), whether typical doses of a substance are
-   drifting up, whether gaps between sessions of the same substance are
-   shortening (with the tolerance note), redosing becoming more common,
-   combinations becoming more common, and ratings against spacing.
+   only once there's enough data to mean something. Each trend comes with a
+   **visual**: a small chart of the thing it describes (sessions per month with
+   the change marked, a dose line, gaps between sessions), not a sentence alone.
+   - **Frequency of use increasing** is the headline trend: this period against
+     the one before, per substance and overall.
+   - **Doses drifting up:** report it for non-psychedelics, but **not as a concern
+     for psychedelics**, where starting low and working up is a normal, intended
+     way to work. For psychedelics, show the dose line without a "rising" flag.
+   - Also: gaps between sessions of the same substance shortening (with the
+     tolerance note), redosing becoming more common, combinations becoming more
+     common, and ratings against spacing.
 6. **Check whether `server_update_status` can hang the portal** (unverified).
    While taking screenshots against a test portal with no internet, a second call
    from the phone blocked, and every later request queued behind it until restart;
