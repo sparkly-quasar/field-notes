@@ -860,6 +860,66 @@ using the model switch and reading the screens as a first-timer would.
    for frequency; day bucketing respects local time across midnight; `usage_stats` is in
    `EXPOSED`.
 
+3. **UX review and redesign (2026-10-02).** Four reviewers (visual design, use while
+   altered, trauma-informed mental health UX, information architecture) read the
+   code and screenshots. Their combined plan, in shippable phases:
+
+   **Phase 0: live-session bugs. ✅ Shipped in v0.14.4.** The desktop live screen hid
+   interaction warnings and the crisis banner; the phone's "now T+…" never updated;
+   phone Help scrolled away and hit the status bar; desktop Help closed on a stray
+   click and didn't lead with the emergency line.
+
+   **Owner's decisions (2026-10-02), binding for the phases below:**
+   - **Warm, not cool.** A warm near-black and one soft accent: "a field notebook,
+     not a dashboard or an ER." Not the blue-black the app uses today.
+   - **A serif for reflection.** A bundled humanist serif for the reflective fields
+     (intention, write-up, moments) and a sans for data. Bundled, never fetched.
+   - **A reflection is never owed.** Any session can be marked as not needing a
+     write-up (a dose of 1,4-butanediol may need none), in one tap, from the entry
+     and from the "Waiting for a write-up" list. Marked entries leave that list and
+     the "No write-up" filter, and can be unmarked.
+   - **"What's your intention?"** is the prompt when a session starts. Plain, one
+     question, optional.
+
+   **Phase 1: tone and wording (S).**
+   - Red means only interaction danger. Help gets its own calm, unmistakable filled
+     style ("Get help"); Delete is a neutral text button that turns red only inside
+     its confirm step.
+   - "No write-up yet" stops being amber (it reads as overdue homework): muted text,
+     "Add a reflection when you're ready", plus the skip option above.
+   - Warning wording matches its weight: "Use care with:" (caution), "Known dangerous
+     with:" (danger); a heavy dose is caution amber, not alarm red.
+   - Stats: "days since last session"; calendar titled "Days with a session"; with
+     one gap, "One gap so far: N days" instead of the same number twice; the dose
+     chart's axis shows years when the range crosses one.
+   - Desktop vocabulary matches the phone: session, moment, write-up (not
+     "experience", "Add note", "End experience").
+
+   **Phase 2: live session and reflection (M).**
+   - "Last: LSD 100 µg · 1h 12m ago" on the live card, and time since the last dose
+     of that substance in the dose sheet.
+   - Undo on the "Saved" receipt.
+   - Moments without typing: intensity alone, or one-tap chips.
+   - "What's your intention?" at start; the write-up opens with "You set out to: …";
+     rating comes after the write-up.
+   - End and Exit move away from Help and + Dose.
+   - Dim red night theme (true black, red text, keeps the screen awake).
+   - App-wide discreet mode (today's "Hide substance names" covers Stats only).
+
+   **Phase 3: the sleeker look (M–L).** One shared token set for both pages (warm),
+   the bundled fonts, flatter layout (no cards inside cards), calmer chips, a small
+   line-icon set with labels, and a desktop sidebar with the phone's places: Today,
+   Journal (Entries | Stats, absorbing Substance Log), Check (absorbing the
+   Directory, plus a standalone combo checker), Talk, then Settings and Get help.
+   Split `+page.svelte` into one component per view first.
+
+   **Must survive any redesign:** tap targets 44–48px (56px for + Dose, + Moment,
+   Help); body text ≥17px on the phone; no thin weights or dimmer grays; Help, + Dose,
+   + Moment, Undo, elapsed and last dose always one tap away, never in a ⋯ menu; the
+   crisis wording and offer-first flow; "Nothing flagged … isn't the same as 'safe'";
+   the never-scan-the-journal rule; warnings that stay until dismissed; undo deletes;
+   the phone's date-column journal; the Shulgin quote.
+
 ---
 
 ## Companion design principles (peer-support model)
