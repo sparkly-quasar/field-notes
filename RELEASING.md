@@ -57,9 +57,28 @@ git push origin main vX.Y.Z
 
 - The `Release` workflow builds macOS (universal), Linux, and Windows in
   parallel (~15–25 min) and creates a **draft** release with all assets.
+- **The workflow never publishes.** A draft is invisible to the in-app updater.
+  The release goes out to everyone at step 5, and only then. If you (or a script
+  or agent on your machine) run steps 4 and 5 as soon as the build finishes, the
+  tag is effectively the point of no return: v0.18.1 and v0.19.0 were public
+  within a minute of their builds. Decide before tagging.
 - A tag containing `-` (e.g. `v0.6.0-beta.1`) is automatically marked
   **prerelease**, which keeps it away from `/releases/latest` and therefore away
   from everyone's auto-updater. Plain tags become the update everyone is offered.
+
+### Holding a release back
+
+To get builds onto your own devices without offering them to everyone:
+
+- **Tag a prerelease**, e.g. `v0.20.0-beta.1`. Any tag with a `-` is marked
+  prerelease, and the updater reads `/releases/latest`, which skips prereleases.
+  It needs its own `## v0.20.0-beta.1` changelog section, or the body falls back
+  to a one-line note (fine for a beta).
+- **Already published a plain tag too early?** Edit the release on GitHub and
+  tick *Set as a pre-release*. That takes it out of `latest`, so the updater stops
+  offering it. Anyone who already updated keeps it.
+- **Mid-build?** Cancel the run from the Actions tab, then delete the draft and
+  the tag as in *If a platform build fails* below.
 
 ## 4. Round out the GitHub release page
 
@@ -78,6 +97,46 @@ carry. What the changelog deliberately leaves out is the web-page furniture, so
 Keep this download/first-launch furniture **out of `latest.json`** — it lives
 only on the web page. That's why it's appended here rather than in `CHANGELOG.md`.
 
+The text appended to every release so far, with `X.Y.Z` replaced:
+
+```markdown
+## Downloads
+
+| Platform | File |
+| --- | --- |
+| **Windows** (installer) | [Field.Notes_X.Y.Z_x64-setup.exe](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_x64-setup.exe) |
+| **Windows** (MSI) | [Field.Notes_X.Y.Z_x64_en-US.msi](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_x64_en-US.msi) |
+| **macOS** (Apple Silicon + Intel) | [Field.Notes_X.Y.Z_universal.dmg](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_universal.dmg) |
+| **Linux** (AppImage) | [Field.Notes_X.Y.Z_amd64.AppImage](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_amd64.AppImage) |
+| **Linux** (Debian/Ubuntu) | [Field.Notes_X.Y.Z_amd64.deb](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_amd64.deb) |
+| **Linux** (Fedora/RHEL) | [Field.Notes-X.Y.Z-1.x86_64.rpm](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes-X.Y.Z-1.x86_64.rpm) |
+
+Already have Field Notes installed? You don't need any of these: the app offers
+the update itself on next launch.
+
+## First launch
+
+The installers aren't code-signed, so each OS will warn you once:
+
+- **macOS**: "Field Notes can't be opened because it is from an unidentified
+  developer." Right-click (or Control-click) the app in Applications and choose
+  **Open**, then confirm. Only needed the first time.
+- **Windows**: SmartScreen shows "Windows protected your PC." Click
+  **More info → Run anyway**.
+- **Saved your journal password in the Keychain (Server Mode)?** Because the app
+  isn't code-signed, macOS asks once after each update whether Field Notes may
+  use it. Choose **Always Allow**. Until you do, the journal waits at the unlock
+  screen instead of unlocking itself.
+
+## The other files
+
+`latest.json`, `Field.Notes_universal.app.tar.gz`, and every `.sig` file belong to
+the in-app updater. You don't need to download them.
+```
+
+Check the asset names against the draft's file list before publishing: they
+follow the version, but a toolchain change can rename one.
+
 Constraints worth knowing:
 
 - **Assets cannot be grouped, reordered, or renamed.** GitHub shows a flat
@@ -88,6 +147,9 @@ Constraints worth knowing:
   so in the notes so nobody wonders.
 
 ## 5. Publish
+
+This is the step that ships: the moment it runs, every install is offered the
+update. Only once all three platforms' assets are on the draft.
 
 ```bash
 gh release edit vX.Y.Z --draft=false --latest
