@@ -2776,7 +2776,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 <button class="primary small-btn" disabled={aiBusy} onclick={doSwitchModel}>
                   {aiBusy ? "Switching…" : `Switch to ${aiPreferred}`}
                 </button>
-                <button class="small-btn" disabled={aiBusy} onclick={() => (upgradeDismissed = true)}>
+                <button class="ghost small-btn" disabled={aiBusy} onclick={() => (upgradeDismissed = true)}>
                   Not now
                 </button>
               </div>
@@ -3084,14 +3084,14 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                     <strong>{c.name}</strong>
                     {#if c.contributed}<span class="flag" title="You've saved a draft for this one. It says nothing about whether you submitted it.">draft saved</span>{/if}
                   </span>
-                  <button class="small-btn" onclick={() => previewDraft(c.id)}>Review draft…</button>
+                  <button class="ghost small-btn" onclick={() => previewDraft(c.id)}>Review draft…</button>
                 </div>
 
                 {#if contribDraft && contribDraft.name === c.name}
                   <pre class="draft">{contribDraft.json}</pre>
                   <div class="row-actions draft-actions">
                     <button class="link" onclick={() => (contribDraft = null)}>Cancel</button>
-                    <button class="small-btn" onclick={() => openUrl(contribDraft!.upstream_url)}>Open DoseWiki</button>
+                    <button class="ghost small-btn" onclick={() => openUrl(contribDraft!.upstream_url)}>Open DoseWiki</button>
                     <button class="primary small-btn" onclick={() => saveDraft(contribDraft!, c.id)}>Save draft to a file…</button>
                   </div>
                   <p class="muted small">
@@ -3240,7 +3240,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {/if}
           {#if remoteErr}<p class="notice bad-notice">{remoteErr}</p>{/if}
           <div class="row-actions">
-            <button class="small-btn" disabled={remoteBusy} onclick={syncNow}>{remoteBusy ? "Checking…" : "Sync now"}</button>
+            <button class="ghost small-btn" disabled={remoteBusy} onclick={syncNow}>{remoteBusy ? "Checking…" : "Sync now"}</button>
             <button class="ghost small-btn" onclick={disconnectRemote}>Disconnect</button>
           </div>
         {/if}
@@ -3356,7 +3356,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 reach it: it's your tailnet, encrypted end to end, and every request still needs a paired
                 device's key.
               </p>
-              <button class="small-btn" disabled={serving} onclick={toggleServe}>
+              <button class="ghost small-btn" disabled={serving} onclick={toggleServe}>
                 {serving ? "Working…" : "Stop publishing to my tailnet"}
               </button>
             {:else}
@@ -3380,7 +3380,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             </p>
             <form class="remote-form" onsubmit={(e) => { e.preventDefault(); doPair(); }}>
               <input placeholder="e.g. Phone, Laptop" maxlength="60" bind:value={pairName} bind:this={pairInput} />
-              <button class="small-btn" type="submit">Pair</button>
+              <button class="ghost small-btn" type="submit">Pair</button>
             </form>
           {:else}
             {#if pairedId === pairing.device.id}
@@ -3401,11 +3401,11 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             </ul>
             <div class="row-actions">
               {#if showQr && portalQrSvg}
-                <button class="small-btn" onclick={() => (showQr = false)}>Hide code</button>
+                <button class="ghost small-btn" onclick={() => (showQr = false)}>Hide code</button>
               {:else}
-                <button class="small-btn" onclick={revealQr}>Show QR code…</button>
+                <button class="ghost small-btn" onclick={revealQr}>Show QR code…</button>
               {/if}
-              <button class="small-btn" onclick={copyPairLink}>{pairLinkCopied ? "Link copied ✓" : "Copy link"}</button>
+              <button class="ghost small-btn" onclick={copyPairLink}>{pairLinkCopied ? "Link copied ✓" : "Copy link"}</button>
               <button class="ghost small-btn" onclick={donePairing}>Done</button>
             </div>
             {#if showQr && portalQrSvg}
@@ -3485,7 +3485,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
               </p>
               <form class="remote-form" onsubmit={(e) => { e.preventDefault(); rememberPassword(); }}>
                 <input type="password" autocomplete="current-password" placeholder="Journal password" bind:value={kcPass} />
-                <button class="small-btn" type="submit" disabled={kcBusy || !kcPass}>Save in keychain</button>
+                <button class="ghost small-btn" type="submit" disabled={kcBusy || !kcPass}>Save in keychain</button>
               </form>
             {/if}
             {#if kcErr}<p class="notice bad-notice">{kcErr}</p>{/if}
@@ -3645,7 +3645,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           journal is sent.
         </p>
         <div class="row-actions">
-          <button class="small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
+          <button class="ghost small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
             {manualCheck === "checking" ? "Checking…" : "Check for updates"}
           </button>
           {#if manualCheck === "found" && update}
@@ -3684,7 +3684,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           placeholder="Any detail you want to include (optional — you can also write it on GitHub)"
           bind:value={fbDetail}
         ></textarea>
-        <button class="small-btn" onclick={openFeedback}>Continue on GitHub →</button>
+        <button class="ghost small-btn" onclick={openFeedback}>Continue on GitHub →</button>
       </section>
 
       <section class="card danger-card">

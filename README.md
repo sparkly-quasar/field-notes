@@ -124,13 +124,13 @@ All screenshots use a fictional demo journal.
 | | |
 |:---:|:---:|
 | ![Journal home](docs/screenshots/journal-home.png) | ![Live session](docs/screenshots/live-session.png) |
-| **Journal**: sessions and plain notes in one place | **Live session**: doses and timeline with t+ offsets |
+| **Journal**: sessions and notes by month, actions in one quiet bar | **Live session**: last dose, quick log and one-tap moments |
 | ![Session detail](docs/screenshots/session-detail.png) | ![Stats](docs/screenshots/stats.png) |
 | **Session detail**: what you took, when, and how it went | **Stats**: dose over time against reference ranges, spacing, frequency, calendar |
 | ![Companion chat](docs/screenshots/companion-chat.png) | ![Substance log](docs/screenshots/substance-log.png) |
-| **Companion**: local AI support chat with selectable support styles | **Substance log**: history grouped by substance |
-| ![Substances reference](docs/screenshots/substances-reference.png) | ![Reference search](docs/screenshots/reference-search.png) |
-| **Substances**: offline dose reference and your own catalogue | **Reference search**: thousands of DoseWiki passages, searchable offline |
+| **Companion**: local AI support chat with selectable support styles | **Every dose, by substance**: the full history, under Stats |
+| ![Check](docs/screenshots/substances-reference.png) | ![Reference search](docs/screenshots/reference-search.png) |
+| **Check**: test a combination, search the reference, keep your own catalogue | **Reference search**: thousands of DoseWiki passages, searchable offline |
 | ![Emergency help](docs/screenshots/emergency-help.png) | ![Updates](docs/screenshots/settings-updates.png) |
 | **Get help now**: real crisis and peer-support contacts, always one tap away | **Updates**: automatic, or check by hand any time |
 | ![Devices and server](docs/screenshots/settings-phone-access.png) | ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) |

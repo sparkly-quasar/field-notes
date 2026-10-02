@@ -11,6 +11,15 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.18.1
+
+- **A few desktop buttons had no style.** "Pair", "Stop publishing to my
+  tailnet", "Show QR code", "Copy link", "Check for updates" and others in
+  Settings showed as plain white boxes after the redesign. They're outlined
+  pills now, like the rest.
+- **Less explaining on the phone's Today screen.** The line under "Log
+  something you took" is gone; the buttons say it.
+
 ## v0.18.0
 
 - **Pasting a trip log from some apps showed "%20" everywhere.** Text copied as
