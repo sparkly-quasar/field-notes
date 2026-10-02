@@ -1235,8 +1235,8 @@ emotional presence.
      low → light, medium → common, medium-high → strong, high → heavy (8–12), and
      leave the gaps between bands as gaps. The route must be named `IM` to match
      the dose form's route list.
-   - **Sublingual:** Erowid has only "light 10 mg", the rest unknown. Owner to
-     decide whether to keep it as a single light figure or drop it.
+   - **Sublingual: remove.** Erowid has only a single "light 10 mg" figure; the
+     owner chose to leave the route out rather than show a near-empty one.
 3. **Alcohol in drinks.** The dose form's units (mg, µg, g, ml, tab, capsule, pill)
    can't say "1 beer". Add a **drink** unit (one standard drink) with quick picks
    for beer, wine, a shot and a mixed drink (a mixed drink counts its shots, since
