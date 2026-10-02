@@ -28,7 +28,7 @@
 //! second implementation of any rule, so the interaction checker and the crisis layer
 //! behave identically whichever screen you're on.
 
-use crate::{commands, devices::Devices, Db, Knowledge};
+use crate::{commands, devices::{Devices, OWNER}, people::People, Db, Knowledge};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -244,6 +244,14 @@ fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut r
         let _ = req.respond(json_response(401, json!({ "error": "Not paired with this journal." })));
         return;
     };
+    // Whose journal: from the device record and nothing else (people.rs, rule 1).
+    let who = Caller { person: device.person, device: device.id };
+    let people = app.try_state::<People>();
+    if who.person != OWNER && !people.as_ref().is_some_and(|p| p.exists(who.person)) {
+        // Their person was removed; the device record should be gone too.
+        let _ = req.respond(json_response(401, json!({ "error": "Not paired with this journal." })));
+        return;
+    }
 
     // The token checked out, so a paired device is on the other end. Tell the
     // desktop — the pairing screen has no other way to know a scan worked, and
@@ -252,12 +260,27 @@ fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut r
     let _ = app.emit("portal-paired", device.id);
 
     // Rule 3: re-check on every request, not just at startup.
-    if !app.state::<Db>().is_unlocked() {
-        let _ = req.respond(json_response(
-            503,
-            json!({ "error": "The journal is locked on the desktop." }),
-        ));
-        return;
+    if who.person == OWNER {
+        if !app.state::<Db>().is_unlocked() {
+            let _ = req.respond(json_response(
+                503,
+                json!({ "error": "The journal is locked on the desktop." }),
+            ));
+            return;
+        }
+    } else {
+        // Another person unlocks their own journal from their own device, so the
+        // unlock itself, and everything that needs no journal (Help, the
+        // combination checker), still answers while it's locked.
+        let locked = people.as_ref().and_then(|p| p.db(who.person)).is_none_or(|d| !d.is_unlocked());
+        // Owner-only commands fall through to dispatch's 403, locked or not.
+        if locked && !LOCKED_OK.contains(&command) && !OWNER_ONLY.contains(&command) {
+            let _ = req.respond(json_response(
+                503,
+                json!({ "error": "Your journal is locked. Unlock it with your password.", "locked": true }),
+            ));
+            return;
+        }
     }
 
     let mut body = String::new();
@@ -277,7 +300,7 @@ fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut r
         }
     };
 
-    let resp = match dispatch(app, command, args) {
+    let resp = match dispatch_as(app, who, command, args) {
         Ok(v) => json_response(200, v),
         // 403, not 404: the command may well exist — it just isn't reachable from a
         // phone, and saying so plainly beats letting someone think it's a typo.
@@ -324,6 +347,11 @@ pub enum DispatchError {
     /// The command exists but is deliberately not reachable from a phone.
     NotExposed,
     Failed(String),
+}
+
+/// The caller's own devices, and only theirs.
+fn mine<R: Runtime>(app: &AppHandle<R>, who: Caller) -> Vec<crate::devices::DeviceInfo> {
+    app.state::<Devices>().list().into_iter().filter(|d| d.person == who.person).collect()
 }
 
 /// Pull a named argument out of the request body, the way Tauri's `invoke` would.
@@ -420,61 +448,129 @@ pub const EXPOSED: &[&str] = &[
     "ollama_up",
     "ollama_models",
     "ai_start",
+    // Another person on this server (people.rs), from their own device only: unlock
+    // (or, the first time, create) their journal with their password, keep it
+    // unlocked across restarts if they choose, and manage their own devices. None
+    // of these take a person: it comes from the device.
+    "person_unlock",
+    "person_remember",
+    "my_devices",
+    "pair_own_device",
+    "unpair_my_device",
 ];
 
+/// Exposed to the owner's devices only. Installing an update restarts everyone's
+/// server, so only the owner may do it from a phone.
+pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install"];
+
+/// Exposed to other people's devices only. The owner's journal unlocks at the desk,
+/// as it always has, and the owner pairs devices there.
+pub const OTHERS_ONLY: &[&str] = &["person_unlock", "person_remember", "my_devices", "pair_own_device", "unpair_my_device"];
+
+/// What another person's device may still do while their journal is locked:
+/// unlock it, and anything that holds no journal data. Help must never wait on a
+/// password.
+pub const LOCKED_OK: &[&str] = &[
+    "db_status",
+    "person_unlock",
+    "check_combo",
+    "interaction_classes",
+    "emergency_resources",
+    "knowledge_search",
+    "knowledge_status",
+    "discreet_available",
+    "companion_enabled",
+];
+
+/// Who is asking: whose journal, from which device. Built from the device record
+/// in [`api`]; never from anything in the request.
+#[derive(Clone, Copy, Debug)]
+pub struct Caller {
+    pub person: u32,
+    pub device: u64,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> Result<Value, DispatchError> {
+    dispatch_as(app, Caller { person: OWNER, device: 0 }, command, args)
+}
+
+/// Run one exposed command for `who`, against their journal and nothing else.
+pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, args: Value) -> Result<Value, DispatchError> {
     if !EXPOSED.contains(&command) {
         return Err(DispatchError::NotExposed);
     }
-    let db = app.state::<Db>();
+    let is_owner = who.person == OWNER;
+    if (is_owner && OTHERS_ONLY.contains(&command)) || (!is_owner && OWNER_ONLY.contains(&command)) {
+        return Err(DispatchError::NotExposed);
+    }
+    // Whose journal. The owner's is the app's own `Db`; anyone else's comes from
+    // `People`, by the person on the device record.
+    let owner_db = app.state::<Db>();
+    let theirs: Option<std::sync::Arc<Db>> = if is_owner {
+        None
+    } else {
+        Some(
+            app.try_state::<People>()
+                .and_then(|p| p.db(who.person))
+                .ok_or_else(|| DispatchError::Failed("This device's person is no longer on this server.".into()))?,
+        )
+    };
+    let db: &Db = match &theirs {
+        Some(d) => d,
+        None => owner_db.inner(),
+    };
     match command {
         // --- reading the journal ---
-        "list_experiences" => done(commands::list_experiences(db)),
-        "get_experience" => done(commands::get_experience(db, arg(&args, "id")?)),
+        "list_experiences" => done(commands::list_experiences_in(db)),
+        "get_experience" => done(commands::get_experience_in(db, arg(&args, "id")?)),
         "export_experience_markdown" => {
-            done(commands::export_experience_markdown(db, arg(&args, "id")?))
+            done(commands::export_experience_markdown_in(db, arg(&args, "id")?))
         }
-        "usage_by_substance" => done(commands::usage_by_substance(db)),
-        "usage_stats" => done(commands::usage_stats(db, arg(&args, "since")?)),
+        "usage_by_substance" => done(commands::usage_by_substance_in(db)),
+        "usage_stats" => done(commands::usage_stats_in(db, arg(&args, "since")?)),
         "server_update_status" => ok(crate::server_update::status(app)),
         "server_update_install" => done(crate::server_update::install(app)),
-        "list_substances" => done(commands::list_substances(db)),
-        "db_status" => ok(commands::db_status(db)),
+        "list_substances" => done(commands::list_substances_in(db)),
+        "db_status" => match &theirs {
+            None => ok(commands::db_status(owner_db)),
+            Some(_) => ok(app.state::<People>().status(who.person)),
+        },
         "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
         "discreet_available" => ok(app.state::<crate::prefs::Prefs>().get().discreet_available),
 
         // --- writing to the journal: the whole point of the portal ---
-        "create_experience" => done(commands::create_experience(db, arg(&args, "input")?)),
-        "end_experience" => done(commands::end_experience(
+        "create_experience" => done(commands::create_experience_in(db, arg(&args, "input")?)),
+        "end_experience" => done(commands::end_experience_in(
             db,
             arg(&args, "id")?,
             arg(&args, "endedAt")?,
             arg(&args, "rating")?,
             arg(&args, "notes")?,
         )),
-        "log_dose" => done(commands::log_dose(db, arg(&args, "input")?)),
-        "add_timeline_event" => done(commands::add_timeline_event(db, arg(&args, "input")?)),
-        "add_substance" => done(commands::add_substance(db, arg(&args, "input")?)),
+        "log_dose" => done(commands::log_dose_in(db, arg(&args, "input")?)),
+        "add_timeline_event" => done(commands::add_timeline_event_in(db, arg(&args, "input")?)),
+        "add_substance" => done(commands::add_substance_in(db, arg(&args, "input")?)),
         "update_experience" => {
-            done(commands::update_experience(db, arg(&args, "id")?, arg(&args, "update")?))
+            done(commands::update_experience_in(db, arg(&args, "id")?, arg(&args, "update")?))
         }
         "set_writeup_skipped" => {
-            done(commands::set_writeup_skipped(db, arg(&args, "id")?, arg(&args, "skipped")?))
+            done(commands::set_writeup_skipped_in(db, arg(&args, "id")?, arg(&args, "skipped")?))
         }
-        "update_dose" => done(commands::update_dose(db, arg(&args, "id")?, arg(&args, "update")?)),
+        "update_dose" => done(commands::update_dose_in(db, arg(&args, "id")?, arg(&args, "update")?)),
         "update_timeline_event" => {
-            done(commands::update_timeline_event(db, arg(&args, "id")?, arg(&args, "update")?))
+            done(commands::update_timeline_event_in(db, arg(&args, "id")?, arg(&args, "update")?))
         }
-        "delete_experience" => done(commands::delete_experience(db, arg(&args, "id")?)),
-        "delete_dose" => done(commands::delete_dose(db, arg(&args, "id")?)),
-        "delete_timeline_event" => done(commands::delete_timeline_event(db, arg(&args, "id")?)),
-        "delete_substance" => done(commands::delete_substance(db, arg(&args, "id")?)),
-        "remove_duplicate_entries" => done(commands::remove_duplicate_entries(db)),
+        "delete_experience" => done(commands::delete_experience_in(db, arg(&args, "id")?)),
+        "delete_dose" => done(commands::delete_dose_in(db, arg(&args, "id")?)),
+        "delete_timeline_event" => done(commands::delete_timeline_event_in(db, arg(&args, "id")?)),
+        "delete_substance" => done(commands::delete_substance_in(db, arg(&args, "id")?)),
+        "remove_duplicate_entries" => done(commands::remove_duplicate_entries_in(db)),
 
         // --- safety: the same deterministic layers the desktop uses ---
-        "check_combo" => ok(commands::check_combo(db, arg(&args, "names")?)),
+        "check_combo" => ok(commands::check_combo_in(db, arg(&args, "names")?)),
         "interaction_classes" => ok(commands::interaction_classes()),
-        "crisis_scan" => ok(commands::crisis_scan(
+        "crisis_scan" => ok(commands::crisis_scan_in(
             db,
             arg(&args, "text")?,
             arg(&args, "experienceId")?,
@@ -483,9 +579,9 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         "emergency_resources" => ok(commands::emergency_resources()),
 
         // --- reference ---
-        "pw_status" => done(commands::pw_status(db)),
-        "pw_lookup" => done(commands::pw_lookup(db, arg(&args, "name")?)),
-        "pw_names" => done(commands::pw_names(db)),
+        "pw_status" => done(commands::pw_status_in(db)),
+        "pw_lookup" => done(commands::pw_lookup_in(db, arg(&args, "name")?)),
+        "pw_names" => done(commands::pw_names_in(db)),
         "knowledge_search" => ok(commands::knowledge_search(
             app.state(),
             arg(&args, "query")?,
@@ -502,7 +598,7 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             // function directly and keep this path blocking.
             let kb = app.state::<Knowledge>();
             done(commands::companion_chat_inner(
-                db.inner(),
+                db,
                 kb.inner(),
                 arg(&args, "model")?,
                 arg(&args, "history")?,
@@ -519,11 +615,16 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
             let support_style: Option<String> = arg(&args, "supportStyle")?;
             let id = app.state::<CompanionJobs>().begin();
             let app = app.clone();
+            let theirs = theirs.clone();
             std::thread::spawn(move || {
-                let db = app.state::<Db>();
+                let owner_db = app.state::<Db>();
+                let db: &Db = match &theirs {
+                    Some(d) => d,
+                    None => owner_db.inner(),
+                };
                 let kb = app.state::<Knowledge>();
                 let result = commands::companion_chat_inner(
-                    db.inner(),
+                    db,
                     kb.inner(),
                     model,
                     history,
@@ -555,6 +656,36 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, command: &str, args: Value) -> R
         // (`ai_install`/`ai_pull` stay desktop-only). `commands::ai_start` is `async`
         // purely to keep Tauri's UI thread free, so we call the same inner function.
         "ai_start" => done(crate::ollama::ensure_serving()),
+
+        // --- another person on this server: their own journal, their own devices ---
+        "person_unlock" => {
+            let people = app.state::<People>();
+            let password: String = arg(&args, "password")?;
+            let opened = people.unlock(who.person, who.device, &password).map_err(DispatchError::Failed)?;
+            // The dose reference lives inside each journal; load it into theirs.
+            commands::refresh_dose_reference(app, &opened);
+            ok(people.status(who.person))
+        }
+        "person_remember" => {
+            let people = app.state::<People>();
+            let remember: bool = arg(&args, "remember")?;
+            let password: Option<String> = arg(&args, "password")?;
+            people
+                .set_remember(who.person, who.device, remember, password.as_deref())
+                .map_err(DispatchError::Failed)?;
+            ok(people.status(who.person))
+        }
+        "my_devices" => ok(mine(app, who)),
+        "pair_own_device" => {
+            let name: String = arg(&args, "name")?;
+            let (device, token) =
+                app.state::<Devices>().pair_for(&name, who.person).map_err(DispatchError::Failed)?;
+            ok(json!({ "device": device, "token": token }))
+        }
+        "unpair_my_device" => {
+            app.state::<Devices>().revoke_own(who.person, arg(&args, "id")?).map_err(DispatchError::Failed)?;
+            ok(mine(app, who))
+        }
 
         _ => Err(DispatchError::NotExposed),
     }
@@ -690,6 +821,139 @@ mod tests {
             Err(ureq::Error::Status(code, r)) => (code, r.into_string().unwrap_or_default()),
             Err(e) => panic!("transport error: {e}"),
         }
+    }
+
+    // ---- Two people on one server (people.rs) ----
+
+    /// A running portal with the owner's journal and a second person, Sam, whose
+    /// journal doesn't exist yet. Returns the owner's token and Sam's.
+    fn serving_two() -> (tauri::AppHandle<tauri::test::MockRuntime>, u16, String, String) {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock app");
+        let dir = std::env::temp_dir().join(format!("fn-people-portal-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.db");
+        let conn = crate::db::open(&path, None).unwrap();
+        app.manage(Db::new(Some(conn), path.clone()));
+        app.manage(Knowledge(None));
+        app.manage(Portal::default());
+        app.manage(CompanionJobs::default());
+        let people = People::load(&dir);
+        let sam = people.add("Sam").unwrap();
+        app.manage(people);
+        let devices = Devices::load(dir.join("devices.json"));
+        let (_, owner_token) = devices.pair("Owner phone").unwrap();
+        let (_, sam_token) = devices.pair_for("Sam phone", sam.id).unwrap();
+        app.manage(devices);
+        let handle = app.handle().clone();
+        let port = start(&handle).expect("portal starts").port.unwrap();
+        (handle, port, owner_token, sam_token)
+    }
+
+    fn new_session(title: &str) -> Value {
+        json!({ "input": { "kind": "session", "title": title, "intention": "", "setting": "", "started_at": "2026-09-01T20:00:00Z" } })
+    }
+
+    #[test]
+    fn another_persons_journal_is_locked_until_they_choose_a_password_but_help_still_answers() {
+        let (_app, port, _owner, sam) = serving_two();
+        let (status, body) = post(port, "db_status", Some(&sam), json!({}));
+        assert_eq!(status, 200, "{body}");
+        let st: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(st["new_journal"], true);
+        assert_eq!(st["unlocked"], false);
+        assert_eq!(st["person_name"], "Sam");
+
+        // Journal commands wait for the password...
+        let (status, body) = post(port, "list_experiences", Some(&sam), json!({}));
+        assert_eq!(status, 503, "{body}");
+        assert!(body.contains("locked"));
+        // ...but Help and the combination checker never do.
+        assert_eq!(post(port, "emergency_resources", Some(&sam), json!({})).0, 200);
+        assert_eq!(post(port, "check_combo", Some(&sam), json!({ "names": ["MDMA", "tramadol"] })).0, 200);
+
+        // Too short a password is refused; a real one creates the journal.
+        let (status, body) = post(port, "person_unlock", Some(&sam), json!({ "password": "short" }));
+        assert_eq!(status, 400, "{body}");
+        let (status, body) = post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" }));
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 200);
+    }
+
+    /// The core promise, against the real request path: everything one person's
+    /// device can call never returns a word of the other person's journal.
+    #[test]
+    fn one_persons_device_never_sees_the_other_persons_entries() {
+        let (_app, port, owner, sam) = serving_two();
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+
+        assert_eq!(post(port, "create_experience", Some(&owner), new_session("OWNERSECRET evening")).0, 200);
+        assert_eq!(post(port, "create_experience", Some(&sam), new_session("SAMSECRET night")).0, 200);
+
+        let (_, mine) = post(port, "list_experiences", Some(&owner), json!({}));
+        assert!(mine.contains("OWNERSECRET") && !mine.contains("SAMSECRET"), "{mine}");
+        let (_, theirs) = post(port, "list_experiences", Some(&sam), json!({}));
+        assert!(theirs.contains("SAMSECRET") && !theirs.contains("OWNERSECRET"), "{theirs}");
+
+        // Every exposed command, as each person, with a spread of plausible ids.
+        for (token, other) in [(&sam, "OWNERSECRET"), (&owner, "SAMSECRET")] {
+            for cmd in EXPOSED {
+                if ["person_unlock", "person_remember", "server_update_status", "server_update_install", "ai_start", "companion_warm", "companion_chat", "companion_chat_start"].contains(cmd) {
+                    continue; // hold no journal data: they change state, reach for a model or the updater
+                }
+                for id in 1..=3 {
+                    let (_, body) = post(port, cmd, Some(token), json!({ "id": id, "since": null, "names": ["LSD"], "text": "hi", "query": "x", "name": "LSD", "experienceId": id }));
+                    assert!(!body.contains(other), "`{cmd}` leaked the other person's journal: {body}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn people_reach_only_their_own_commands_and_their_own_devices() {
+        let (app, port, owner, sam) = serving_two();
+        // Only the owner may install an update; only others unlock from a phone.
+        assert_eq!(post(port, "server_update_install", Some(&sam), json!({})).0, 403);
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
+        assert_eq!(post(port, "person_unlock", Some(&owner), json!({ "password": "correct horse battery" })).0, 403);
+        assert_eq!(post(port, "pair_own_device", Some(&owner), json!({ "name": "x" })).0, 403);
+
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+        let (_, body) = post(port, "my_devices", Some(&sam), json!({}));
+        assert!(body.contains("Sam phone") && !body.contains("Owner phone"), "{body}");
+
+        // Sam can't un-pair the owner's phone, however the id is guessed.
+        let owner_id = app.state::<Devices>().list().iter().find(|d| d.person == OWNER).unwrap().id;
+        let (status, _) = post(port, "unpair_my_device", Some(&sam), json!({ "id": owner_id }));
+        assert_eq!(status, 400);
+        assert_eq!(post(port, "list_experiences", Some(&owner), json!({})).0, 200);
+
+        // A second device of Sam's opens Sam's journal.
+        let (status, body) = post(port, "pair_own_device", Some(&sam), json!({ "name": "Sam laptop" }));
+        assert_eq!(status, 200, "{body}");
+        let token2 = serde_json::from_str::<Value>(&body).unwrap()["token"].as_str().unwrap().to_string();
+        assert_eq!(post(port, "list_experiences", Some(&token2), json!({})).0, 200);
+
+        // Removing Sam un-pairs every device of theirs at once.
+        let people = app.state::<People>();
+        app.state::<Devices>().revoke_person(2).unwrap();
+        people.remove(2).unwrap();
+        assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 401);
+        assert_eq!(post(port, "list_experiences", Some(&token2), json!({})).0, 401);
+        assert_eq!(post(port, "list_experiences", Some(&owner), json!({})).0, 200);
+    }
+
+    #[test]
+    fn no_exposed_command_lets_a_phone_name_a_person() {
+        // The person comes from the device. If a command ever grows a `person`
+        // argument, this source check fails before it ships.
+        let src = include_str!("portal.rs");
+        let start = src.find("pub fn dispatch_as").unwrap();
+        let dispatch = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        assert!(dispatch.contains("person_unlock"), "the slice must cover dispatch_as");
+        assert!(!dispatch.contains("\"person\""), "dispatch_as must never read a person from the request");
     }
 
     #[test]

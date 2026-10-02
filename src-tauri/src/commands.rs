@@ -31,11 +31,21 @@ pub fn interaction_classes() -> Vec<&'static str> {
 
 #[tauri::command]
 pub fn list_substances(db: State<'_, Db>) -> Result<Vec<Substance>, String> {
+    list_substances_in(&db)
+}
+
+/// [`list_substances`] against any person's journal (the portal picks it by device).
+pub fn list_substances_in(db: &Db) -> Result<Vec<Substance>, String> {
     db.with(db::list_substances)
 }
 
 #[tauri::command]
 pub fn add_substance(db: State<'_, Db>, input: SubstanceInput) -> Result<Substance, String> {
+    add_substance_in(&db, input)
+}
+
+/// [`add_substance`] against any person's journal (the portal picks it by device).
+pub fn add_substance_in(db: &Db, input: SubstanceInput) -> Result<Substance, String> {
     db.with(|c| db::add_substance(c, &input))
 }
 
@@ -45,6 +55,11 @@ pub fn add_substance(db: State<'_, Db>, input: SubstanceInput) -> Result<Substan
 /// we fall back to the built-in classes rather than going silent.
 #[tauri::command]
 pub fn check_combo(db: State<'_, Db>, names: Vec<String>) -> Vec<Warning> {
+    check_combo_in(&db, names)
+}
+
+/// [`check_combo`] against any person's journal (the portal picks it by device).
+pub fn check_combo_in(db: &Db, names: Vec<String>) -> Vec<Warning> {
     db.with(|c| Ok(db::combo_warnings(c, &names))).unwrap_or_else(|_| {
         let subs: Vec<(String, Vec<String>)> =
             names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
@@ -54,16 +69,31 @@ pub fn check_combo(db: State<'_, Db>, names: Vec<String>) -> Vec<Warning> {
 
 #[tauri::command]
 pub fn create_experience(db: State<'_, Db>, input: ExperienceInput) -> Result<Experience, String> {
+    create_experience_in(&db, input)
+}
+
+/// [`create_experience`] against any person's journal (the portal picks it by device).
+pub fn create_experience_in(db: &Db, input: ExperienceInput) -> Result<Experience, String> {
     db.with(|c| db::create_experience(c, &input))
 }
 
 #[tauri::command]
 pub fn list_experiences(db: State<'_, Db>) -> Result<Vec<ExperienceSummary>, String> {
+    list_experiences_in(&db)
+}
+
+/// [`list_experiences`] against any person's journal (the portal picks it by device).
+pub fn list_experiences_in(db: &Db) -> Result<Vec<ExperienceSummary>, String> {
     db.with(db::list_experiences)
 }
 
 #[tauri::command]
 pub fn get_experience(db: State<'_, Db>, id: i64) -> Result<ExperienceDetail, String> {
+    get_experience_in(&db, id)
+}
+
+/// [`get_experience`] against any person's journal (the portal picks it by device).
+pub fn get_experience_in(db: &Db, id: i64) -> Result<ExperienceDetail, String> {
     db.with(|c| db::get_experience(c, id))
 }
 
@@ -75,6 +105,11 @@ pub fn end_experience(
     rating: Option<i64>,
     notes: String,
 ) -> Result<Experience, String> {
+    end_experience_in(&db, id, ended_at, rating, notes)
+}
+
+/// [`end_experience`] against any person's journal (the portal picks it by device).
+pub fn end_experience_in(db: &Db, id: i64, ended_at: String, rating: Option<i64>, notes: String) -> Result<Experience, String> {
     db.with(|c| db::end_experience(c, id, &ended_at, rating, &notes))
 }
 
@@ -86,23 +121,43 @@ pub struct LogDoseResult {
 
 #[tauri::command]
 pub fn log_dose(db: State<'_, Db>, input: DoseInput) -> Result<LogDoseResult, String> {
+    log_dose_in(&db, input)
+}
+
+/// [`log_dose`] against any person's journal (the portal picks it by device).
+pub fn log_dose_in(db: &Db, input: DoseInput) -> Result<LogDoseResult, String> {
     let (dose, warnings) = db.with(|c| db::log_dose(c, &input))?;
     Ok(LogDoseResult { dose, warnings })
 }
 
 #[tauri::command]
 pub fn add_timeline_event(db: State<'_, Db>, input: TimelineInput) -> Result<TimelineEvent, String> {
+    add_timeline_event_in(&db, input)
+}
+
+/// [`add_timeline_event`] against any person's journal (the portal picks it by device).
+pub fn add_timeline_event_in(db: &Db, input: TimelineInput) -> Result<TimelineEvent, String> {
     db.with(|c| db::add_timeline_event(c, &input))
 }
 
 /// Usage stats (roadmap #2) for doses at or after `since`, or all time. Read-only.
 #[tauri::command]
 pub fn usage_stats(db: State<'_, Db>, since: Option<String>) -> Result<stats::UsageStats, String> {
+    usage_stats_in(&db, since)
+}
+
+/// [`usage_stats`] against any person's journal (the portal picks it by device).
+pub fn usage_stats_in(db: &Db, since: Option<String>) -> Result<stats::UsageStats, String> {
     db.with(|c| stats::usage_stats(c, since.as_deref()))
 }
 
 #[tauri::command]
 pub fn usage_by_substance(db: State<'_, Db>) -> Result<Vec<SubstanceUsage>, String> {
+    usage_by_substance_in(&db)
+}
+
+/// [`usage_by_substance`] against any person's journal (the portal picks it by device).
+pub fn usage_by_substance_in(db: &Db) -> Result<Vec<SubstanceUsage>, String> {
     db.with(db::usage_by_substance)
 }
 
@@ -110,48 +165,93 @@ pub fn usage_by_substance(db: State<'_, Db>) -> Result<Vec<SubstanceUsage>, Stri
 
 #[tauri::command]
 pub fn update_experience(db: State<'_, Db>, id: i64, update: ExperienceUpdate) -> Result<Experience, String> {
+    update_experience_in(&db, id, update)
+}
+
+/// [`update_experience`] against any person's journal (the portal picks it by device).
+pub fn update_experience_in(db: &Db, id: i64, update: ExperienceUpdate) -> Result<Experience, String> {
     db.with(|c| db::update_experience(c, id, &update))
 }
 
 /// "Doesn't need a write-up." Exposed to the phone and routed for a client.
 #[tauri::command]
 pub fn set_writeup_skipped(db: State<'_, Db>, id: i64, skipped: bool) -> Result<Experience, String> {
+    set_writeup_skipped_in(&db, id, skipped)
+}
+
+/// [`set_writeup_skipped`] against any person's journal (the portal picks it by device).
+pub fn set_writeup_skipped_in(db: &Db, id: i64, skipped: bool) -> Result<Experience, String> {
     db.with(|c| db::set_writeup_skipped(c, id, skipped))
 }
 
 #[tauri::command]
 pub fn update_dose(db: State<'_, Db>, id: i64, update: DoseUpdate) -> Result<Dose, String> {
+    update_dose_in(&db, id, update)
+}
+
+/// [`update_dose`] against any person's journal (the portal picks it by device).
+pub fn update_dose_in(db: &Db, id: i64, update: DoseUpdate) -> Result<Dose, String> {
     db.with(|c| db::update_dose(c, id, &update))
 }
 
 #[tauri::command]
 pub fn update_timeline_event(db: State<'_, Db>, id: i64, update: TimelineUpdate) -> Result<TimelineEvent, String> {
+    update_timeline_event_in(&db, id, update)
+}
+
+/// [`update_timeline_event`] against any person's journal (the portal picks it by device).
+pub fn update_timeline_event_in(db: &Db, id: i64, update: TimelineUpdate) -> Result<TimelineEvent, String> {
     db.with(|c| db::update_timeline_event(c, id, &update))
 }
 
 #[tauri::command]
 pub fn delete_experience(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    delete_experience_in(&db, id)
+}
+
+/// [`delete_experience`] against any person's journal (the portal picks it by device).
+pub fn delete_experience_in(db: &Db, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_experience(c, id))
 }
 
 /// Remove exact duplicate entries, keeping the oldest of each. Returns how many.
 #[tauri::command]
 pub fn remove_duplicate_entries(db: State<'_, Db>) -> Result<usize, String> {
+    remove_duplicate_entries_in(&db)
+}
+
+/// [`remove_duplicate_entries`] against any person's journal (the portal picks it by device).
+pub fn remove_duplicate_entries_in(db: &Db) -> Result<usize, String> {
     db.with(db::remove_duplicate_experiences)
 }
 
 #[tauri::command]
 pub fn delete_dose(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    delete_dose_in(&db, id)
+}
+
+/// [`delete_dose`] against any person's journal (the portal picks it by device).
+pub fn delete_dose_in(db: &Db, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_dose(c, id))
 }
 
 #[tauri::command]
 pub fn delete_timeline_event(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    delete_timeline_event_in(&db, id)
+}
+
+/// [`delete_timeline_event`] against any person's journal (the portal picks it by device).
+pub fn delete_timeline_event_in(db: &Db, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_timeline_event(c, id))
 }
 
 #[tauri::command]
 pub fn delete_substance(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    delete_substance_in(&db, id)
+}
+
+/// [`delete_substance`] against any person's journal (the portal picks it by device).
+pub fn delete_substance_in(db: &Db, id: i64) -> Result<(), String> {
     db.with(|c| db::delete_substance(c, id))
 }
 
@@ -174,13 +274,18 @@ pub fn pw_update(app: AppHandle, db: State<'_, Db>) -> Result<usize, String> {
 
 #[tauri::command]
 pub fn pw_status(db: State<'_, Db>) -> Result<PwStatus, String> {
+    pw_status_in(&db)
+}
+
+/// [`pw_status`] against any person's journal (the portal picks it by device).
+pub fn pw_status_in(db: &Db) -> Result<PwStatus, String> {
     let (count, _last_fetched) = db.with(db::pw_status)?;
     Ok(PwStatus { count, snapshot: pw::DOSEWIKI_SNAPSHOT })
 }
 
 /// Reload the bundled dose reference into the (open) cache. Shared by startup and
 /// the unlock flow. Silent on failure — the reference is non-critical.
-pub(crate) fn refresh_dose_reference(app: &AppHandle, db: &Db) {
+pub(crate) fn refresh_dose_reference<R: tauri::Runtime>(app: &AppHandle<R>, db: &Db) {
     match pw::load_bundled(app) {
         Ok(subs) => {
             if let Err(e) = db.with_mut(|c| db::pw_replace_all(c, &subs)) {
@@ -194,11 +299,21 @@ pub(crate) fn refresh_dose_reference(app: &AppHandle, db: &Db) {
 /// Names and street names from the dose reference, for matching pasted logs.
 #[tauri::command]
 pub fn pw_names(db: State<'_, Db>) -> Result<Vec<db::PwName>, String> {
+    pw_names_in(&db)
+}
+
+/// [`pw_names`] against any person's journal (the portal picks it by device).
+pub fn pw_names_in(db: &Db) -> Result<Vec<db::PwName>, String> {
     db.with(db::pw_names)
 }
 
 #[tauri::command]
 pub fn pw_lookup(db: State<'_, Db>, name: String) -> Result<Option<PwInfo>, String> {
+    pw_lookup_in(&db, name)
+}
+
+/// [`pw_lookup`] against any person's journal (the portal picks it by device).
+pub fn pw_lookup_in(db: &Db, name: String) -> Result<Option<PwInfo>, String> {
     db.with(|c| db::pw_lookup(c, &name))
 }
 
@@ -1127,11 +1242,23 @@ pub fn crisis_scan(
     // expressive distress be judged on repetition rather than on one sentence.
     recent: Option<Vec<String>>,
 ) -> crate::crisis::CrisisResult {
+    crisis_scan_in(&db, text, experience_id, recent)
+}
+
+/// [`crisis_scan`] against any person's journal (the portal picks it by device).
+pub fn crisis_scan_in(
+    db: &Db,
+    text: String,
+    experience_id: Option<i64>,
+    // Earlier messages from the person this conversation, oldest first. Lets
+    // expressive distress be judged on repetition rather than on one sentence.
+    recent: Option<Vec<String>>,
+) -> crate::crisis::CrisisResult {
     let names: Vec<String> = experience_id
         .and_then(|id| db.with(|c| db::get_experience(c, id)).ok())
         .map(|detail| detail.doses.iter().map(|d| d.substance_name.clone()).collect())
         .unwrap_or_default();
-    crisis_scan_names(db.inner(), text, &names, recent)
+    crisis_scan_names(db, text, &names, recent)
 }
 
 /// The body of [`crisis_scan`], given the session's substances directly rather than
@@ -1378,6 +1505,8 @@ pub fn wipe_all_data(app: AppHandle, db: State<'_, Db>) -> Result<(), String> {
     // and forget any remembered passphrase.
     app.state::<Portal>().stop();
     let _ = app.state::<Devices>().revoke_all();
+    // Everyone else's journal too: this erases the whole server.
+    app.state::<crate::people::People>().remove_all();
     let _ = keychain::forget();
     let _ = app.state::<Prefs>().update(|p| *p = ServerPrefs::default());
     {
@@ -1421,6 +1550,11 @@ pub struct ExportedNote {
 /// is safe to expose to the phone, which downloads the text in the browser.
 #[tauri::command]
 pub fn export_experience_markdown(db: State<'_, Db>, id: i64) -> Result<ExportedNote, String> {
+    export_experience_markdown_in(&db, id)
+}
+
+/// [`export_experience_markdown`] against any person's journal (the portal picks it by device).
+pub fn export_experience_markdown_in(db: &Db, id: i64) -> Result<ExportedNote, String> {
     let detail = db.with(|c| db::get_experience(c, id))?;
     Ok(ExportedNote {
         filename: crate::obsidian::note_filename(&detail),
@@ -1857,9 +1991,52 @@ pub struct PairResult {
 }
 
 #[tauri::command]
-pub fn portal_pair(devices: State<'_, Devices>, name: String) -> Result<PairResult, String> {
-    let (device, token) = devices.pair(&name)?;
+pub fn portal_pair(
+    devices: State<'_, Devices>,
+    people: State<'_, crate::people::People>,
+    name: String,
+    person: Option<u32>,
+) -> Result<PairResult, String> {
+    // Pairing for someone else: their first device, or a replacement for a lost one.
+    // The device opens their journal only, and only once they've unlocked it.
+    let person = person.unwrap_or(crate::devices::OWNER);
+    if person != crate::devices::OWNER && !people.exists(person) {
+        return Err("No such person.".into());
+    }
+    let (device, token) = devices.pair_for(&name, person)?;
     Ok(PairResult { device, token })
+}
+
+// ---------- other people on this server (people.rs) ----------
+// Desktop only, and never on the portal allowlist. Names, device counts and locked
+// or unlocked: never anything from inside someone else's journal.
+
+#[tauri::command]
+pub fn people_list(people: State<'_, crate::people::People>) -> Vec<crate::people::PersonInfo> {
+    people.list()
+}
+
+#[tauri::command]
+pub fn person_add(people: State<'_, crate::people::People>, name: String) -> Result<crate::people::PersonInfo, String> {
+    people.add(&name)
+}
+
+/// Remove a person: un-pair their devices and delete their journal. `confirm` must
+/// be their name, typed, because nobody (the owner included) can open it first.
+#[tauri::command]
+pub fn person_remove(
+    people: State<'_, crate::people::People>,
+    devices: State<'_, Devices>,
+    id: u32,
+    confirm: String,
+) -> Result<Vec<crate::people::PersonInfo>, String> {
+    let name = people.name(id).ok_or("No such person.")?;
+    if !confirm.trim().eq_ignore_ascii_case(&name) {
+        return Err(format!("Type {name} to confirm."));
+    }
+    devices.revoke_person(id)?;
+    people.remove(id)?;
+    Ok(people.list())
 }
 
 #[tauri::command]
