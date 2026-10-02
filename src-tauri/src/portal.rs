@@ -598,12 +598,7 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         // --- safety: the same deterministic layers the desktop uses ---
         "check_combo" => ok(commands::check_combo_in(db, arg(&args, "names")?)),
         "interaction_classes" => ok(commands::interaction_classes()),
-        "crisis_scan" => ok(commands::crisis_scan_in(
-            db,
-            arg(&args, "text")?,
-            arg(&args, "experienceId")?,
-            arg(&args, "recent")?,
-        )),
+        "crisis_scan" => ok(commands::crisis_scan_text(arg(&args, "text")?, arg(&args, "recent")?)),
         "emergency_resources" => ok(commands::emergency_resources()),
 
         // --- reference ---

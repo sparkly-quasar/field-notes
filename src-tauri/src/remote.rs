@@ -900,14 +900,9 @@ fn offline<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: Value, why: &str) ->
             serde_json::to_value(commands::check_combo(db, names)).map_err(|e| e.to_string())
         }
         "crisis_scan" => {
-            let names = args["experienceId"]
-                .as_i64()
-                .and_then(|id| db.with(|c| Ok(overlay_detail(c, id))).ok().flatten())
-                .map(|d| session_names(&d))
-                .unwrap_or_default();
             let text = args["text"].as_str().unwrap_or_default().to_string();
             let recent: Option<Vec<String>> = serde_json::from_value(args["recent"].clone()).ok();
-            serde_json::to_value(commands::crisis_scan_names(db.inner(), text, &names, recent))
+            serde_json::to_value(commands::crisis_scan_text(text, recent))
                 .map_err(|e| e.to_string())
         }
         "ollama_up" => Ok(json!(false)),

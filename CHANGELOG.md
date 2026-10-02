@@ -40,9 +40,10 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   combination if both were active at the same time, by how long each lasts.
   Repeated warnings with the same message show once, naming every pair. On the
   phone, warnings now say which substances they're about.
-- **A past or imported session no longer says "get help now".** A dangerous
-  combination in a session that's over is shown as a warning, not a medical
-  emergency. A live session still gets the emergency resources.
+- **What you log no longer says "get help now".** A dangerous combination is
+  shown as a warning, live or past, and never as a medical emergency: what was
+  taken can't tell anyone how you're doing. The emergency banner now only
+  responds to what you write in Talk, and Help is always one tap away.
 - **Fewer false matches, one real one added.** Warnings about the 5-MeO
   tryptamines no longer fire for DMT. 1,4-butanediol now gets GHB's
   interaction warnings (it becomes GHB in the body), and rilmazafone is
