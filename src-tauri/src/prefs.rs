@@ -25,6 +25,11 @@ pub struct ServerPrefs {
     /// `server_update.rs` for the guards that apply even when it's on.
     #[serde(default)]
     pub phone_can_update: bool,
+    /// Discreet mode is offered (the eye toggle next to Help, on this computer and
+    /// its paired phones). Off by default. Whether names are hidden right now is a
+    /// per-device choice kept in each browser; this only makes the toggle appear.
+    #[serde(default)]
+    pub discreet_available: bool,
 }
 
 pub struct Prefs {

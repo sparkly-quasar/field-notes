@@ -13,63 +13,58 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.16.0
 
-- **When was the last dose?** A live session now shows it in large type:
-  "Last: LSD 100 µg · 1h 12m ago". On the phone, logging another dose of the
-  same substance shows how long it's been since the last one.
-- **Undo a dose you just logged.** Tap **Undo** on the "Saved" message on the
-  phone, or next to "Logged" on the desktop's live session screen.
-- **Moments without typing.** Tap how it is (Coming up, Peaking, Calm,
-  Anxious, Nauseous, Need water, Coming down) and that's a moment. Words and
-  intensity are optional.
-- **"What's your intention?"** Starting a session asks, if you want to say.
-  When you write it up later, it opens with "You set out to: …", and the
-  rating now comes after the write-up.
+**Safety fixes**
+
+- **Warnings now show during a live session on the desktop.** Combination
+  warnings and safety prompts appeared on the page underneath the live session
+  screen, out of sight. They now appear right under the session's title.
+- **The phone's elapsed time keeps up.** "now T+…" on the live session card now
+  updates every 30 seconds, and straight away when you unlock the phone.
+- **Help stays on screen on the phone** while you scroll, clear of the clock and
+  battery. **Get help now** on the desktop starts with "If someone is in danger,
+  call your local emergency number now," and only closes when you press Close.
+
+**During a session**
+
+- **When was the last dose?** A live session shows it in large type: "Last: LSD
+  100 µg · 1h 12m ago". On the phone, logging the same substance again shows how
+  long it's been since the last one.
+- **Undo a dose you just logged**, from the "Saved" message on the phone or next
+  to "Logged" on the desktop's live session screen.
+- **Moments without typing.** Tap how it is (Coming up, Peaking, Calm, Anxious,
+  Nauseous, Need water, Coming down) and that's a moment.
 - **Dim (red) screen on the phone.** True black with red text, easier on your
-  eyes in the dark, and it keeps the screen from locking. Turn it on from the
-  live session card, or when you start a session.
-- **Discreet mode everywhere.** Tap the eye at the top of the phone app (or
-  tick **Discreet** in the desktop Journal) to swap substance names for
-  stand-ins like "Substance K7" and hide entry titles and previews in lists.
-  The same stand-in is used on every screen. Opening an entry still shows it
-  in full.
-- **Ending a session is harder to hit by accident.** It sits apart from
-  logging and Help.
+  eyes in the dark, and it keeps the screen from locking. Turn it on from the live
+  session card or when you start a session.
+- **Ending a session is harder to hit by accident.** It sits apart from logging
+  and Help.
 
-## v0.15.0
+**Reflection**
 
-- **Not every session needs a write-up.** Mark any finished session as not
-  needing one: **No need** in the phone's write-up list, **Doesn't need one**
-  on the entry, or tick **This one doesn't need a write-up** when you end it.
-  It stops being listed as waiting, and you can undo it any time.
-- **Gentler reminders.** An entry without a write-up now says "Add a write-up
-  when you're ready" in quiet text, instead of an orange "No write-up yet".
-- **Help looks like help.** The Help button has its own warm colour on the
-  phone and the desktop, so it no longer looks like Delete or a warning. On
-  the desktop the tab is now called **Get help**.
-- **Red is only for real danger.** Delete is a plain button until you
-  confirm. Warnings say "Known dangerous" or "Use care" instead of shouting
-  DANGER, and a heavy dose is marked "above the usual strong range" in amber
-  rather than red.
-- **Stats wording:** "days since last session", a calendar called "Days with a
-  session", "One gap so far" when there's only one, and years on the dose
-  chart when the range crosses a year.
+- **"What's your intention?"** Starting a session asks, if you want to say. The
+  write-up later opens with "You set out to: …", and the rating comes after it.
+- **Not every session needs a write-up.** Mark one with **No need** in the
+  phone's write-up list, **Doesn't need one** on the entry, or tick **This one
+  doesn't need a write-up** when you end it. You can undo it any time.
+- **Gentler reminders.** "Add a write-up when you're ready", in quiet text,
+  replaces the orange "No write-up yet".
+
+**Privacy and tone**
+
+- **Discreet mode.** Turn on **Offer discreet mode** in Settings on the computer
+  that holds your journal. An eye button then appears next to **Help**, there
+  and on paired phones. Tap it to swap substance names for stand-ins like
+  "Substance K7" and hide entry titles and previews in lists. Each device
+  decides when to hide; nothing in the journal changes.
+- **Help looks like help.** It has its own warm colour, so it no longer looks
+  like Delete or a warning. On the desktop the tab is now **Get help**.
+- **Red is only for real danger.** Delete is a plain button until you confirm.
+  Warnings say "Known dangerous" or "Use care", and a heavy dose is marked
+  "above the usual strong range" in amber.
+- **Stats wording:** "days since last session", "Days with a session", "One gap
+  so far", and years on the dose chart when the range crosses a year.
 - **The desktop uses the same words as the phone:** session, moment, write-up
   and journal note.
-
-## v0.14.4
-
-- **Fixed: warnings now show during a live session on the desktop.** The live
-  session screen covers the whole window, and combination warnings and safety
-  prompts were appearing on the page underneath it, out of sight. They now
-  appear right under the session's title.
-- **Fixed: the phone's elapsed time keeps up.** "now T+…" on the live session
-  card was set once and never moved. It now updates every 30 seconds, and
-  straight away when you unlock the phone or come back to the app.
-- **Help stays on screen on the phone.** The top bar with **Help** stays put
-  while you scroll, and no longer sits under the clock and battery.
-- **Get help now on the desktop** starts with "If someone is in danger, call
-  your local emergency number now," and only closes when you press **Close**,
-  not when you click outside it.
 
 ## v0.14.3
 

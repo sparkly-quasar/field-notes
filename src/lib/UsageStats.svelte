@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import { discreet, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
+  import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
@@ -240,9 +240,6 @@
         <button class:on={range === r.key} aria-pressed={range === r.key} onclick={() => setRange(r.key)}>{r.label}</button>
       {/each}
     </div>
-    <label class="hide">
-      <input type="checkbox" checked={discreet.on} onchange={(e) => setDiscreet(e.currentTarget.checked)} /> Hide substance names
-    </label>
   </div>
 
   {#if err}
@@ -447,7 +444,7 @@
               <li>
                 <span>{label(p.a)} + {label(p.b)}</span>
                 <span class="n">{plural(p.sessions, "session")}</span>
-                {#if onCheck && !discreet.on}
+                {#if onCheck && !hiding()}
                   <button class="link" onclick={() => onCheck?.([realName.get(p.a) ?? p.a, realName.get(p.b) ?? p.b])}>Check</button>
                 {/if}
               </li>
@@ -491,7 +488,6 @@
   .seg button { background: none; border: 0; color: var(--st-muted); padding: 0.55rem 0.8rem; font: inherit; font-size: 0.9rem; min-height: 40px; cursor: pointer; }
   .seg button + button { border-left: 1px solid var(--st-line); }
   .seg button.on { background: var(--st-accent); color: var(--on-accent, var(--accent-ink, #0c0e12)); }
-  .hide { color: var(--st-muted); font-size: 0.9rem; display: inline-flex; gap: 0.4rem; align-items: center; min-height: 40px; }
   .msg { color: var(--st-muted); padding: 1rem 0; }
   .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-bottom: 0.8rem; }
   .tile, .facts > div { display: flex; flex-direction: column; }

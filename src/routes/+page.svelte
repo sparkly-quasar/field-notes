@@ -93,6 +93,8 @@
     serverPrefs,
     setServerPrefs,
     setPhoneCanUpdate,
+    discreetAvailable,
+    setDiscreetAvailable,
     keychainStatus,
     keychainRemember,
     keychainForget,
@@ -131,7 +133,8 @@
   import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
-  import { discreet, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
+  import { discreet, hiding, shown as nameShown } from "$lib/discreet.svelte";
+  import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -263,7 +266,7 @@
   let pairLinkCopied = $state(false);
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
-  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false });
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false, discreet_available: false });
   let loginStart = $state(false);
   let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
   let kcPass = $state("");
@@ -455,6 +458,7 @@
     checkForUpdate();
     updateTimer = setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
     getVersion().then((v) => (appVersion = v)).catch(() => {});
+    discreetAvailable().then((v) => (discreet.available = v)).catch(() => {});
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
     companionOff = localStorage.getItem(COMPANION_OFF_KEY) === "1";
     companionChoiceMade = localStorage.getItem(COMPANION_CHOICE_KEY) === "1";
@@ -1711,6 +1715,17 @@
     }
   }
 
+  let discreetErr = $state("");
+  async function toggleDiscreetAvailable() {
+    discreetErr = "";
+    try {
+      sprefs = await setDiscreetAvailable(!discreet.available);
+      discreet.available = sprefs.discreet_available;
+    } catch (e) {
+      discreetErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   async function togglePhoneCanUpdate() {
     portalErr = null;
     try {
@@ -2124,6 +2139,7 @@
           <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         {/if}
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
+        <DiscreetToggle />
         <button class="nav-help" title="Emergency &amp; support resources" onclick={openHelp}>Get help</button>
         <button title="Report a bug or request a feature" onclick={openBugReport}>Report a bug</button>
       </nav>
@@ -2309,9 +2325,6 @@
           <div class="exp-head">
             <h2>Journal</h2>
             <span class="row-actions">
-              <label class="discreet-toggle" title="Hide substance names and titles in lists, for screen-sharing or public places">
-                <input type="checkbox" checked={discreet.on} onchange={(e) => setDiscreet(e.currentTarget.checked)} /> Discreet
-              </label>
               <button class="ghost small-btn" onclick={() => { showPaste = !showPaste; showImport = false; }}>Paste a trip log</button>
               {#if !remote.connected}
                 <button class="ghost small-btn" onclick={openImport}>Import from text</button>
@@ -2530,7 +2543,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                   <button class="exp-row" onclick={() => openExperience(e.id)}>
                     {#if e.kind === "note"}
                       <div>
-                        <strong>{discreet.on ? "Journal note" : e.title || "Untitled note"}</strong>
+                        <strong>{hiding() ? "Journal note" : e.title || "Untitled note"}</strong>
                         <span class="muted small">{fmtDate(e.started_at)}</span>
                       </div>
                       <div class="exp-meta">
@@ -2538,7 +2551,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                       </div>
                     {:else}
                       <div>
-                        <strong>{discreet.on ? "Session" : e.title || "Untitled"}</strong>
+                        <strong>{hiding() ? "Session" : e.title || "Untitled"}</strong>
                         <!-- A gentle marker for an entry that may still want its story,
                              unless it's been marked as not needing one. -->
                         <span class="muted small">
@@ -3390,6 +3403,22 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       </section>
 
       <section class="card">
+        <h2>Discreet mode</h2>
+        <p class="muted small">
+          For using Field Notes in public or while sharing your screen. When it's on here, an eye
+          button appears next to <strong>Get help</strong> on this computer and on paired phones.
+          Tapping it swaps substance names for stand-ins like "Substance K7" and hides entry titles
+          and previews in lists. Each device decides for itself when to hide; nothing in the journal
+          changes.
+        </p>
+        <label class="share">
+          <input type="checkbox" checked={discreet.available} onchange={toggleDiscreetAvailable} />
+          Offer discreet mode
+        </label>
+        {#if discreetErr}<p class="notice bad-notice">{discreetErr}</p>{/if}
+      </section>
+
+      <section class="card">
         <h2>Updates</h2>
         <p class="muted small">
           Field Notes checks for a new version when it opens and every few hours while it
@@ -3921,6 +3950,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   /* ---- crisis banner + emergency resources ---- */
   .help-btn { background: var(--help-bg); color: var(--help-ink); border: none; border-radius: 999px; padding: 0.45rem 1rem; font-weight: 700; cursor: pointer; }
+  nav :global(.discreet-eye) { align-self: center; }
   nav button.nav-help { background: var(--help-bg); color: var(--help-ink); font-weight: 700; white-space: nowrap; }
   .help-btn:hover { filter: brightness(1.08); }
   .danger-card { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
@@ -3960,8 +3990,6 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .live { position: fixed; inset: 0; background: var(--bg); z-index: 40; display: flex; flex-direction: column; padding: 1.2rem clamp(1rem, 4vw, 3rem); overflow-y: auto; }
   .live-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
   .live-title { font-size: 1.5rem; font-weight: 700; }
-  .discreet-toggle { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.85rem; margin-right: 0.4rem; cursor: pointer; }
-  .discreet-toggle input { width: auto; }
   .live-last { font-size: 1.25rem; margin-top: 0.35rem; font-variant-numeric: tabular-nums; }
   .live-saved { margin: 0.4rem 0 0; color: var(--muted); }
   .mood-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
