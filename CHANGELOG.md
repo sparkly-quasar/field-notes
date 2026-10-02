@@ -11,6 +11,17 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.17.0
+
+- **Setting up your phone, step by step.** Settings → Devices & server now has a
+  checklist that ticks itself off as you go: install Tailscale, sign in, turn on
+  HTTPS for your tailnet, turn on device access, publish, and pair your phone.
+  The next step always says exactly what to do, with a button that does it or
+  takes you there. It re-checks when you come back from Tailscale.
+- **First steps** on an empty journal: how to log, that combinations are checked
+  as you log, where Get help is, and how to get Field Notes on your phone.
+  Dismiss it any time; it goes away by itself once you've logged something.
+
 ## v0.16.1
 
 - **Run from the menu bar.** For a computer that serves your journal, Settings →
