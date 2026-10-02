@@ -73,6 +73,9 @@ pub(crate) struct Gates {
     pub remembered: bool,
     /// Title of a session that hasn't been ended, if there is one.
     pub open_session: Option<String>,
+    /// Another person's journal is unlocked only in memory: a restart would lock it
+    /// until they unlock it again from their own device.
+    pub others_unlocked: bool,
 }
 
 pub(crate) fn blocked_reason(g: &Gates) -> Option<String> {
@@ -84,6 +87,9 @@ pub(crate) fn blocked_reason(g: &Gates) -> Option<String> {
     }
     if g.encrypted && !g.remembered {
         return Some("The journal is encrypted and its password isn't saved on the computer, so it would stay locked after the restart. Install it at the computer.".into());
+    }
+    if g.others_unlocked {
+        return Some("Someone else's journal on this server is unlocked, and restarting would lock it again. Install it at the computer, where you can check first.".into());
     }
     if let Some(t) = &g.open_session {
         let t = if t.is_empty() { "untitled" } else { t.as_str() };
@@ -114,6 +120,7 @@ fn gates<R: Runtime>(app: &AppHandle<R>) -> Gates {
         encrypted: db::is_encrypted(&db.path),
         remembered: keychain::remembered(),
         open_session,
+        others_unlocked: app.try_state::<crate::people::People>().is_some_and(|p| p.unlocked_in_memory_only()),
     }
 }
 
@@ -221,7 +228,7 @@ mod tests {
     use super::*;
 
     fn ready() -> Gates {
-        Gates { allowed: true, serve_on_launch: true, encrypted: true, remembered: true, open_session: None }
+        Gates { allowed: true, serve_on_launch: true, encrypted: true, remembered: true, open_session: None, others_unlocked: false }
     }
 
     #[test]
@@ -237,5 +244,6 @@ mod tests {
         assert!(blocked_reason(&Gates { remembered: false, ..ready() }).unwrap().contains("stay locked"));
         let open = blocked_reason(&Gates { open_session: Some("Autumn sit".into()), ..ready() }).unwrap();
         assert!(open.contains("Autumn sit"), "{open}");
+        assert!(blocked_reason(&Gates { others_unlocked: true, ..ready() }).unwrap().contains("Someone else's"));
     }
 }

@@ -16,6 +16,7 @@ mod interactions;
 mod keychain;
 pub mod knowledge;
 mod obsidian;
+mod people;
 pub mod ollama;
 mod portal;
 mod prefs;
@@ -133,6 +134,10 @@ fn open_journal(app: tauri::AppHandle, path: PathBuf) {
         commands::refresh_dose_reference(&app, db.inner());
     }
     db.opening.store(false, Ordering::SeqCst);
+    // Other people on this server who chose to keep their journal unlocked here.
+    for theirs in app.state::<people::People>().open_remembered() {
+        commands::refresh_dose_reference(&app, &theirs);
+    }
     // A computer set up as the server starts serving as soon as the journal is open.
     // With the journal locked this waits for `unlock_db`.
     commands::bring_up_server(&app);
@@ -196,6 +201,7 @@ pub fn run() {
             // desktop calls `companion_chat` directly and never needs a job).
             app.manage(portal::CompanionJobs::default());
             app.manage(devices::Devices::load(dir.join("devices.json")));
+            app.manage(people::People::load(&dir));
             app.manage(prefs::Prefs::load(dir.join("server.json")));
             app.manage(server_update::ServerUpdate::default());
             // Using another computer as the server: sends queued entries and notices
@@ -292,6 +298,9 @@ pub fn run() {
             commands::portal_pair,
             commands::portal_devices,
             commands::portal_revoke,
+            commands::people_list,
+            commands::person_add,
+            commands::person_remove,
             commands::server_prefs,
             commands::set_server_prefs,
             commands::keychain_status,

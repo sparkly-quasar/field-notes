@@ -21,6 +21,13 @@
 //!
 //! Every device is separately revocable. Losing a phone costs you that phone's
 //! pairing, not everyone's.
+//!
+//! ## Whose device
+//!
+//! Each device belongs to one person (`people.rs`), and its token opens that
+//! person's journal and nothing else. The person comes **only** from here: no
+//! request ever names one. Devices paired before people existed belong to the
+//! owner, person 1.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -43,6 +50,15 @@ pub struct Device {
     pub created_at: u64,
     /// Unix seconds of the last accepted request, if any.
     pub last_seen: Option<u64>,
+    /// The person whose journal this device opens. Absent in older files: the owner.
+    #[serde(default = "owner")]
+    pub person: u32,
+}
+
+/// The person who installed Field Notes. Their journal is `journal.db`.
+pub const OWNER: u32 = 1;
+fn owner() -> u32 {
+    OWNER
 }
 
 /// What the UI is allowed to see about a device: everything but the hash.
@@ -52,11 +68,12 @@ pub struct DeviceInfo {
     pub name: String,
     pub created_at: u64,
     pub last_seen: Option<u64>,
+    pub person: u32,
 }
 
 impl From<&Device> for DeviceInfo {
     fn from(d: &Device) -> Self {
-        DeviceInfo { id: d.id, name: d.name.clone(), created_at: d.created_at, last_seen: d.last_seen }
+        DeviceInfo { id: d.id, name: d.name.clone(), created_at: d.created_at, last_seen: d.last_seen, person: d.person }
     }
 }
 
@@ -124,6 +141,11 @@ impl Devices {
     /// Pair a new device. Returns it with its token — the **only** time the token
     /// exists outside the device itself.
     pub fn pair(&self, name: &str) -> Result<(DeviceInfo, String), String> {
+        self.pair_for(name, OWNER)
+    }
+
+    /// Pair a device that opens `person`'s journal.
+    pub fn pair_for(&self, name: &str, person: u32) -> Result<(DeviceInfo, String), String> {
         let name = name.trim();
         let name = if name.is_empty() { "Unnamed device" } else { name };
         let token = new_token()?;
@@ -135,6 +157,7 @@ impl Devices {
             hash: hash(&token),
             created_at: now(),
             last_seen: None,
+            person,
         };
         let info = DeviceInfo::from(&device);
         reg.devices.push(device);
@@ -150,6 +173,25 @@ impl Devices {
     pub fn revoke(&self, id: u64) -> Result<(), String> {
         let mut reg = self.inner.lock().unwrap();
         reg.devices.retain(|d| d.id != id);
+        self.save(&reg)
+    }
+
+    /// Forget `id`, but only if it belongs to `person`: a person managing their own
+    /// devices from a phone can never reach anyone else's.
+    pub fn revoke_own(&self, person: u32, id: u64) -> Result<(), String> {
+        let mut reg = self.inner.lock().unwrap();
+        let before = reg.devices.len();
+        reg.devices.retain(|d| !(d.id == id && d.person == person));
+        if reg.devices.len() == before {
+            return Err("No such device.".into());
+        }
+        self.save(&reg)
+    }
+
+    /// Forget every device of one person, when that person is removed.
+    pub fn revoke_person(&self, person: u32) -> Result<(), String> {
+        let mut reg = self.inner.lock().unwrap();
+        reg.devices.retain(|d| d.person != person);
         self.save(&reg)
     }
 

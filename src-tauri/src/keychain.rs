@@ -42,6 +42,31 @@ pub fn remembered() -> bool {
     get().is_some()
 }
 
+// ---- another person's journal on this server (`people.rs`) ----
+// Only ever written when that person turns on "keep my journal unlocked on this
+// server" from their own device. Separate entries, so forgetting one person's
+// password can't touch the owner's or anyone else's.
+
+fn person_entry(person: u32) -> Result<Entry, String> {
+    Entry::new(SERVICE, &format!("person-{person}-passphrase"))
+        .map_err(|e| format!("The system keychain isn't available: {e}"))
+}
+
+pub fn get_person(person: u32) -> Option<String> {
+    person_entry(person).ok()?.get_password().ok().filter(|p| !p.is_empty())
+}
+
+pub fn set_person(person: u32, passphrase: &str) -> Result<(), String> {
+    person_entry(person)?.set_password(passphrase).map_err(|e| format!("Couldn't save to the keychain: {e}"))
+}
+
+pub fn forget_person(person: u32) -> Result<(), String> {
+    match person_entry(person)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("Couldn't remove it from the keychain: {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// Touches the real OS keychain, so it's opt-in:

@@ -231,7 +231,7 @@ pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
 }
 
 /// Load the whole bundled reference from the app's resource directory.
-pub fn load_bundled(app: &tauri::AppHandle) -> Result<Vec<PwInfo>, String> {
+pub fn load_bundled<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Vec<PwInfo>, String> {
     use tauri::Manager;
     let path = app
         .path()
