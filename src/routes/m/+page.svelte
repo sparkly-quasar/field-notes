@@ -1494,7 +1494,6 @@
       {:else}
         <section class="pane">
           <h1>Log something you took</h1>
-          <p class="muted">A substance and roughly when. That's a whole entry — nothing to end, nothing to write.</p>
           <button class="primary big" onclick={() => startDose(null)}>+ Log a dose</button>
           <div class="pair">
             <button onclick={() => (sheet = "start")}>Start a session</button>
