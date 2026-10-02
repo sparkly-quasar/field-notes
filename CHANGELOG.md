@@ -11,6 +11,32 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.5
+
+- **Pasting a trip log gets the times right when it has no am/pm.** A log
+  written as `5:30 … 12:30, 1:15` is no longer read as starting in the morning
+  with a twelve-hour gap after noon. The preview asks whether the first line was
+  am or pm (guessing from a time next to the date, if there is one).
+- **A line with several doses becomes several doses.** `150mg MDMA, zofran` and
+  `100ug LSD + 5g mushrooms` are one dose each, so nothing is dropped and each
+  one gets its interaction check.
+- **Other people's doses are kept, as theirs.** Lines like `40mg DMT - Sam`,
+  `Alex 40mg dmt` or `2C-D (11 Alex 6 Sam)` are recognised. The preview asks
+  which one is you; yours are logged as doses, everyone else's as notes on the
+  timeline.
+- **What you wrote after the log becomes the write-up**, instead of being stuck
+  onto the last line.
+- **Routes are filled in more sensibly.** "rectal", "IM" and the like no longer
+  end up in the substance's name. A dose with no route written takes the route
+  of the same substance earlier in the log, then the one you usually log it
+  with, and DMT and ketamine are no longer assumed to be swallowed (DMT stays
+  oral if the log mentions an MAOI).
+- **More names recognised:** 4mmc / 4-MMC / meph / m-cat (mephedrone), 14b /
+  1,4b (1,4-butanediol) and dexamp (dextroamphetamine). `11:30ish` reads as a
+  time.
+- **End trip report**, and **Start a trip report** on the desktop's empty
+  journal.
+
 ## v0.21.4
 
 - **A calmer Today screen on the phone.** Today now has one big **+ Log a
