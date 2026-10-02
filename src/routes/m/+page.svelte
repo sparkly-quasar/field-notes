@@ -78,6 +78,7 @@
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
   import { discreet, hiding, shown as nameShown } from "$lib/discreet.svelte";
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
+  import Icon from "$lib/Icon.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import {
     quickLog,
@@ -325,7 +326,7 @@
     const root = document.documentElement;
     if (night) root.dataset.theme = "night";
     else delete root.dataset.theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", night ? "#000000" : "#14161a");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", night ? "#000000" : "#14120f");
     if (night) holdWake();
     else if (wake) { wake.release().catch(() => {}); wake = null; }
   });
@@ -1610,7 +1611,7 @@
           <button class="more" onclick={() => (sheet = "more")} aria-label="More: edit details, export, delete">⋯</button>
         </div>
       {:else}
-        <section class="pane">
+        <section class="pane bare">
           <h1>Journal</h1>
           <div class="seg" role="tablist" aria-label="Journal view">
             <button role="tab" aria-selected={journalMode === "entries"} class:on={journalMode === "entries"} onclick={() => (journalMode = "entries")}>Entries</button>
@@ -1618,7 +1619,7 @@
           </div>
         </section>
         {#if journalMode === "stats"}
-          <section class="pane">
+          <section class="pane bare">
             <UsageStats
               onOpen={(id) => { journalMode = "entries"; openEntry(id); }}
               onCheck={(names) => { comboText = names.join(", "); checkMode = "combo"; goTo("check"); runCombo(); }}
@@ -1845,12 +1846,12 @@
 
     <!-- ================= nav ================= -->
     <nav aria-label="Sections">
-      <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}>Today</button>
-      <button class:on={view === "journal"} aria-current={view === "journal" ? "page" : undefined} onclick={() => goTo("journal")}>Journal</button>
+      <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}><Icon name="today" />Today</button>
+      <button class:on={view === "journal"} aria-current={view === "journal" ? "page" : undefined} onclick={() => goTo("journal")}><Icon name="journal" />Journal</button>
       <button class="plus" aria-label="New: log a dose, a session, or a note" onclick={() => (sheet = "new")}>＋</button>
-      <button class:on={view === "check"} aria-current={view === "check" ? "page" : undefined} onclick={() => goTo("check")}>Check</button>
+      <button class:on={view === "check"} aria-current={view === "check" ? "page" : undefined} onclick={() => goTo("check")}><Icon name="check" />Check</button>
       {#if companionEnabled === true}
-        <button class:on={view === "talk"} aria-current={view === "talk" ? "page" : undefined} onclick={() => goTo("talk")}>Talk</button>
+        <button class:on={view === "talk"} aria-current={view === "talk" ? "page" : undefined} onclick={() => goTo("talk")}><Icon name="talk" />Talk</button>
       {/if}
     </nav>
 
@@ -2204,28 +2205,32 @@
 <style>
   /* Tokens. Dark by default (night use), a light scheme for writing up in daylight.
      Field borders meet 3:1 against their surface (WCAG 1.4.11). */
+  /* Warm, per the 2026-10-02 design decision: "a field notebook, not a dashboard
+     or an ER". Warm near-black paper, warm ink, one soft cool accent kept apart
+     from Help's warm sand, the live green and caution amber. Contrast: body and
+     secondary text 7:1 or more on every surface; field borders 3:1. */
   :global(:root) {
     color-scheme: dark light;
-    --bg: #0f1115;
-    --surface: #181b21;
-    --surface-2: #22262e;
-    --field: #0f1115;
-    --field-border: #6b7380;
-    --divider: #2a2f38;
-    --text: #e8eaed;
-    --text-2: #a9b1bc;
-    --accent: #6ea8fe;
-    --on-accent: #0b0e14;
+    --bg: #14120f;
+    --surface: #1c1916;
+    --surface-2: #27231e;
+    --field: #0f0d0b;
+    --field-border: #6f665b;
+    --divider: #322c25;
+    --text: #eee7dc;
+    --text-2: #b8ad9c;
+    --accent: #a4b8e6;
+    --on-accent: #11141c;
     /* Help has its own colour: warm, filled, unmistakable, and not the red of
        danger or Delete. Red means only "these two don't mix". */
     --help-bg: #f2dcc4;
     --help-ink: #1d140b;
-    --danger: #ff6b6b;
-    --danger-bg: #ff6b6b24;
-    --caution: #ffb454;
-    --caution-bg: #ffb4541f;
-    --note-bg: #6ea8fe1a;
-    --ok: #7ee787;
+    --danger: #f2897a;
+    --danger-bg: #f2897a24;
+    --caution: #e6b062;
+    --caution-bg: #e6b0621f;
+    --note-bg: #a4b8e61a;
+    --ok: #93cf9e;
     --focus: #ffd866;
     --fs-title: 1.45rem;
     --fs-h: 1.15rem;
@@ -2241,24 +2246,24 @@
   }
   @media (prefers-color-scheme: light) {
     :global(:root) {
-      --bg: #f4f5f7;
-      --surface: #ffffff;
-      --surface-2: #eceef2;
-      --field: #ffffff;
-      --field-border: #7a828e;
-      --divider: #d6dae0;
-      --text: #15181d;
-      --text-2: #4f5763;
-      --accent: #1f5fd1;
+      --bg: #f6f1e8;
+      --surface: #fffbf5;
+      --surface-2: #efe7da;
+      --field: #fffdf9;
+      --field-border: #857a6b;
+      --divider: #e2d8c8;
+      --text: #211b13;
+      --text-2: #5a5043;
+      --accent: #36549e;
       --on-accent: #ffffff;
       --help-bg: #5a3214;
       --help-ink: #fff6ec;
-      --danger: #b3261e;
-      --danger-bg: #b3261e14;
-      --caution: #8a5300;
-      --caution-bg: #8a53001a;
-      --note-bg: #1f5fd112;
-      --ok: #1a7f37;
+      --danger: #ad2b1f;
+      --danger-bg: #ad2b1f14;
+      --caution: #855000;
+      --caution-bg: #8550001a;
+      --note-bg: #36549e12;
+      --ok: #2c7339;
     }
   }
 
@@ -2346,7 +2351,9 @@
   .help.wide { width: 100%; margin: 0.4rem 0; }
 
   /* ---------- surfaces ---------- */
-  .pane { background: var(--surface); border: 1px solid var(--divider); border-radius: 16px; padding: 1rem; margin-bottom: 0.8rem; }
+  .pane { background: var(--surface); border: 1px solid transparent; border-radius: 16px; padding: 1rem; margin-bottom: 0.8rem; }
+  /* One container level per screen: headers and wrappers sit on the page itself. */
+  .pane.bare { background: transparent; padding: 0.2rem 0.2rem 0; }
   .eyebrow { margin: 0 0 0.2rem; color: var(--ok); font-size: var(--fs-sm); font-weight: 600; }
   .entry-title { font-size: var(--fs-title); }
   .facts { color: var(--text-2); margin: 0 0 0.8rem; }
@@ -2370,9 +2377,10 @@
   /* ---------- buttons ---------- */
   button {
     font: inherit; font-size: var(--fs-body); font-weight: 600; border-radius: var(--radius);
-    border: 1px solid var(--field-border); background: var(--surface-2); color: var(--text);
+    border: 1px solid transparent; background: var(--surface-2); color: var(--text);
     padding: 0.7rem 1rem; width: 100%; min-height: var(--tap); margin: 0 0 0.5rem; cursor: pointer;
   }
+  /* Borders belong to fields (3:1, WCAG 1.4.11); buttons are set apart by fill. */
   button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   button.big { min-height: 56px; font-size: var(--fs-h); }
   button.ghost { background: transparent; border-color: transparent; color: var(--accent); }
@@ -2395,7 +2403,8 @@
     width: auto; flex: none; margin: 0; min-height: var(--tap-min); padding: 0 0.9rem;
     font-size: var(--fs-sm); font-weight: 500; border-radius: 999px; background: var(--surface-2); white-space: nowrap;
   }
-  .chip.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  /* Selected chips are tinted, not slabs: a row of filters stays calm. */
+  .chip.on { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); color: var(--accent); border-color: transparent; font-weight: 700; }
   .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.4rem; margin-bottom: 0.7rem; }
   .chip.num { width: 100%; min-height: var(--tap); padding: 0; font-variant-numeric: tabular-nums; }
 
@@ -2507,8 +2516,9 @@
     background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(8px);
     border-top: 1px solid var(--divider);
   }
-  nav button { flex: 1; margin: 0; padding: 0; min-height: 52px; font-size: var(--fs-sm); background: transparent; border-color: transparent; color: var(--text-2); }
-  nav button.on { color: var(--accent); background: var(--surface-2); border-color: var(--divider); }
+  nav button { flex: 1; margin: 0; padding: 0.15rem 0 0; min-height: 56px; font-size: var(--fs-sm); background: transparent; border-color: transparent; color: var(--text-2);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; }
+  nav button.on { color: var(--accent); background: transparent; border-color: transparent; font-weight: 800; }
   nav button.plus { flex: 0 0 3.6rem; font-size: 1.7rem; font-weight: 500; background: var(--accent); color: var(--on-accent); border-radius: 999px; }
 
   /* ---------- sheets ---------- */

@@ -85,6 +85,7 @@
     type Substance,
     type SubstanceUsage,
     type Warning,
+    checkCombo,
     type ChatMsg,
     type AiStatus,
     portalPair,
@@ -135,6 +136,7 @@
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
   import { discreet, hiding, shown as nameShown } from "$lib/discreet.svelte";
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
+  import Icon from "$lib/Icon.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -407,6 +409,20 @@
 
   // live session mode
   let liveSession = $state(false);
+  // Dim (red) night theme for the live screen, as on the phone: a sitter glancing
+  // at a laptop in a dark room keeps their dark adaptation. Remembered per device,
+  // and only applied while the live screen is up.
+  const NIGHT_KEY = "fieldnotes.night";
+  let night = $state((() => { try { return localStorage.getItem(NIGHT_KEY) === "1"; } catch { return false; } })());
+  function toggleNight() {
+    night = !night;
+    try { localStorage.setItem(NIGHT_KEY, night ? "1" : "0"); } catch {}
+  }
+  $effect(() => {
+    const root = document.documentElement;
+    if (liveSession && night) root.dataset.theme = "night";
+    else delete root.dataset.theme;
+  });
   let lsNow = $state(Date.now());
   let lsTimer: ReturnType<typeof setInterval> | null = null;
   // one-tap logging inside the live session (distinct from the journal's quick
@@ -1534,6 +1550,15 @@
     if (c.level !== "none") { crisis = c; crisisResourcesShown = false; }
   }
 
+  // ---- standalone combination check (the Check view) ----
+  let comboText = $state("");
+  let comboResult = $state<Warning[] | null>(null);
+  async function runComboCheck() {
+    const names = comboText.split(",").map((x) => x.trim()).filter(Boolean);
+    if (names.length < 2) return;
+    comboResult = await checkCombo(names);
+  }
+
   /** One-tap states, so a moment never needs typing mid-session. */
   const MOODS = ["Coming up", "Peaking", "Calm", "Anxious", "Nauseous", "Need water", "Coming down"];
   async function quickNote(mood = "") {
@@ -1558,7 +1583,7 @@
   async function goTab(t: Tab) {
     tab = t;
     selected = null;
-    if (t === "bysub") await loadUsage();
+    if (t === "bysub" || t === "stats") await loadUsage();
     if (t === "substances") { await loadSubstances(); await loadKbStatus(); await loadContrib(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadAi();
@@ -2130,18 +2155,24 @@
           {remote.online ? `Journal on ${serverName}` : `${serverName} unreachable`}{remote.pending ? ` · ${remote.pending} waiting` : ""}{remote.failed.length ? ` · ${remote.failed.length} not saved` : ""}
         </button>
       {/if}
-      <nav>
-        <button class:active={tab === "journal"} onclick={() => goTab("journal")}>Journal</button>
-        <button class:active={tab === "bysub"} onclick={() => goTab("bysub")}>Substance Log</button>
-        <button class:active={tab === "stats"} onclick={() => goTab("stats")}>Stats</button>
-        <button class:active={tab === "substances"} onclick={() => goTab("substances")}>Substance Directory</button>
-        {#if !companionOff}
-          <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
-        {/if}
-        <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
-        <DiscreetToggle />
-        <button class="nav-help" title="Emergency &amp; support resources" onclick={openHelp}>Get help</button>
-        <button title="Report a bug or request a feature" onclick={openBugReport}>Report a bug</button>
+      <!-- The same places as the phone: Journal, Stats, Check, Talk. Settings and
+           Get help sit apart at the bottom; "Report a bug" lives in Settings. -->
+      <nav aria-label="Sections">
+        <div class="nav-main">
+          <button class:active={tab === "journal"} aria-current={tab === "journal" ? "page" : undefined} onclick={() => goTab("journal")}><Icon name="journal" />Journal</button>
+          <button class:active={tab === "stats" || tab === "bysub"} aria-current={tab === "stats" ? "page" : undefined} onclick={() => goTab("stats")}><Icon name="stats" />Stats</button>
+          <button class:active={tab === "substances"} aria-current={tab === "substances" ? "page" : undefined} onclick={() => goTab("substances")}><Icon name="check" />Check</button>
+          {#if !companionOff}
+            <button class:active={tab === "companion"} aria-current={tab === "companion" ? "page" : undefined} onclick={() => goTab("companion")}><Icon name="talk" />Talk</button>
+          {/if}
+        </div>
+        <div class="nav-foot">
+          <button class:active={tab === "data"} aria-current={tab === "data" ? "page" : undefined} onclick={() => goTab("data")}><Icon name="settings" />Settings</button>
+          <div class="nav-help-row">
+            <DiscreetToggle />
+            <button class="nav-help" title="Emergency &amp; support resources" onclick={openHelp}><Icon name="help" />Get help</button>
+          </div>
+        </div>
       </nav>
     </header>
 
@@ -2747,6 +2778,29 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     <!-- ============ SUBSTANCES ============ -->
     {#if tab === "substances"}
       <section class="card">
+        <h2>Check a combination</h2>
+        <p class="muted small">Two or more substances, separated by commas. This is the same deterministic check that runs when you log a dose.</p>
+        <form class="combo-form" onsubmit={(e) => { e.preventDefault(); runComboCheck(); }}>
+          <input id="combo-names" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocomplete="off" />
+          <button class="primary small-btn" type="submit" disabled={comboText.split(",").filter((x) => x.trim()).length < 2}>Check</button>
+        </form>
+        {#if comboResult}
+          {#if comboResult.length === 0}
+            <p class="notice">Nothing flagged between those. That isn't the same as "safe".</p>
+          {:else}
+            <div class="warnings">
+              {#each comboResult as w}
+                <div class="warn {sevClass(w.severity)}">
+                  <strong>{sevLabel(w.severity)}</strong> · {w.a} + {w.b}
+                  <div>{w.message}</div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {/if}
+      </section>
+
+      <section class="card">
         <h2>Search the reference</h2>
         {#if kbStat && kbStat.available}
           <p class="muted small">{kbStat.chunks.toLocaleString()} passages of DoseWiki prose — pharmacology, harm potential, tolerance, legality — searchable offline. Background reading, not dose advice: dose ranges and combo warnings appear while you log, and those are exact.</p>
@@ -2938,15 +2992,20 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       {/if}
     {/if}
 
-    <!-- ============ BY SUBSTANCE ============ -->
-    {#if tab === "bysub"}
+    {#if tab === "stats"}
       <section class="card">
-        <h2>Substance Log</h2>
+        <h2>Stats</h2>
+        <p class="muted small">Patterns from the doses in your journal. Nothing here is a judgement or a warning; it's what you logged, laid out.</p>
+        <UsageStats onOpen={async (id) => { await goTab("journal"); await openExperience(id); }} />
+      </section>
+      <!-- The old Substance Log, folded into Stats: every dose, grouped by substance. -->
+      <section class="card">
+        <h2>Every dose, by substance</h2>
         {#if usage.length}
           {#each usage as u}
             <div class="usage">
               <div class="usage-head">
-                <strong>{u.substance_name}</strong>
+                <strong>{nameShown(u.substance_name)}</strong>
                 <span class="muted small">{u.times_used} dose{u.times_used === 1 ? "" : "s"}</span>
               </div>
               <ul class="doses">
@@ -2962,14 +3021,6 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {:else}
           <p class="muted">No doses logged yet.</p>
         {/if}
-      </section>
-    {/if}
-
-    {#if tab === "stats"}
-      <section class="card">
-        <h2>Stats</h2>
-        <p class="muted small">Patterns from the doses in your journal. Nothing here is a judgement or a warning; it's what you logged, laid out.</p>
-        <UsageStats onOpen={async (id) => { await goTab("journal"); await openExperience(id); }} />
       </section>
     {/if}
 
@@ -3607,7 +3658,10 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <div class="live-last">Last: <strong>{nameShown(ld.substance_name)} {ld.amount ?? "?"} {ld.unit}</strong> · {gapText(Date.parse(ld.taken_at), lsNow)} ago</div>
           {/if}
         </div>
-        <button class="help-btn" onclick={openHelp}>Get help now</button>
+        <span class="live-bar-actions">
+          <button class="ghost small-btn" aria-pressed={night} onclick={toggleNight}>{night ? "Normal colours" : "Dim (red)"}</button>
+          <button class="help-btn" onclick={openHelp}>Get help now</button>
+        </span>
       </div>
 
       <div class="live-alerts">
@@ -3693,19 +3747,39 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
 <style>
   :global(:root) {
-    --bg: #16181d;
-    --card: #1e2127;
-    --ink: #e7e9ee;
-    --muted: #9aa0ab;
-    --line: #2e323b;
-    --accent: #6d8fb0;
-    --accent-ink: #0c0e12;
+    --bg: #14120f;
+    --card: #1c1916;
+    --ink: #eee7dc;
+    --muted: #b8ad9c;
+    --line: #322c25;
+    --accent: #a4b8e6;
+    --accent-ink: #11141c;
     /* Help's own colour, apart from danger red (see the phone page). */
     --help-bg: #f2dcc4;
     --help-ink: #1d140b;
-    --danger: #e06b6b;
-    --caution: #d6a24e;
-    --note: #6fae8f;
+    --danger: #f2897a;
+    --caution: #e6b062;
+    --note: #93cf9e;
+    --surface-2: #27231e;
+    --field: #0f0d0b;
+  }
+  /* Dim (red) night theme on the live screen. Same reds as the phone; every pair
+     meets 4.5:1 on black, and warnings keep their words, never hue alone. */
+  :global(:root[data-theme="night"]) {
+    --bg: #000000;
+    --card: #0a0100;
+    --ink: #ff7a5c;
+    --muted: #d9533a;
+    --line: #2a0a06;
+    --accent: #ff5a36;
+    --accent-ink: #000000;
+    --help-bg: #ff7a5c;
+    --help-ink: #000000;
+    --danger: #ffb199;
+    --caution: #ff9a6b;
+    --note: #ff9a6b;
+    --surface-2: #170403;
+    --field: #000000;
   }
   :global(body) {
     margin: 0;
@@ -3731,9 +3805,42 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   main { max-width: 720px; margin: 0 auto; padding: 1.6rem 1.4rem 2rem; }
   header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 0.6rem; }
   header h1 { margin: 0; font-size: 1.4rem; }
-  nav { display: inline-flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
-  nav button { border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 0.4rem 0.9rem; border-radius: 999px; cursor: pointer; }
-  nav button.active { background: var(--accent); color: var(--accent-ink); }
+  /* Sections live in a sidebar on a normal-width window: the places on the
+     left, Settings and Get help kept apart at the bottom. A narrow window folds
+     it back into a row under the title. */
+  nav {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 220px; z-index: 20;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;
+    padding: 4.2rem 0.8rem 1rem; background: var(--card); border-right: 1px solid var(--line);
+    box-sizing: border-box; overflow-y: auto;
+  }
+  .nav-main, .nav-foot { display: flex; flex-direction: column; gap: 2px; }
+  .nav-help-row { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.4rem; }
+  nav button {
+    display: flex; align-items: center; gap: 0.7rem; width: 100%; min-height: 44px;
+    border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 600;
+    padding: 0.5rem 0.8rem; border-radius: 10px; cursor: pointer; text-align: left;
+  }
+  nav button:hover { color: var(--ink); background: var(--surface-2); }
+  nav button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  nav button.nav-help { flex: 1; justify-content: center; }
+  /* Centred in the space beside the sidebar, a little wider than before so the
+     journal's actions fit on one line. */
+  main:has(> header nav) { max-width: 780px; margin-left: max(220px, calc(220px + (100vw - 220px - 780px) / 2)); margin-right: auto; }
+  /* The title sits at the top of the sidebar's column. */
+  main:has(> header nav) > header h1 { position: fixed; top: 1.2rem; left: 1.6rem; z-index: 21; font-size: 1.2rem; }
+  @media (max-width: 820px) {
+    nav {
+      position: static; width: 100%; flex-direction: row; flex-wrap: wrap; padding: 4px;
+      border: 1px solid var(--line); border-radius: 14px; overflow: visible;
+    }
+    .nav-main, .nav-foot { flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .nav-help-row { margin-top: 0; }
+    nav button { width: auto; padding: 0.4rem 0.8rem; }
+    main:has(> header nav) { margin-left: auto; }
+    main:has(> header nav) > header h1 { position: static; font-size: 1.4rem; }
+  }
 
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 1.4rem; }
   h2 { margin: 0 0 0.6rem; font-size: 1.15rem; }
@@ -3759,8 +3866,14 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   .exp-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; }
   .exp-list, .sub-list, .doses, .timeline { list-style: none; padding: 0; margin: 0.6rem 0 0; }
-  .exp-row { width: 100%; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; color: var(--ink); }
-  .exp-row:hover { border-color: var(--accent); }
+  /* Flat rows with dividers: the card is the only box, not a card of cards. */
+  .exp-row { width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0.85rem 0.4rem; margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; color: var(--ink); font: inherit; cursor: pointer; }
+  .exp-list li:last-child .exp-row { border-bottom: none; }
+  .exp-row:hover { background: var(--surface-2); }
+  .exp-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .live-bar-actions { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .combo-form { display: flex; gap: 0.5rem; margin: 0.6rem 0; }
+  .combo-form input { flex: 1; min-width: 0; }
   .exp-row strong { display: block; }
   .exp-meta { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
   .pill { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 999px; padding: 0.1rem 0.5rem; color: var(--muted); }

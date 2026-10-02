@@ -33,11 +33,25 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   to "Logged" on the desktop's live session screen.
 - **Moments without typing.** Tap how it is (Coming up, Peaking, Calm, Anxious,
   Nauseous, Need water, Coming down) and that's a moment.
-- **Dim (red) screen on the phone.** True black with red text, easier on your
-  eyes in the dark, and it keeps the screen from locking. Turn it on from the live
-  session card or when you start a session.
+- **Dim (red) screen.** True black with red text, easier on your eyes in the
+  dark. On the phone it also keeps the screen from locking; turn it on from the
+  live session card or when you start a session. On the desktop it's the **Dim
+  (red)** button on the live session screen.
 - **Ending a session is harder to hit by accident.** It sits apart from logging
   and Help.
+
+**A calmer look**
+
+- **Warmer colours on both the desktop and the phone**, with fewer boxes: the
+  journal is a list with dividers rather than cards inside cards, and buttons and
+  chips are quieter.
+- **The desktop has a sidebar** with the same places as the phone, each with an
+  icon: Journal, Stats, Check and Talk, then Settings and **Get help** at the
+  bottom. A narrow window folds it back into a row.
+- **Substance Log is now part of Stats**, as "Every dose, by substance".
+- **Check a combination** on its own, at the top of Check: type two or more
+  substances and see what the interaction checker says, without logging anything.
+- **Report a bug** moved into Settings.
 
 **Reflection**
 
