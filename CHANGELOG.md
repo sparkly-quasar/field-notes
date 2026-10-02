@@ -11,6 +11,14 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.3
+
+- **Settings is split into sections, so less scrolling.** A row at the top
+  switches between **General** (updates, the Companion, discreet mode, the
+  startup disclaimer), **Devices & sync**, **Data & privacy** (encryption,
+  backup, Obsidian vault sync, erase & uninstall) and **Feedback**. The server
+  button in the header and "Set up your phone" open straight to Devices & sync.
+
 ## v0.21.2
 
 - **Settings puts what you reach for first at the top.** Check for updates comes
