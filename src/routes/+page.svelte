@@ -444,6 +444,10 @@
 
   const nowIso = () => new Date().toISOString();
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  // The journal list: a date column, and a heading at each new month.
+  const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const monthOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const TAB_TITLE: Record<string, string> = { journal: "Journal", stats: "Stats", bysub: "Stats", substances: "Check", companion: "Talk", data: "Settings" };
   const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
   /** T-zero for the open experience: the *first dose*, not the session start.
@@ -2247,6 +2251,26 @@
           </div>
         </div>
       </nav>
+      <!-- One quiet bar per view: where you are on the left, that view's actions on
+           the right. Only + Dose is filled. -->
+      <div class="topbar">
+        <div class="topbar-title">
+          {TAB_TITLE[tab] ?? ""}
+          {#if tab === "journal" && !selected && experiences.length}<span>{experiences.length} {experiences.length === 1 ? "entry" : "entries"}</span>{/if}
+        </div>
+        {#if tab === "journal" && !selected}
+          <div class="tools">
+            <button class="tb" onclick={() => { showPaste = !showPaste; showImport = false; }}><Icon name="paste" size={15} />Paste a log</button>
+            {#if !remote.connected}
+              <button class="tb" onclick={openImport}><Icon name="import" size={15} />Import</button>
+            {/if}
+            <button class="tb" onclick={openNewNote}><Icon name="note" size={15} />Note</button>
+            <button class="tb" onclick={openNewExp}><Icon name="session" size={15} />Session</button>
+            <!-- Leads, because it's the thing most often being recorded. -->
+            <button class="primary small-btn tb-primary" onclick={openQuickLog}>+ Dose</button>
+          </div>
+        {/if}
+      </div>
     </header>
 
     <!-- ============ JOURNAL ============ -->
@@ -2427,20 +2451,6 @@
         </section>
       {:else}
         <section class="card">
-          <div class="exp-head">
-            <h2>Journal</h2>
-            <span class="row-actions">
-              <button class="ghost small-btn" onclick={() => { showPaste = !showPaste; showImport = false; }}>Paste a trip log</button>
-              {#if !remote.connected}
-                <button class="ghost small-btn" onclick={openImport}>Import from text</button>
-              {/if}
-              <button class="ghost small-btn" onclick={openNewNote}>+ Journal note</button>
-              <button class="ghost small-btn" onclick={openNewExp}>+ Session</button>
-              <!-- Leads, because it's the thing most often being recorded. A
-                   session is for the times you'll sit with it. -->
-              <button class="primary small-btn" onclick={openQuickLog}>+ Dose</button>
-            </span>
-          </div>
           {#if remote.connected && !remote.online}
             <p class="notice warn-notice small">
               Can't reach {serverName}. This is the journal as it was when it was last reachable, plus
@@ -2643,29 +2653,30 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
           {#if experiences.length}
             <ul class="exp-list">
-              {#each experiences as e}
+              {#each experiences as e, i}
+                {#if i === 0 || monthOf(experiences[i - 1].started_at) !== monthOf(e.started_at)}
+                  <li class="month" aria-hidden="true">{monthOf(e.started_at)}</li>
+                {/if}
                 <li>
                   <button class="exp-row" onclick={() => openExperience(e.id)}>
+                    <span class="exp-date">{shortDate(e.started_at)}</span>
                     {#if e.kind === "note"}
-                      <div>
+                      <div class="exp-main">
                         <strong>{hiding() ? "Journal note" : e.title || "Untitled note"}</strong>
-                        <span class="muted small">{fmtDate(e.started_at)}</span>
                       </div>
                       <div class="exp-meta">
                         <span class="pill note-pill">note</span>
                       </div>
                     {:else}
-                      <div>
+                      <div class="exp-main">
                         <strong>{hiding() ? "Session" : e.title || "Untitled"}</strong>
                         <!-- A gentle marker for an entry that may still want its story,
                              unless it's been marked as not needing one. -->
-                        <span class="muted small">
-                          {fmtDate(e.started_at)}{e.ended_at
-                            ? e.notes.trim() || e.writeup_skipped
-                              ? ""
-                              : " · no write-up yet"
-                            : " · ongoing"}
-                        </span>
+                        {#if !e.ended_at}
+                          <span class="muted small">ongoing</span>
+                        {:else if !(e.notes.trim() || e.writeup_skipped)}
+                          <span class="muted small">no write-up yet</span>
+                        {/if}
                       </div>
                       <div class="exp-meta">
                         {#each e.substances as s}<span class="pill">{nameShown(s)}</span>{/each}
@@ -3100,7 +3111,6 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
     {#if tab === "stats"}
       <section class="card">
-        <h2>Stats</h2>
         <p class="muted small">Patterns from the doses in your journal. Nothing here is a judgement or a warning; it's what you logged, laid out.</p>
         <UsageStats onOpen={async (id) => { await goTab("journal"); await openExperience(id); }} />
       </section>
@@ -3816,7 +3826,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {/if}
         </div>
         <span class="live-bar-actions">
-          <button class="ghost small-btn" aria-pressed={night} onclick={toggleNight}>{night ? "Normal colours" : "Dim (red)"}</button>
+          <button class="tb" aria-pressed={night} onclick={toggleNight}>{night ? "Normal colours" : "Dim (red)"}</button>
           <button class="help-btn" onclick={openHelp}>Get help now</button>
         </span>
       </div>
@@ -3921,6 +3931,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     --note: #93cf9e;
     --surface-2: #27231e;
     --field: #0f0d0b;
+    /* The sidebar, a shade below the page. */
+    --pane: #100e0c;
   }
   /* Dim (red) night theme on the live screen. Same reds as the phone; every pair
      meets 4.5:1 on black, and warnings keep their words, never hue alone. */
@@ -3940,6 +3952,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     --note: #ff9a6b;
     --surface-2: #170403;
     --field: #000000;
+    --pane: #000000;
   }
   :global(body) {
     margin: 0;
@@ -3965,31 +3978,47 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   main { max-width: 720px; margin: 0 auto; padding: 1.6rem 1.4rem 2rem; }
   header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 0.6rem; }
   header h1 { margin: 0; font-size: 1.4rem; }
-  /* Sections live in a sidebar on a normal-width window: the places on the
-     left, Settings and Get help kept apart at the bottom. A narrow window folds
-     it back into a row under the title. */
+  /* Clean and utilitarian, after the panel's Obsidian comparison: quiet chrome,
+     loud content. A small sidebar a shade below the page, one thin bar per view,
+     and content directly on the page in a reading column, not in cards. The live
+     screen and Help keep their size. A narrow window folds the sidebar into a row. */
   nav {
-    position: fixed; top: 0; left: 0; bottom: 0; width: 220px; z-index: 20;
+    position: fixed; top: 0; left: 0; bottom: 0; width: 210px; z-index: 20;
     display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;
-    padding: 4.2rem 0.8rem 1rem; background: var(--card); border-right: 1px solid var(--line);
+    padding: 3rem 0.5rem 0.6rem; background: var(--pane); border-right: 1px solid var(--line);
     box-sizing: border-box; overflow-y: auto;
   }
-  .nav-main, .nav-foot { display: flex; flex-direction: column; gap: 2px; }
+  .nav-main, .nav-foot { display: flex; flex-direction: column; gap: 1px; }
   .nav-help-row { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.4rem; }
   nav button {
-    display: flex; align-items: center; gap: 0.7rem; width: 100%; min-height: 44px;
-    border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 600;
-    padding: 0.5rem 0.8rem; border-radius: 10px; cursor: pointer; text-align: left;
+    display: flex; align-items: center; gap: 0.6rem; width: 100%; min-height: 34px;
+    border: none; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600;
+    padding: 0.35rem 0.65rem; border-radius: 6px; cursor: pointer; text-align: left;
   }
+  nav button :global(svg) { width: 16px; height: 16px; }
   nav button:hover { color: var(--ink); background: var(--surface-2); }
-  nav button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  nav button.active { color: var(--ink); background: var(--surface-2); }
   nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  nav button.nav-help { flex: 1; justify-content: center; }
-  /* Centred in the space beside the sidebar, a little wider than before so the
-     journal's actions fit on one line. */
-  main:has(> header nav) { max-width: 780px; margin-left: max(220px, calc(220px + (100vw - 220px - 780px) / 2)); margin-right: auto; }
-  /* The title sits at the top of the sidebar's column. */
-  main:has(> header nav) > header h1 { position: fixed; top: 1.2rem; left: 1.6rem; z-index: 21; font-size: 1.2rem; }
+  nav button.nav-help { flex: 1; justify-content: center; border-radius: 999px; min-height: 36px; }
+  main:has(> header nav) { max-width: 760px; margin-left: max(210px, calc(210px + (100vw - 210px - 760px) / 2)); margin-right: auto; padding-top: calc(44px + 1.2rem); }
+  /* The app's name sits small at the top of the sidebar. */
+  main:has(> header nav) > header h1 { position: fixed; top: 1rem; left: 1.15rem; z-index: 21; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  main:has(> header nav) > header { margin: 0; }
+  .topbar {
+    position: fixed; top: 0; left: 210px; right: 0; height: 44px; z-index: 19; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: 0 1rem 0 1.4rem; background: var(--bg); border-bottom: 1px solid var(--line);
+  }
+  .topbar-title { font-size: 0.9rem; font-weight: 700; display: flex; gap: 0.5rem; align-items: baseline; white-space: nowrap; }
+  .topbar-title span { color: var(--muted); font-weight: 400; }
+  .tools { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .tb {
+    font: inherit; font-size: 0.85rem; color: var(--muted); background: transparent; border: 0; border-radius: 6px;
+    padding: 0.3rem 0.55rem; display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; white-space: nowrap;
+  }
+  .tb:hover, .tb[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); }
+  .tb:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tb-primary { margin-left: 0.5rem; padding: 0.3rem 0.85rem; font-size: 0.85rem; }
   @media (max-width: 820px) {
     nav {
       position: static; width: 100%; flex-direction: row; flex-wrap: wrap; padding: 4px;
@@ -3998,12 +4027,17 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     .nav-main, .nav-foot { flex-direction: row; flex-wrap: wrap; align-items: center; }
     .nav-help-row { margin-top: 0; }
     nav button { width: auto; padding: 0.4rem 0.8rem; }
-    main:has(> header nav) { margin-left: auto; }
-    main:has(> header nav) > header h1 { position: static; font-size: 1.4rem; }
+    main:has(> header nav) { margin-left: auto; padding-top: 1.2rem; }
+    main:has(> header nav) > header { margin-bottom: 1rem; }
+    main:has(> header nav) > header h1 { position: static; font-size: 1rem; }
+    .topbar { position: static; width: 100%; padding: 0; background: none; }
   }
 
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 1.4rem; }
-  h2 { margin: 0 0 0.6rem; font-size: 1.15rem; }
+  /* Sections sit on the page, divided by a hairline, rather than in cards. */
+  .card { background: none; border: 0; border-radius: 0; padding: 1.2rem 0 1.4rem; }
+  .card + .card, .card + section, section + .card { border-top: 1px solid var(--line); }
+  header + .card, header + section { padding-top: 0.2rem; }
+  h2 { margin: 0 0 0.6rem; font-size: 1.05rem; }
   h3 { margin: 1.2rem 0 0.4rem; font-size: 0.95rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
   p { line-height: 1.5; }
   .muted { color: var(--muted); }
@@ -4035,7 +4069,11 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .exp-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.8rem; }
   .exp-list, .sub-list, .doses, .timeline { list-style: none; padding: 0; margin: 0.6rem 0 0; }
   /* Flat rows with dividers: the card is the only box, not a card of cards. */
-  .exp-row { width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0.85rem 0.4rem; margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; color: var(--ink); font: inherit; cursor: pointer; }
+  .exp-row { width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0.6rem 0.3rem; margin: 0; display: grid; grid-template-columns: 4rem 1fr auto; align-items: baseline; gap: 0.7rem; color: var(--ink); font: inherit; cursor: pointer; }
+  .exp-date { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .exp-main { min-width: 0; }
+  .exp-list .month { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 1rem 0.3rem 0.2rem; }
+  .exp-list .month:first-child { padding-top: 0.2rem; }
   .exp-list li:last-child .exp-row { border-bottom: none; }
   .exp-row:hover { background: var(--surface-2); }
   .exp-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -4068,7 +4106,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   /* The quick log sits above the journal list, so it's bounded like the import
      panel rather than floating loose in the card. */
-  .quick-log { border: 1px solid var(--line); border-radius: 12px; padding: 0.9rem 1rem; margin: 0.6rem 0 1rem; }
+  .quick-log { margin: 0.6rem 0 1rem; }
   .quick-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 0; align-items: center; }
   .quick-row > input:first-child { flex: 1; min-width: 9rem; }
   /* Selects aren't styled app-wide (nothing else uses one in a form row), and a
@@ -4305,6 +4343,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .live-body { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.2rem; align-items: start; }
   @media (max-width: 780px) { .live-body { grid-template-columns: 1fr; } }
   .live-timeline h3, .live-companion h3 { margin: 1.1rem 0 0.5rem; }
+  .live-companion { border-left: 1px solid var(--line); padding-left: 1.5rem; align-self: stretch; }
   .live-doses, .live-events { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; font-size: 1.05rem; }
   .quick-log { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   .quick-log input { flex: 1; min-width: 6rem; padding: 0.55rem 0.7rem; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 1rem; }

@@ -2325,7 +2325,7 @@
   .hint { color: var(--text-2); font-size: var(--fs-sm); margin: -0.2rem 0 0.7rem; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-  h1 { font-size: var(--fs-title); margin: 0 0 0.4rem; line-height: 1.2; }
+  h1 { font-size: 1.25rem; margin: 0 0 0.4rem; line-height: 1.2; }
   h2 { font-size: var(--fs-h); margin: 0 0 0.6rem; }
 
   /* ---------- header ---------- */
@@ -2360,11 +2360,15 @@
   .help.wide { width: 100%; margin: 0.4rem 0; }
 
   /* ---------- surfaces ---------- */
-  .pane { background: var(--surface); border: 1px solid transparent; border-radius: 16px; padding: 1rem; margin-bottom: 0.8rem; }
+  /* Clean and utilitarian: sections sit on the page, full width, divided by a
+     hairline, rather than floating as cards. Body text, buttons and tap sizes
+     are unchanged; only the scaffolding got quieter. */
+  .pane { background: none; border: 0; border-top: 1px solid var(--divider); border-radius: 0; padding: 1rem 0.2rem 1.1rem; margin: 0; }
+  .pane > h2:not(.sec):not(.month-label) { font-size: var(--fs-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); font-weight: 700; margin-bottom: 0.5rem; }
   /* One container level per screen: headers and wrappers sit on the page itself. */
-  .pane.bare { background: transparent; padding: 0.2rem 0.2rem 0; }
+  .pane.bare { background: transparent; border-top: 0; padding: 0.2rem 0.2rem 0; }
   .eyebrow { margin: 0 0 0.2rem; color: var(--ok); font-size: var(--fs-sm); font-weight: 600; }
-  .entry-title { font-size: var(--fs-title); }
+  .entry-title { font-size: 1.3rem; }
   .facts { color: var(--text-2); margin: 0 0 0.8rem; }
   .sec { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin: 1.2rem 0 0.3rem; }
   .sec-head { display: flex; justify-content: space-between; align-items: baseline; }

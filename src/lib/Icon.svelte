@@ -5,7 +5,7 @@
   altered. Decorative, so hidden from screen readers.
 -->
 <script lang="ts">
-  type Name = "today" | "journal" | "stats" | "check" | "talk" | "settings" | "help";
+  type Name = "today" | "journal" | "stats" | "check" | "talk" | "settings" | "help" | "paste" | "import" | "note" | "session";
   let { name, size = 20 }: { name: Name; size?: number } = $props();
 </script>
 
@@ -25,6 +25,14 @@
     <path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" />
   {:else if name === "help"}
     <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /><path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" />
+  {:else if name === "paste"}
+    <rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4.5V3h6v1.5M9 10h6M9 14h4" />
+  {:else if name === "import"}
+    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14" />
+  {:else if name === "note"}
+    <path d="M5 4h9l5 5v11H5z" /><path d="M14 4v5h5" />
+  {:else if name === "session"}
+    <circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" />
   {/if}
 </svg>
 
