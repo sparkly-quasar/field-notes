@@ -158,6 +158,15 @@
 
   let acknowledged = $state(false);
   let tab = $state<Tab>("journal");
+  // Settings is split into a few sections so nothing is a long scroll away.
+  type SettingsSection = "general" | "devices" | "data" | "feedback";
+  const SETTINGS_SECTIONS: [SettingsSection, string][] = [
+    ["general", "General"],
+    ["devices", "Devices & sync"],
+    ["data", "Data & privacy"],
+    ["feedback", "Feedback"],
+  ];
+  let settingsSection = $state<SettingsSection>("general");
 
   // at-rest encryption / unlock gate
   let db = $state<DbStatus>({ encrypted: false, unlocked: true });
@@ -1629,8 +1638,9 @@
     await loadJournal();
   }
 
-  async function goTab(t: Tab) {
+  async function goTab(t: Tab, section?: SettingsSection) {
     tab = t;
+    if (section) settingsSection = section;
     selected = null;
     if (t === "bysub" || t === "stats") await loadUsage();
     if (t === "substances") { await loadSubstances(); await loadKbStatus(); await loadContrib(); }
@@ -1772,7 +1782,7 @@
   // While the built-in Tailscale is getting going (starting, waiting for sign-in,
   // fetching its certificate), follow it closely so each step ticks on its own.
   $effect(() => {
-    const following = tab === "data" && !!ts?.builtin && portal.running && (!computerConnected || connecting);
+    const following = tab === "data" && settingsSection === "devices" && !!ts?.builtin && portal.running && (!computerConnected || connecting);
     if (!following) return;
     const id = setInterval(async () => {
       try { ts = await portalTailscale(); } catch {}
@@ -2425,7 +2435,7 @@
           class="remote-pill"
           class:off={!remote.online}
           title={remote.online ? `Your journal lives on ${remote.server}` : `Can't reach ${remote.server}`}
-          onclick={() => goTab("data")}
+          onclick={() => goTab("data", "devices")}
         >
           <span class="remote-dot" class:off={!remote.online} aria-hidden="true"></span>
           {remote.online ? `Journal on ${serverName}` : `${serverName} unreachable`}{remote.pending ? ` · ${remote.pending} waiting` : ""}{remote.failed.length ? ` · ${remote.failed.length} not saved` : ""}
@@ -2911,7 +2921,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                   </li>
                   {#if !remote.connected}
                     <li>
-                      <strong>Want it on your phone?</strong> <button class="link-inline" onclick={() => goTab("data")}>Set up your phone</button>
+                      <strong>Want it on your phone?</strong> <button class="link-inline" onclick={() => goTab("data", "devices")}>Set up your phone</button>
                       in Settings. It walks you through each step.
                     </li>
                   {/if}
@@ -3339,771 +3349,785 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       </section>
     {/if}
 
-    <!-- ============ DATA & SECURITY ============ -->
+    <!-- ============ SETTINGS ============ -->
     {#if tab === "data"}
+      <div class="settings-nav" role="group" aria-label="Settings sections">
+        {#each SETTINGS_SECTIONS as [key, label]}
+          <button class:on={settingsSection === key} aria-current={settingsSection === key ? "true" : undefined} onclick={() => (settingsSection = key)}>{label}</button>
+        {/each}
+      </div>
+
       {#if secErr}<p class="notice bad-notice">{secErr}</p>{/if}
       {#if secMsg}<p class="notice good-notice">{secMsg}</p>{/if}
 
-      <section class="card">
-        <h2>Updates</h2>
-        <p class="muted small">
-          Field Notes checks for a new version when it opens and every few hours while it
-          runs. The check asks GitHub for the latest version number; nothing about your
-          journal is sent.
-        </p>
-        <div class="row-actions">
-          <button class="ghost small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
-            {manualCheck === "checking" ? "Checking…" : "Check for updates"}
-          </button>
-          {#if manualCheck === "found" && update}
-            <button class="primary small-btn" disabled={updateBusy} onclick={installUpdate}>Install v{update.version} &amp; restart</button>
-          {/if}
-        </div>
-        <p class="muted small" role="status">
-          {#if updateBusy}{updateMsg}
-          {:else if manualCheck === "current"}You're on the latest version{appVersion ? ` (v${appVersion})` : ""}.
-          {:else if manualCheck === "found" && update}Version {update.version} is available{appVersion ? ` (you have v${appVersion})` : ""}.
-          {:else if manualCheck === "failed"}Couldn't check right now: {manualCheckErr}. You may be offline.
-          {:else if appVersion}You have v{appVersion}.
-          {/if}
-        </p>
-      </section>
-
-      <section class="card">
-        <h2>Use another computer as your server <span class="off-badge" class:on={remote.connected}>{remote.connected ? "on" : "off"}</span></h2>
-        {#if !remote.connected}
+      {#if settingsSection === "general"}
+        <section class="card">
+          <h2>Updates</h2>
           <p class="muted small">
-            Keep one journal on a computer that stays on — a desktop at home, say — and have this one read
-            and write there over your <strong>tailnet</strong>, the same way a phone does. Pair this
-            computer on the server (Settings → Devices &amp; server → Pair a device), copy the link it
-            shows, and paste it here.
+            Field Notes checks for a new version when it opens and every few hours while it
+            runs. The check asks GitHub for the latest version number; nothing about your
+            journal is sent.
           </p>
-          <p class="muted small">
-            If the server can't be reached, new sessions, doses and timeline notes still save here and are
-            sent the moment it's back; the interaction checker and crisis resources keep working on this
-            computer. Editing and deleting wait for the connection. Entries already on this computer stay
-            here, hidden while you're connected — once connected, <strong>Sync journal to server</strong>
-            copies them over.
-          </p>
-          {#if portal.running}
-            <p class="muted small">⚠️ This computer is serving its own journal right now. Turn off device access below first.</p>
-          {:else}
-            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); connectRemote(); }}>
-              <input
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="Pairing link from the server — https://…/m#t=…"
-                bind:value={remoteLink}
-              />
-              <button class="primary small-btn" type="submit" disabled={remoteBusy || !remoteLink.trim()}>
-                {remoteBusy ? "Connecting…" : "Connect"}
-              </button>
-            </form>
-            <p class="muted small">The link is a key to your journal — it's hidden as you paste it, and stored only inside this computer's journal.</p>
-          {/if}
-        {:else}
-          <p class="small remote-line">
-            <span class="remote-dot" class:off={!remote.online} aria-hidden="true"></span>
-            {#if remote.unpaired}
-              <strong>{serverName} no longer recognises this computer.</strong> It was un-paired there — pair it again and reconnect.
-            {:else if remote.online}
-              Your journal lives on <strong>{serverName}</strong> <span class="muted">({remote.server})</span>.
-            {:else}
-              <strong>Can't reach {serverName} right now.</strong> New entries save here and are sent when it's back.
+          <div class="row-actions">
+            <button class="ghost small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
+              {manualCheck === "checking" ? "Checking…" : "Check for updates"}
+            </button>
+            {#if manualCheck === "found" && update}
+              <button class="primary small-btn" disabled={updateBusy} onclick={installUpdate}>Install v{update.version} &amp; restart</button>
             {/if}
-          </p>
-          {#if remote.pending > 0}
-            <p class="small">{remote.pending} new {remote.pending === 1 ? "entry is" : "entries are"} waiting to be sent.</p>
-          {/if}
-          <div class="sec-block">
-            <h3>Sync journal to server</h3>
-            {#if remote.local_unsynced > 0}
-              <p class="muted small">
-                This computer has <strong>{remote.local_unsynced}</strong> {remote.local_unsynced === 1 ? "entry" : "entries"} of
-                its own that {remote.local_unsynced === 1 ? "isn't" : "aren't"} on {serverName} — hidden while you're connected.
-                Copy {remote.local_unsynced === 1 ? "it" : "them"} there, with doses, timelines, write-ups and any substances
-                you added. {remote.local_unsynced === 1 ? "It stays" : "They stay"} on this computer too, and syncing again
-                only copies what's new.
-              </p>
-              <button class="primary small-btn" disabled={syncBusy || !remote.online} onclick={syncToServer}>
-                {syncBusy ? "Syncing…" : `Sync journal to ${serverName}`}
-              </button>
-              {#if !remote.online}<p class="muted small">Needs the connection to {serverName}.</p>{/if}
-            {:else}
-              <p class="muted small">✓ Everything in this computer's own journal is on {serverName}.</p>
-            {/if}
-            {#if syncMsg}<p class="notice good-notice">{syncMsg}</p>{/if}
           </div>
-          {#if remote.failed.length}
+          <p class="muted small" role="status">
+            {#if updateBusy}{updateMsg}
+            {:else if manualCheck === "current"}You're on the latest version{appVersion ? ` (v${appVersion})` : ""}.
+            {:else if manualCheck === "found" && update}Version {update.version} is available{appVersion ? ` (you have v${appVersion})` : ""}.
+            {:else if manualCheck === "failed"}Couldn't check right now: {manualCheckErr}. You may be offline.
+            {:else if appVersion}You have v{appVersion}.
+            {/if}
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>Companion <span class="off-badge" class:on={!companionOff}>{companionOff ? "off" : "on"}</span></h2>
+          <label class="share">
+            <input
+              type="checkbox"
+              checked={!companionOff}
+              onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
+            />
+            Turn on the Companion
+          </label>
+          <p class="muted small">
+            An optional AI to talk with before, during or after a session. It runs only on this
+            computer and needs a separate free download of a few gigabytes (Ollama and a model), which
+            the Companion tab walks you through. The journal, timeline, dose reference, interaction
+            checker and crisis resources don't use it and work the same either way.
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>Discreet mode</h2>
+          <p class="muted small">
+            For using Field Notes in public or while sharing your screen. When it's on here, an eye
+            button appears next to <strong>Get help</strong> on this computer and on paired phones.
+            Tapping it swaps substance names for stand-ins like "Substance K7" and hides entry titles
+            and previews in lists. Each device decides for itself when to hide; nothing in the journal
+            changes.
+          </p>
+          <label class="share">
+            <input type="checkbox" checked={discreet.available} onchange={toggleDiscreetAvailable} />
+            Offer discreet mode
+          </label>
+          {#if discreetErr}<p class="notice bad-notice">{discreetErr}</p>{/if}
+        </section>
+
+        <section class="card">
+          <h2>Startup disclaimer</h2>
+          <label class="dont-show">
+            <input
+              type="checkbox"
+              checked={dontShowDisclaimer}
+              onchange={(e) => {
+                dontShowDisclaimer = (e.currentTarget as HTMLInputElement).checked;
+                if (dontShowDisclaimer) localStorage.setItem(HIDE_DISCLAIMER_KEY, "1");
+                else localStorage.removeItem(HIDE_DISCLAIMER_KEY);
+              }}
+            />
+            Skip the disclaimer splash on startup
+          </label>
+        </section>
+      {/if}
+
+      {#if settingsSection === "devices"}
+        <section class="card">
+          <h2>Use another computer as your server <span class="off-badge" class:on={remote.connected}>{remote.connected ? "on" : "off"}</span></h2>
+          {#if !remote.connected}
+            <p class="muted small">
+              Keep one journal on a computer that stays on — a desktop at home, say — and have this one read
+              and write there over your <strong>tailnet</strong>, the same way a phone does. Pair this
+              computer on the server (Settings → Devices &amp; sync → Pair a device), copy the link it
+              shows, and paste it here.
+            </p>
+            <p class="muted small">
+              If the server can't be reached, new sessions, doses and timeline notes still save here and are
+              sent the moment it's back; the interaction checker and crisis resources keep working on this
+              computer. Editing and deleting wait for the connection. Entries already on this computer stay
+              here, hidden while you're connected — once connected, <strong>Sync journal to server</strong>
+              copies them over.
+            </p>
+            {#if portal.running}
+              <p class="muted small">⚠️ This computer is serving its own journal right now. Turn off device access below first.</p>
+            {:else}
+              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); connectRemote(); }}>
+                <input
+                  type="password"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="Pairing link from the server — https://…/m#t=…"
+                  bind:value={remoteLink}
+                />
+                <button class="primary small-btn" type="submit" disabled={remoteBusy || !remoteLink.trim()}>
+                  {remoteBusy ? "Connecting…" : "Connect"}
+                </button>
+              </form>
+              <p class="muted small">The link is a key to your journal — it's hidden as you paste it, and stored only inside this computer's journal.</p>
+            {/if}
+          {:else}
+            <p class="small remote-line">
+              <span class="remote-dot" class:off={!remote.online} aria-hidden="true"></span>
+              {#if remote.unpaired}
+                <strong>{serverName} no longer recognises this computer.</strong> It was un-paired there — pair it again and reconnect.
+              {:else if remote.online}
+                Your journal lives on <strong>{serverName}</strong> <span class="muted">({remote.server})</span>.
+              {:else}
+                <strong>Can't reach {serverName} right now.</strong> New entries save here and are sent when it's back.
+              {/if}
+            </p>
+            {#if remote.pending > 0}
+              <p class="small">{remote.pending} new {remote.pending === 1 ? "entry is" : "entries are"} waiting to be sent.</p>
+            {/if}
             <div class="sec-block">
-              <h3>Couldn't be saved on {serverName}</h3>
-              <p class="muted small">The server refused these. They're kept here so nothing disappears quietly.</p>
+              <h3>Sync journal to server</h3>
+              {#if remote.local_unsynced > 0}
+                <p class="muted small">
+                  This computer has <strong>{remote.local_unsynced}</strong> {remote.local_unsynced === 1 ? "entry" : "entries"} of
+                  its own that {remote.local_unsynced === 1 ? "isn't" : "aren't"} on {serverName} — hidden while you're connected.
+                  Copy {remote.local_unsynced === 1 ? "it" : "them"} there, with doses, timelines, write-ups and any substances
+                  you added. {remote.local_unsynced === 1 ? "It stays" : "They stay"} on this computer too, and syncing again
+                  only copies what's new.
+                </p>
+                <button class="primary small-btn" disabled={syncBusy || !remote.online} onclick={syncToServer}>
+                  {syncBusy ? "Syncing…" : `Sync journal to ${serverName}`}
+                </button>
+                {#if !remote.online}<p class="muted small">Needs the connection to {serverName}.</p>{/if}
+              {:else}
+                <p class="muted small">✓ Everything in this computer's own journal is on {serverName}.</p>
+              {/if}
+              {#if syncMsg}<p class="notice good-notice">{syncMsg}</p>{/if}
+            </div>
+            {#if remote.failed.length}
+              <div class="sec-block">
+                <h3>Couldn't be saved on {serverName}</h3>
+                <p class="muted small">The server refused these. They're kept here so nothing disappears quietly.</p>
+                <ul class="device-list">
+                  {#each remote.failed as f (f.seq)}
+                    <li>
+                      <span><strong>{QUEUED_LABEL[f.cmd] ?? f.cmd}</strong><br /><span class="muted small">{f.error}</span></span>
+                      <button class="ghost small-btn" onclick={() => discardFailed(f)}>Discard</button>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+            {#if remoteErr}<p class="notice bad-notice">{remoteErr}</p>{/if}
+            <div class="row-actions">
+              <button class="ghost small-btn" disabled={remoteBusy} onclick={syncNow}>{remoteBusy ? "Checking…" : "Sync now"}</button>
+              <button class="ghost small-btn" onclick={disconnectRemote}>Disconnect</button>
+            </div>
+          {/if}
+          {#if remoteErr && !remote.connected}<p class="notice bad-notice">{remoteErr}</p>{/if}
+        </section>
+
+        <section class="card">
+          <h2>Devices &amp; server <span class="off-badge" class:on={portal.running}>{portal.running ? "on" : "off"}</span></h2>
+          {#if remote.connected}
+            <p class="muted small">
+              This computer uses {serverName} as its journal, so it doesn't serve one of its own. Pair your
+              phone with {serverName} instead.
+            </p>
+          {:else}
+          <p class="muted small">
+            Optional. Field Notes is an offline, on-device app and it stays that way unless you turn this
+            on: it lets your phone — or another computer — on your <strong>tailnet</strong> reach this
+            journal while the app is running here.
+          </p>
+          <p class="muted small">
+            The server listens on <strong>127.0.0.1 only</strong>, so nothing is exposed to your local
+            network; Tailscale is what carries it to your devices, encrypted. Every device has its own key,
+            which you can revoke on its own, and nothing is served while the journal is locked. Your data
+            still never reaches a third party.
+          </p>
+
+          {#if ts != null}
+            {@const allDone = setupNext === null}
+            <div class="setup" class:done={allDone}>
+              <div class="setup-head">
+                <h3>{allDone ? "Your phone is set up" : "Set up your phone"}</h3>
+                {#if allDone}
+                  <button class="link" onclick={() => (setupOpen = !setupOpen)}>{setupOpen ? "Hide steps" : "Show steps"}</button>
+                {:else}
+                  <button class="ghost small-btn" disabled={setupChecking} onclick={recheckSetup}>{setupChecking ? "Checking…" : "Check again"}</button>
+                {/if}
+              </div>
+              {#if !allDone || setupOpen}
+                <ol class="setup-steps">
+                  {#each setupSteps as st, n}
+                    {@const active = !st.done && setupActive(st.key)}
+                    <li class:done={st.done} class:next={active}>
+                      <span class="setup-mark" aria-hidden="true">{st.done ? "✓" : n + 1}</span>
+                      <div>
+                        <span class="setup-label">{st.label}<span class="visually-hidden">{st.done ? " (done)" : active ? " (next)" : ""}</span></span>
+                        {#if active}
+                          <div class="setup-fix small">
+                            {#if st.key === "connect"}
+                              {#if !ts.installed}
+                                <p>This copy of Field Notes is missing its built-in Tailscale. Reinstall Field Notes{ts.app_available ? ", or use the Tailscale app that's already on this computer" : ""}.</p>
+                                {#if ts.app_available}
+                                  <button class="primary small-btn" onclick={() => switchTailscale(true)}>Use the Tailscale app</button>
+                                {/if}
+                              {:else if ts.signed_in && !ts.https_enabled}
+                                <p>Signed in as <strong>{ts.login ?? "you"}</strong>. One last switch: your Tailscale account needs secure (HTTPS) connections turned on. It's off on new accounts and only needs doing once.</p>
+                                <p>On the page this opens, find <strong>HTTPS Certificates</strong> and click <strong>Enable HTTPS</strong>. If it asks you to turn on MagicDNS first, do that too. Then come back here.</p>
+                                <button class="primary small-btn" onclick={() => openUrl("https://login.tailscale.com/admin/dns")}>Open Tailscale's DNS settings</button>
+                              {:else if ts.signed_in}
+                                <p>Signed in as <strong>{ts.login ?? "you"}</strong>. Setting up a secure connection; the first time takes a few seconds.</p>
+                              {:else if ts.auth_url}
+                                <p>Sign in on the Tailscale page that opened in your browser, with Google, Apple, Microsoft or GitHub. No account yet? Signing in creates one. Then come back here: this step ticks by itself.</p>
+                                <button class="ghost small-btn" onclick={() => openUrl(ts!.auth_url!)}>Open the sign-in page again</button>
+                              {:else if connecting}
+                                <p>Starting Tailscale…</p>
+                              {:else}
+                                <p>Your phone reaches this computer through <strong>Tailscale</strong>, a free, private connection between your own devices. It's built into Field Notes, so there's nothing to install here. Tailscale can see which of your devices are connected, never what's in your journal.</p>
+                                <button class="primary small-btn" onclick={connectBuiltin}>Connect</button>
+                                <p class="muted">Opens Tailscale's sign-in page in your browser. Sign in with Google, Apple, Microsoft or GitHub; no account yet? Signing in creates one.</p>
+                              {/if}
+                              {#if ts.problem}<p class="muted">Tailscale said: {ts.problem}</p>{/if}
+                            {:else if st.key === "phone-app"}
+                              <p>Get <strong>Tailscale</strong> from the App Store or Google Play. It's free.</p>
+                              {#if storeQr}
+                                <div class="store-qrs">
+                                  <figure><div class="qr">{@html storeQr.ios}</div><figcaption>iPhone (App Store)</figcaption></figure>
+                                  <figure><div class="qr">{@html storeQr.android}</div><figcaption>Android (Google Play)</figcaption></figure>
+                                </div>
+                              {:else}
+                                <button class="ghost small-btn" onclick={showStoreCodes}>Show download codes</button>
+                              {/if}
+                            {:else if st.key === "phone-signin"}
+                              <p>Open Tailscale on your phone and sign in{ts.login ? ` as ${ts.login}` : ""}. It has to be <strong>the same account</strong> as this computer: signing in with a different one (say Google here, Apple there) is the most common reason a phone can't connect.</p>
+                              <p>Allow the VPN when your phone asks, and check that Tailscale says <strong>Connected</strong>.</p>
+                            {:else if st.key === "scan"}
+                              {#if setupPairing && pairing}
+                                {#if showQr && portalQrSvg}<div class="qr">{@html portalQrSvg}</div>{/if}
+                                <p>Field Notes opens on your phone, already set up. To keep it as an app, use <strong>Share → Add to Home Screen</strong>.</p>
+                                <p class="muted"><strong>This code is a key</strong>: whoever scans it can read and write this journal. Don't photograph it. It disappears when you press Done.</p>
+                                <button class="ghost small-btn" onclick={donePairing}>Done</button>
+                              {:else}
+                                <p>Field Notes opens on your phone, already set up. Nothing to type.</p>
+                                <button class="primary small-btn" onclick={pairFromSetup}>Show the code</button>
+                              {/if}
+                            {:else if st.key === "install"}
+                              <p>Tailscale is a free app that privately links your own devices. It's what carries the connection between this computer and your phone, encrypted.</p>
+                              <button class="primary small-btn" onclick={() => openUrl("https://tailscale.com/download")}>Download Tailscale</button>
+                            {:else if st.key === "signin"}
+                              <p>Open Tailscale and sign in{isMac ? " (its icon is at the top of the screen, next to the clock)" : ""}. Use the same account you'll use on your phone.</p>
+                            {:else if st.key === "https"}
+                              <p>Tailscale only lets this computer publish once HTTPS is on for your tailnet. It's off on a new tailnet, and it's a one-time switch.</p>
+                              <p>On the page this opens, find <strong>HTTPS Certificates</strong> and click <strong>Enable HTTPS</strong>. If it asks you to turn on MagicDNS first, do that too.</p>
+                              <button class="primary small-btn" onclick={() => openUrl("https://login.tailscale.com/admin/dns")}>Open Tailscale's DNS settings</button>
+                            {:else if st.key === "access"}
+                              <p>This lets your devices reach the journal while Field Notes is running here. It listens only on this computer until the next step.</p>
+                              <button class="primary small-btn" onclick={togglePortal}>Turn on device access</button>
+                            {:else if st.key === "publish"}
+                              <p>Makes this computer reachable from devices on your tailnet, and nowhere else. Nothing is opened to the internet or your home network.</p>
+                              <button class="primary small-btn" disabled={serving} onclick={toggleServe}>{serving ? "Publishing…" : "Publish to my tailnet"}</button>
+                            {:else if st.key === "pair"}
+                              <p>Install Tailscale on your phone and sign in with the same account. Then pair it below and scan the code with the phone's camera.</p>
+                              <button class="primary small-btn" onclick={startPairFromChecklist}>Pair a phone</button>
+                            {/if}
+                          </div>
+                        {/if}
+                      </div>
+                    </li>
+                  {/each}
+                </ol>
+                {#if !allDone && ["install", "signin", "https"].includes(setupNext ?? "")}
+                  <p class="muted small">Come back here when that's done; this list updates by itself.</p>
+                {/if}
+              {/if}
+            </div>
+          {/if}
+
+          {#if portalErr}
+            <!-- Tailscale's approval link (Serve or HTTPS not yet enabled for the
+                 tailnet) is the fix, so it's a button, not text to copy. -->
+            {@const approve = portalErr.match(/https:\/\/login\.tailscale\.com\/\S+/)?.[0]}
+            <p class="notice bad-notice">
+              {portalErr}
+              {#if approve}<br /><button class="primary small-btn" onclick={() => openUrl(approve)}>Open the approval page</button>{/if}
+            </p>
+          {/if}
+
+          {#if portal.running || !ts?.builtin}
+            <button
+              class="primary small-btn"
+              onclick={togglePortal}
+              disabled={!portal.running && ts != null && !ts.installed}
+            >
+              {portal.running ? "Turn off device access" : "Turn on device access"}
+            </button>
+          {/if}
+          {#if !portal.running && ts != null && !ts.installed && !ts.builtin}
+            <p class="muted small">Install and sign into Tailscale first — there's no point serving this where only this machine can reach it.</p>
+          {/if}
+
+          {#if portal.running}
+            <div class="sec-block">
+              <h3>Your tailnet</h3>
+              {#if ts?.builtin}
+                {#if ts.serving}
+                  <p class="muted small">
+                    Connected to Tailscale as <strong>{ts.login ?? "you"}</strong>, at <strong>{ts.url}</strong>. Only
+                    devices signed in to that account can reach it, and every request still needs a paired device's key.
+                  </p>
+                {:else if ts.signed_in}
+                  <p class="muted small">Signed in to Tailscale as <strong>{ts.login ?? "you"}</strong>, but not answering on your tailnet.</p>
+                  <button class="primary small-btn" onclick={connectBuiltin}>Connect</button>
+                {:else}
+                  <p class="muted small">Not connected to Tailscale. Use <strong>Connect</strong> in the steps above.</p>
+                {/if}
+                <div class="row-actions">
+                  {#if ts.serving}<button class="ghost small-btn" onclick={disconnectBuiltin}>Disconnect</button>{/if}
+                  {#if ts.signed_in}<button class="ghost small-btn" onclick={signOutBuiltin}>Sign out of Tailscale</button>{/if}
+                </div>
+                {#if ts.app_available}
+                  <p class="muted small">
+                    The Tailscale app is installed on this computer too.
+                    <button class="link-inline" onclick={() => switchTailscale(true)}>Use it instead of the built-in one</button>
+                  </p>
+                {/if}
+              {:else if !ts?.installed}
+                <p class="muted small">
+                  ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
+                  Install Tailscale on this computer and your devices, then come back.
+                </p>
+              {:else if !tailscaleUrl}
+                <p class="muted small">⚠️ Tailscale is installed but isn't logged in — sign in, then reopen this tab.</p>
+              {:else if ts.serving}
+                <p class="muted small">
+                  Published to your tailnet at <strong>{ts.url ?? tailscaleUrl}</strong> — and nothing else can
+                  reach it: it's your tailnet, encrypted end to end, and every request still needs a paired
+                  device's key.
+                </p>
+                <button class="ghost small-btn" disabled={serving} onclick={toggleServe}>
+                  {serving ? "Working…" : "Stop publishing to my tailnet"}
+                </button>
+
+              {:else}
+                <p class="muted small">
+                  One more step: publish the portal to your tailnet, so your devices can reach it.
+                  Tailscale carries it, encrypted — this does not open anything to the internet or to
+                  your local network. You can undo it here at any time.
+                </p>
+                <button class="primary small-btn" disabled={serving} onclick={toggleServe}>
+                  {serving ? "Publishing…" : "Publish to my tailnet"}
+                </button>
+              {/if}
+              {#if ts && !ts.builtin}
+                <p class="muted small">
+                  Using the Tailscale app on this computer.
+                  <button class="link-inline" onclick={() => switchTailscale(false)}>Use Field Notes' built-in Tailscale instead</button>
+                  (paired phones will need a new code scanned, since the address changes).
+                </p>
+              {/if}
+            </div>
+          {/if}
+
+          <div class="sec-block">
+            <h3>Pair a device</h3>
+            {#if setupPairing}
+              <p class="muted small">The code is showing in the setup steps above.</p>
+            {:else if !pairing}
+              <p class="muted small">
+                Give it a name you'll recognise later — you can un-pair each device separately.
+              </p>
+              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); doPair(); }}>
+                <input placeholder="e.g. Phone, Laptop" maxlength="60" bind:value={pairName} bind:this={pairInput} />
+                <button class="ghost small-btn" type="submit">Pair</button>
+              </form>
+            {:else}
+              {#if pairedId === pairing.device.id}
+                <p class="paired" role="status">
+                  <span class="paired-dot" aria-hidden="true"></span>{pairing.device.name} is connected
+                </p>
+              {/if}
+              {#if !ts?.serving}
+                <p class="muted small">
+                  ⚠️ Not published to your tailnet yet, so this link only works on this computer. Publish
+                  first, then the link and code here update to your tailnet address.
+                </p>
+              {/if}
+              <p class="small"><strong>{pairing.device.name}</strong> — pair it one of two ways:</p>
+              <ul class="muted small pair-ways">
+                <li><strong>A phone:</strong> scan the code with its camera.</li>
+                <li><strong>A computer:</strong> copy the link and paste it into Field Notes there, under Settings → Devices &amp; sync → Use another computer as your server. (Send it to yourself some private way — it's a key.)</li>
+              </ul>
+              <div class="row-actions">
+                {#if showQr && portalQrSvg}
+                  <button class="ghost small-btn" onclick={() => (showQr = false)}>Hide code</button>
+                {:else}
+                  <button class="ghost small-btn" onclick={revealQr}>Show QR code…</button>
+                {/if}
+                <button class="ghost small-btn" onclick={copyPairLink}>{pairLinkCopied ? "Link copied ✓" : "Copy link"}</button>
+                <button class="ghost small-btn" onclick={donePairing}>Done</button>
+              </div>
+              {#if showQr && portalQrSvg}
+                <div class="qr">{@html portalQrSvg}</div>
+              {/if}
+              <p class="muted small">
+                <strong>This is a key</strong> — whoever has it can read and write this journal. Don't leave
+                it on screen, and don't photograph it. It's shown only until you press Done.
+              </p>
+            {/if}
+          </div>
+
+          {#if devices.length}
+            <div class="sec-block">
+              <h3>Paired devices</h3>
               <ul class="device-list">
-                {#each remote.failed as f (f.seq)}
+                {#each devices as d (d.id)}
                   <li>
-                    <span><strong>{QUEUED_LABEL[f.cmd] ?? f.cmd}</strong><br /><span class="muted small">{f.error}</span></span>
-                    <button class="ghost small-btn" onclick={() => discardFailed(f)}>Discard</button>
+                    <span><strong>{d.name}</strong>{#if d.person !== 1} <span class="person-tag">{personOf(d.person)}</span>{/if}<br /><span class="muted small">{whenSeen(d.last_seen)}</span></span>
+                    <button class="ghost small-btn" onclick={() => revokeDevice(d)}>Un-pair</button>
                   </li>
                 {/each}
               </ul>
             </div>
           {/if}
-          {#if remoteErr}<p class="notice bad-notice">{remoteErr}</p>{/if}
-          <div class="row-actions">
-            <button class="ghost small-btn" disabled={remoteBusy} onclick={syncNow}>{remoteBusy ? "Checking…" : "Sync now"}</button>
-            <button class="ghost small-btn" onclick={disconnectRemote}>Disconnect</button>
-          </div>
-        {/if}
-        {#if remoteErr && !remote.connected}<p class="notice bad-notice">{remoteErr}</p>{/if}
-      </section>
 
-      <section class="card">
-        <h2>Devices &amp; server <span class="off-badge" class:on={portal.running}>{portal.running ? "on" : "off"}</span></h2>
-        {#if remote.connected}
-          <p class="muted small">
-            This computer uses {serverName} as its journal, so it doesn't serve one of its own. Pair your
-            phone with {serverName} instead.
-          </p>
-        {:else}
-        <p class="muted small">
-          Optional. Field Notes is an offline, on-device app and it stays that way unless you turn this
-          on: it lets your phone — or another computer — on your <strong>tailnet</strong> reach this
-          journal while the app is running here.
-        </p>
-        <p class="muted small">
-          The server listens on <strong>127.0.0.1 only</strong>, so nothing is exposed to your local
-          network; Tailscale is what carries it to your devices, encrypted. Every device has its own key,
-          which you can revoke on its own, and nothing is served while the journal is locked. Your data
-          still never reaches a third party.
-        </p>
-
-        {#if ts != null}
-          {@const allDone = setupNext === null}
-          <div class="setup" class:done={allDone}>
-            <div class="setup-head">
-              <h3>{allDone ? "Your phone is set up" : "Set up your phone"}</h3>
-              {#if allDone}
-                <button class="link" onclick={() => (setupOpen = !setupOpen)}>{setupOpen ? "Hide steps" : "Show steps"}</button>
-              {:else}
-                <button class="ghost small-btn" disabled={setupChecking} onclick={recheckSetup}>{setupChecking ? "Checking…" : "Check again"}</button>
-              {/if}
-            </div>
-            {#if !allDone || setupOpen}
-              <ol class="setup-steps">
-                {#each setupSteps as st, n}
-                  {@const active = !st.done && setupActive(st.key)}
-                  <li class:done={st.done} class:next={active}>
-                    <span class="setup-mark" aria-hidden="true">{st.done ? "✓" : n + 1}</span>
-                    <div>
-                      <span class="setup-label">{st.label}<span class="visually-hidden">{st.done ? " (done)" : active ? " (next)" : ""}</span></span>
-                      {#if active}
-                        <div class="setup-fix small">
-                          {#if st.key === "connect"}
-                            {#if !ts.installed}
-                              <p>This copy of Field Notes is missing its built-in Tailscale. Reinstall Field Notes{ts.app_available ? ", or use the Tailscale app that's already on this computer" : ""}.</p>
-                              {#if ts.app_available}
-                                <button class="primary small-btn" onclick={() => switchTailscale(true)}>Use the Tailscale app</button>
-                              {/if}
-                            {:else if ts.signed_in && !ts.https_enabled}
-                              <p>Signed in as <strong>{ts.login ?? "you"}</strong>. One last switch: your Tailscale account needs secure (HTTPS) connections turned on. It's off on new accounts and only needs doing once.</p>
-                              <p>On the page this opens, find <strong>HTTPS Certificates</strong> and click <strong>Enable HTTPS</strong>. If it asks you to turn on MagicDNS first, do that too. Then come back here.</p>
-                              <button class="primary small-btn" onclick={() => openUrl("https://login.tailscale.com/admin/dns")}>Open Tailscale's DNS settings</button>
-                            {:else if ts.signed_in}
-                              <p>Signed in as <strong>{ts.login ?? "you"}</strong>. Setting up a secure connection; the first time takes a few seconds.</p>
-                            {:else if ts.auth_url}
-                              <p>Sign in on the Tailscale page that opened in your browser, with Google, Apple, Microsoft or GitHub. No account yet? Signing in creates one. Then come back here: this step ticks by itself.</p>
-                              <button class="ghost small-btn" onclick={() => openUrl(ts!.auth_url!)}>Open the sign-in page again</button>
-                            {:else if connecting}
-                              <p>Starting Tailscale…</p>
-                            {:else}
-                              <p>Your phone reaches this computer through <strong>Tailscale</strong>, a free, private connection between your own devices. It's built into Field Notes, so there's nothing to install here. Tailscale can see which of your devices are connected, never what's in your journal.</p>
-                              <button class="primary small-btn" onclick={connectBuiltin}>Connect</button>
-                              <p class="muted">Opens Tailscale's sign-in page in your browser. Sign in with Google, Apple, Microsoft or GitHub; no account yet? Signing in creates one.</p>
-                            {/if}
-                            {#if ts.problem}<p class="muted">Tailscale said: {ts.problem}</p>{/if}
-                          {:else if st.key === "phone-app"}
-                            <p>Get <strong>Tailscale</strong> from the App Store or Google Play. It's free.</p>
-                            {#if storeQr}
-                              <div class="store-qrs">
-                                <figure><div class="qr">{@html storeQr.ios}</div><figcaption>iPhone (App Store)</figcaption></figure>
-                                <figure><div class="qr">{@html storeQr.android}</div><figcaption>Android (Google Play)</figcaption></figure>
-                              </div>
-                            {:else}
-                              <button class="ghost small-btn" onclick={showStoreCodes}>Show download codes</button>
-                            {/if}
-                          {:else if st.key === "phone-signin"}
-                            <p>Open Tailscale on your phone and sign in{ts.login ? ` as ${ts.login}` : ""}. It has to be <strong>the same account</strong> as this computer: signing in with a different one (say Google here, Apple there) is the most common reason a phone can't connect.</p>
-                            <p>Allow the VPN when your phone asks, and check that Tailscale says <strong>Connected</strong>.</p>
-                          {:else if st.key === "scan"}
-                            {#if setupPairing && pairing}
-                              {#if showQr && portalQrSvg}<div class="qr">{@html portalQrSvg}</div>{/if}
-                              <p>Field Notes opens on your phone, already set up. To keep it as an app, use <strong>Share → Add to Home Screen</strong>.</p>
-                              <p class="muted"><strong>This code is a key</strong>: whoever scans it can read and write this journal. Don't photograph it. It disappears when you press Done.</p>
-                              <button class="ghost small-btn" onclick={donePairing}>Done</button>
-                            {:else}
-                              <p>Field Notes opens on your phone, already set up. Nothing to type.</p>
-                              <button class="primary small-btn" onclick={pairFromSetup}>Show the code</button>
-                            {/if}
-                          {:else if st.key === "install"}
-                            <p>Tailscale is a free app that privately links your own devices. It's what carries the connection between this computer and your phone, encrypted.</p>
-                            <button class="primary small-btn" onclick={() => openUrl("https://tailscale.com/download")}>Download Tailscale</button>
-                          {:else if st.key === "signin"}
-                            <p>Open Tailscale and sign in{isMac ? " (its icon is at the top of the screen, next to the clock)" : ""}. Use the same account you'll use on your phone.</p>
-                          {:else if st.key === "https"}
-                            <p>Tailscale only lets this computer publish once HTTPS is on for your tailnet. It's off on a new tailnet, and it's a one-time switch.</p>
-                            <p>On the page this opens, find <strong>HTTPS Certificates</strong> and click <strong>Enable HTTPS</strong>. If it asks you to turn on MagicDNS first, do that too.</p>
-                            <button class="primary small-btn" onclick={() => openUrl("https://login.tailscale.com/admin/dns")}>Open Tailscale's DNS settings</button>
-                          {:else if st.key === "access"}
-                            <p>This lets your devices reach the journal while Field Notes is running here. It listens only on this computer until the next step.</p>
-                            <button class="primary small-btn" onclick={togglePortal}>Turn on device access</button>
-                          {:else if st.key === "publish"}
-                            <p>Makes this computer reachable from devices on your tailnet, and nowhere else. Nothing is opened to the internet or your home network.</p>
-                            <button class="primary small-btn" disabled={serving} onclick={toggleServe}>{serving ? "Publishing…" : "Publish to my tailnet"}</button>
-                          {:else if st.key === "pair"}
-                            <p>Install Tailscale on your phone and sign in with the same account. Then pair it below and scan the code with the phone's camera.</p>
-                            <button class="primary small-btn" onclick={startPairFromChecklist}>Pair a phone</button>
-                          {/if}
-                        </div>
-                      {/if}
-                    </div>
-                  </li>
-                {/each}
-              </ol>
-              {#if !allDone && ["install", "signin", "https"].includes(setupNext ?? "")}
-                <p class="muted small">Come back here when that's done; this list updates by itself.</p>
-              {/if}
-            {/if}
-          </div>
-        {/if}
-
-        {#if portalErr}
-          <!-- Tailscale's approval link (Serve or HTTPS not yet enabled for the
-               tailnet) is the fix, so it's a button, not text to copy. -->
-          {@const approve = portalErr.match(/https:\/\/login\.tailscale\.com\/\S+/)?.[0]}
-          <p class="notice bad-notice">
-            {portalErr}
-            {#if approve}<br /><button class="primary small-btn" onclick={() => openUrl(approve)}>Open the approval page</button>{/if}
-          </p>
-        {/if}
-
-        {#if portal.running || !ts?.builtin}
-          <button
-            class="primary small-btn"
-            onclick={togglePortal}
-            disabled={!portal.running && ts != null && !ts.installed}
-          >
-            {portal.running ? "Turn off device access" : "Turn on device access"}
-          </button>
-        {/if}
-        {#if !portal.running && ts != null && !ts.installed && !ts.builtin}
-          <p class="muted small">Install and sign into Tailscale first — there's no point serving this where only this machine can reach it.</p>
-        {/if}
-
-        {#if portal.running}
           <div class="sec-block">
-            <h3>Your tailnet</h3>
-            {#if ts?.builtin}
-              {#if ts.serving}
-                <p class="muted small">
-                  Connected to Tailscale as <strong>{ts.login ?? "you"}</strong>, at <strong>{ts.url}</strong>. Only
-                  devices signed in to that account can reach it, and every request still needs a paired device's key.
+            <h3>People</h3>
+            <p class="muted small">
+              Someone else who uses this server gets their own journal, locked with a password only they know. You can
+              pair their devices and remove them, but you can't open their journal: this list shows names, devices and
+              whether a journal is locked, never entries.
+            </p>
+            {#if people.length}
+              <ul class="device-list">
+                {#each people as p (p.id)}
+                  <li class="person-row">
+                    <span>
+                      <strong>{p.name}</strong><br />
+                      <span class="muted small">
+                        {deviceCount(p.id)} {deviceCount(p.id) === 1 ? "device" : "devices"} · {personState(p)}
+                      </span>
+                    </span>
+                    <span class="row-actions">
+                      <button class="ghost small-btn" onclick={() => pairForPerson(p)}>Pair a device for them</button>
+                      <button class="ghost small-btn" onclick={() => { removingPerson = removingPerson === p.id ? null : p.id; removeTyped = ""; }}>Remove…</button>
+                    </span>
+                  </li>
+                  {#if removingPerson === p.id}
+                    <li class="person-remove">
+                      <form onsubmit={(e) => { e.preventDefault(); removePerson(p); }}>
+                        <p class="small">
+                          <strong>This deletes {p.name}'s journal and un-pairs all their devices.</strong> It can't be undone,
+                          and because their journal is encrypted with their password, nobody can open it first to check
+                          what's in it or keep a copy. If they want to keep any entries, they can export them one at a time from their own phone first.
+                        </p>
+                        <label class="small" for="remove-{p.id}">Type <strong>{p.name}</strong> to confirm</label>
+                        <span class="remote-form">
+                          <input id="remove-{p.id}" bind:value={removeTyped} autocomplete="off" />
+                          <button class="danger-btn" type="submit" disabled={removeTyped.trim().toLowerCase() !== p.name.toLowerCase()}>Remove {p.name}</button>
+                          <button class="ghost small-btn" type="button" onclick={() => (removingPerson = null)}>Cancel</button>
+                        </span>
+                      </form>
+                    </li>
+                  {/if}
+                {/each}
+              </ul>
+            {/if}
+
+            {#if personPairing}
+              {@const pp = personPairing}
+              {#if pairedId === pp.pair.device.id}
+                <p class="paired" role="status">
+                  <span class="paired-dot" aria-hidden="true"></span>{pp.pair.device.name} is connected
                 </p>
-              {:else if ts.signed_in}
-                <p class="muted small">Signed in to Tailscale as <strong>{ts.login ?? "you"}</strong>, but not answering on your tailnet.</p>
-                <button class="primary small-btn" onclick={connectBuiltin}>Connect</button>
-              {:else}
-                <p class="muted small">Not connected to Tailscale. Use <strong>Connect</strong> in the steps above.</p>
+              {/if}
+              <p class="small">
+                <strong>Pair {pp.who.name}'s device.</strong> Let them scan the code with their phone's camera. The first
+                time, their phone asks them to choose a password for their journal.
+              </p>
+              {#if !ts?.serving}
+                <p class="muted small">
+                  Not published to your tailnet yet, so this link only works on this computer. Publish first.
+                </p>
               {/if}
               <div class="row-actions">
-                {#if ts.serving}<button class="ghost small-btn" onclick={disconnectBuiltin}>Disconnect</button>{/if}
-                {#if ts.signed_in}<button class="ghost small-btn" onclick={signOutBuiltin}>Sign out of Tailscale</button>{/if}
-              </div>
-              {#if ts.app_available}
-                <p class="muted small">
-                  The Tailscale app is installed on this computer too.
-                  <button class="link-inline" onclick={() => switchTailscale(true)}>Use it instead of the built-in one</button>
-                </p>
-              {/if}
-            {:else if !ts?.installed}
-              <p class="muted small">
-                ⚠️ Tailscale isn't installed, so the portal is only reachable from this machine.
-                Install Tailscale on this computer and your devices, then come back.
-              </p>
-            {:else if !tailscaleUrl}
-              <p class="muted small">⚠️ Tailscale is installed but isn't logged in — sign in, then reopen this tab.</p>
-            {:else if ts.serving}
-              <p class="muted small">
-                Published to your tailnet at <strong>{ts.url ?? tailscaleUrl}</strong> — and nothing else can
-                reach it: it's your tailnet, encrypted end to end, and every request still needs a paired
-                device's key.
-              </p>
-              <button class="ghost small-btn" disabled={serving} onclick={toggleServe}>
-                {serving ? "Working…" : "Stop publishing to my tailnet"}
-              </button>
-
-            {:else}
-              <p class="muted small">
-                One more step: publish the portal to your tailnet, so your devices can reach it.
-                Tailscale carries it, encrypted — this does not open anything to the internet or to
-                your local network. You can undo it here at any time.
-              </p>
-              <button class="primary small-btn" disabled={serving} onclick={toggleServe}>
-                {serving ? "Publishing…" : "Publish to my tailnet"}
-              </button>
-            {/if}
-            {#if ts && !ts.builtin}
-              <p class="muted small">
-                Using the Tailscale app on this computer.
-                <button class="link-inline" onclick={() => switchTailscale(false)}>Use Field Notes' built-in Tailscale instead</button>
-                (paired phones will need a new code scanned, since the address changes).
-              </p>
-            {/if}
-          </div>
-        {/if}
-
-        <div class="sec-block">
-          <h3>Pair a device</h3>
-          {#if setupPairing}
-            <p class="muted small">The code is showing in the setup steps above.</p>
-          {:else if !pairing}
-            <p class="muted small">
-              Give it a name you'll recognise later — you can un-pair each device separately.
-            </p>
-            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); doPair(); }}>
-              <input placeholder="e.g. Phone, Laptop" maxlength="60" bind:value={pairName} bind:this={pairInput} />
-              <button class="ghost small-btn" type="submit">Pair</button>
-            </form>
-          {:else}
-            {#if pairedId === pairing.device.id}
-              <p class="paired" role="status">
-                <span class="paired-dot" aria-hidden="true"></span>{pairing.device.name} is connected
-              </p>
-            {/if}
-            {#if !ts?.serving}
-              <p class="muted small">
-                ⚠️ Not published to your tailnet yet, so this link only works on this computer. Publish
-                first, then the link and code here update to your tailnet address.
-              </p>
-            {/if}
-            <p class="small"><strong>{pairing.device.name}</strong> — pair it one of two ways:</p>
-            <ul class="muted small pair-ways">
-              <li><strong>A phone:</strong> scan the code with its camera.</li>
-              <li><strong>A computer:</strong> copy the link and paste it into Field Notes there, under Settings → Use another computer as your server. (Send it to yourself some private way — it's a key.)</li>
-            </ul>
-            <div class="row-actions">
-              {#if showQr && portalQrSvg}
-                <button class="ghost small-btn" onclick={() => (showQr = false)}>Hide code</button>
-              {:else}
-                <button class="ghost small-btn" onclick={revealQr}>Show QR code…</button>
-              {/if}
-              <button class="ghost small-btn" onclick={copyPairLink}>{pairLinkCopied ? "Link copied ✓" : "Copy link"}</button>
-              <button class="ghost small-btn" onclick={donePairing}>Done</button>
-            </div>
-            {#if showQr && portalQrSvg}
-              <div class="qr">{@html portalQrSvg}</div>
-            {/if}
-            <p class="muted small">
-              <strong>This is a key</strong> — whoever has it can read and write this journal. Don't leave
-              it on screen, and don't photograph it. It's shown only until you press Done.
-            </p>
-          {/if}
-        </div>
-
-        {#if devices.length}
-          <div class="sec-block">
-            <h3>Paired devices</h3>
-            <ul class="device-list">
-              {#each devices as d (d.id)}
-                <li>
-                  <span><strong>{d.name}</strong>{#if d.person !== 1} <span class="person-tag">{personOf(d.person)}</span>{/if}<br /><span class="muted small">{whenSeen(d.last_seen)}</span></span>
-                  <button class="ghost small-btn" onclick={() => revokeDevice(d)}>Un-pair</button>
-                </li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
-
-        <div class="sec-block">
-          <h3>People</h3>
-          <p class="muted small">
-            Someone else who uses this server gets their own journal, locked with a password only they know. You can
-            pair their devices and remove them, but you can't open their journal: this list shows names, devices and
-            whether a journal is locked, never entries.
-          </p>
-          {#if people.length}
-            <ul class="device-list">
-              {#each people as p (p.id)}
-                <li class="person-row">
-                  <span>
-                    <strong>{p.name}</strong><br />
-                    <span class="muted small">
-                      {deviceCount(p.id)} {deviceCount(p.id) === 1 ? "device" : "devices"} · {personState(p)}
-                    </span>
-                  </span>
-                  <span class="row-actions">
-                    <button class="ghost small-btn" onclick={() => pairForPerson(p)}>Pair a device for them</button>
-                    <button class="ghost small-btn" onclick={() => { removingPerson = removingPerson === p.id ? null : p.id; removeTyped = ""; }}>Remove…</button>
-                  </span>
-                </li>
-                {#if removingPerson === p.id}
-                  <li class="person-remove">
-                    <form onsubmit={(e) => { e.preventDefault(); removePerson(p); }}>
-                      <p class="small">
-                        <strong>This deletes {p.name}'s journal and un-pairs all their devices.</strong> It can't be undone,
-                        and because their journal is encrypted with their password, nobody can open it first to check
-                        what's in it or keep a copy. If they want to keep any entries, they can export them one at a time from their own phone first.
-                      </p>
-                      <label class="small" for="remove-{p.id}">Type <strong>{p.name}</strong> to confirm</label>
-                      <span class="remote-form">
-                        <input id="remove-{p.id}" bind:value={removeTyped} autocomplete="off" />
-                        <button class="danger-btn" type="submit" disabled={removeTyped.trim().toLowerCase() !== p.name.toLowerCase()}>Remove {p.name}</button>
-                        <button class="ghost small-btn" type="button" onclick={() => (removingPerson = null)}>Cancel</button>
-                      </span>
-                    </form>
-                  </li>
+                {#if personQrSvg}
+                  <button class="ghost small-btn" onclick={() => (personQrSvg = null)}>Hide code</button>
+                {:else}
+                  <button class="ghost small-btn" onclick={revealPersonQr}>Show QR code…</button>
                 {/if}
-              {/each}
-            </ul>
-          {/if}
-
-          {#if personPairing}
-            {@const pp = personPairing}
-            {#if pairedId === pp.pair.device.id}
-              <p class="paired" role="status">
-                <span class="paired-dot" aria-hidden="true"></span>{pp.pair.device.name} is connected
-              </p>
-            {/if}
-            <p class="small">
-              <strong>Pair {pp.who.name}'s device.</strong> Let them scan the code with their phone's camera. The first
-              time, their phone asks them to choose a password for their journal.
-            </p>
-            {#if !ts?.serving}
-              <p class="muted small">
-                Not published to your tailnet yet, so this link only works on this computer. Publish first.
-              </p>
-            {/if}
-            <div class="row-actions">
+                <button class="ghost small-btn" onclick={copyPersonLink}>{personLinkCopied ? "Link copied ✓" : "Copy link"}</button>
+                <button class="ghost small-btn" onclick={donePersonPairing}>Done</button>
+              </div>
               {#if personQrSvg}
-                <button class="ghost small-btn" onclick={() => (personQrSvg = null)}>Hide code</button>
-              {:else}
-                <button class="ghost small-btn" onclick={revealPersonQr}>Show QR code…</button>
+                <div class="qr">{@html personQrSvg}</div>
               {/if}
-              <button class="ghost small-btn" onclick={copyPersonLink}>{personLinkCopied ? "Link copied ✓" : "Copy link"}</button>
-              <button class="ghost small-btn" onclick={donePersonPairing}>Done</button>
-            </div>
-            {#if personQrSvg}
-              <div class="qr">{@html personQrSvg}</div>
-            {/if}
-            <p class="muted small">
-              <strong>This is a key to {pp.who.name}'s journal,</strong> though it can't open it without their password.
-              Show it only to them. It's shown only until you press Done.
-            </p>
-          {:else}
-            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); addPerson(); }}>
-              <input placeholder="Their name, e.g. Sam" maxlength="40" bind:value={personName} />
-              <button class="ghost small-btn" type="submit" disabled={!personName.trim()}>Add a person</button>
-            </form>
-          {/if}
-          {#if personErr}<p class="notice bad-notice">{personErr}</p>{/if}
-        </div>
-
-        <div class="sec-block">
-          <h3>Server Mode</h3>
-          <p class="muted small">
-            For a computer that <em>is</em> your server — one that stays on so your other devices can
-            always reach it. Leave these off on a laptop you carry around.
-          </p>
-          <label class="share">
-            <input type="checkbox" checked={sprefs.serve_on_launch} onchange={toggleServeOnLaunch} />
-            Turn on device access whenever Field Notes opens (and republish to my tailnet at the same address)
-          </label>
-          <label class="share">
-            <input type="checkbox" checked={loginStart} onchange={toggleLoginStart} />
-            Open Field Notes when I log in to this computer
-          </label>
-          <label class="share">
-            <input type="checkbox" checked={sprefs.menu_bar} onchange={toggleMenuBar} />
-            Run from the {trayName} instead of the {isMac ? "Dock" : "taskbar"}
-          </label>
-          {#if sprefs.menu_bar}
-            <p class="muted small">
-              Field Notes keeps running when you close its window, so your devices can still reach it.
-              Open the window or quit from the small notebook icon {isMac ? "at the top of the screen, next to the clock" : "next to the clock"}.
-              {#if loginStart}When it opens at login, it starts without a window.{/if}
-            </p>
-          {/if}
-          <label class="share">
-            <input type="checkbox" checked={sprefs.phone_can_update} onchange={togglePhoneCanUpdate} />
-            Let paired phones install Field Notes updates on this computer
-          </label>
-          {#if sprefs.phone_can_update}
-            <p class="muted small">
-              Installing restarts Field Notes here. A phone can only do it when device access turns on by
-              itself at launch, the journal can unlock itself (its password saved below, if it's encrypted),
-              and no session is open, including anyone else's who has used Field Notes in the last two hours.
-              If it would lock someone else's journal, the phone says whose and lets you install anyway.
-              Only signed Field Notes releases can be installed.
-            </p>
-          {/if}
-          {#if kc.applicable}
-            {#if kc.remembered}
-              <p class="small">
-                ✓ Your journal password is saved in this computer's keychain, so the journal unlocks by itself
-                when Field Notes opens.
-              </p>
-              <button class="ghost small-btn" onclick={forgetPassword}>Forget the saved password</button>
-            {:else}
               <p class="muted small">
-                Your journal is encrypted, so after a restart it stays locked — and serves nothing — until
-                someone types the password here. You can save the password in this computer's keychain
-                instead. <strong>The trade-off:</strong> anyone who can log in to this computer's user account
-                could then open the journal. Encryption still protects the file if the disk or a backup is
-                taken.
+                <strong>This is a key to {pp.who.name}'s journal,</strong> though it can't open it without their password.
+                Show it only to them. It's shown only until you press Done.
               </p>
-              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); rememberPassword(); }}>
-                <input type="password" autocomplete="current-password" placeholder="Journal password" bind:value={kcPass} />
-                <button class="ghost small-btn" type="submit" disabled={kcBusy || !kcPass}>Save in keychain</button>
+            {:else}
+              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); addPerson(); }}>
+                <input placeholder="Their name, e.g. Sam" maxlength="40" bind:value={personName} />
+                <button class="ghost small-btn" type="submit" disabled={!personName.trim()}>Add a person</button>
               </form>
             {/if}
-            {#if kcErr}<p class="notice bad-notice">{kcErr}</p>{/if}
+            {#if personErr}<p class="notice bad-notice">{personErr}</p>{/if}
+          </div>
+
+          <div class="sec-block">
+            <h3>Server Mode</h3>
+            <p class="muted small">
+              For a computer that <em>is</em> your server — one that stays on so your other devices can
+              always reach it. Leave these off on a laptop you carry around.
+            </p>
+            <label class="share">
+              <input type="checkbox" checked={sprefs.serve_on_launch} onchange={toggleServeOnLaunch} />
+              Turn on device access whenever Field Notes opens (and republish to my tailnet at the same address)
+            </label>
+            <label class="share">
+              <input type="checkbox" checked={loginStart} onchange={toggleLoginStart} />
+              Open Field Notes when I log in to this computer
+            </label>
+            <label class="share">
+              <input type="checkbox" checked={sprefs.menu_bar} onchange={toggleMenuBar} />
+              Run from the {trayName} instead of the {isMac ? "Dock" : "taskbar"}
+            </label>
+            {#if sprefs.menu_bar}
+              <p class="muted small">
+                Field Notes keeps running when you close its window, so your devices can still reach it.
+                Open the window or quit from the small notebook icon {isMac ? "at the top of the screen, next to the clock" : "next to the clock"}.
+                {#if loginStart}When it opens at login, it starts without a window.{/if}
+              </p>
+            {/if}
+            <label class="share">
+              <input type="checkbox" checked={sprefs.phone_can_update} onchange={togglePhoneCanUpdate} />
+              Let paired phones install Field Notes updates on this computer
+            </label>
+            {#if sprefs.phone_can_update}
+              <p class="muted small">
+                Installing restarts Field Notes here. A phone can only do it when device access turns on by
+                itself at launch, the journal can unlock itself (its password saved below, if it's encrypted),
+                and no session is open, including anyone else's who has used Field Notes in the last two hours.
+                If it would lock someone else's journal, the phone says whose and lets you install anyway.
+                Only signed Field Notes releases can be installed.
+              </p>
+            {/if}
+            {#if kc.applicable}
+              {#if kc.remembered}
+                <p class="small">
+                  ✓ Your journal password is saved in this computer's keychain, so the journal unlocks by itself
+                  when Field Notes opens.
+                </p>
+                <button class="ghost small-btn" onclick={forgetPassword}>Forget the saved password</button>
+              {:else}
+                <p class="muted small">
+                  Your journal is encrypted, so after a restart it stays locked — and serves nothing — until
+                  someone types the password here. You can save the password in this computer's keychain
+                  instead. <strong>The trade-off:</strong> anyone who can log in to this computer's user account
+                  could then open the journal. Encryption still protects the file if the disk or a backup is
+                  taken.
+                </p>
+                <form class="remote-form" onsubmit={(e) => { e.preventDefault(); rememberPassword(); }}>
+                  <input type="password" autocomplete="current-password" placeholder="Journal password" bind:value={kcPass} />
+                  <button class="ghost small-btn" type="submit" disabled={kcBusy || !kcPass}>Save in keychain</button>
+                </form>
+              {/if}
+              {#if kcErr}<p class="notice bad-notice">{kcErr}</p>{/if}
+            {/if}
+          </div>
           {/if}
-        </div>
-        {/if}
-      </section>
+        </section>
+      {/if}
 
-      <section class="card">
-        <h2>Encryption at rest</h2>
-        {#if remote.connected}
-          <p class="muted small">
-            While connected to {serverName}, this computer keeps only the connection's key, the last copy it
-            saw, and anything waiting to be sent — encrypting it protects those.
-          </p>
-        {/if}
-        {#if db.encrypted}
-          <p class="muted small">
-            This journal is <strong>encrypted</strong>. Its contents are unreadable on disk without your
-            password, which you enter each time you open the app.
-          </p>
+      {#if settingsSection === "data"}
+        <section class="card">
+          <h2>Encryption at rest</h2>
+          {#if remote.connected}
+            <p class="muted small">
+              While connected to {serverName}, this computer keeps only the connection's key, the last copy it
+              saw, and anything waiting to be sent — encrypting it protects those.
+            </p>
+          {/if}
+          {#if db.encrypted}
+            <p class="muted small">
+              This journal is <strong>encrypted</strong>. Its contents are unreadable on disk without your
+              password, which you enter each time you open the app.
+            </p>
 
-          <div class="sec-block">
-            <h3>Change password</h3>
-            <input type="password" autocomplete="current-password" placeholder="Current password" bind:value={chgCurrent} />
-            <input type="password" autocomplete="new-password" placeholder="New password" bind:value={chgNew} />
-            <input type="password" autocomplete="new-password" placeholder="Confirm new password" bind:value={chgNew2} />
-            <button class="primary small-btn" disabled={secBusy} onclick={doChangePassphrase}>Change password</button>
-          </div>
-
-          <div class="sec-block">
-            <h3>Turn off encryption</h3>
-            <p class="muted small">Returns the journal to plaintext on this device.</p>
-            <input type="password" autocomplete="current-password" placeholder="Current password" bind:value={encDisablePass} />
-            <button class="ghost small-btn" disabled={secBusy} onclick={doDisableEncryption}>Disable encryption</button>
-          </div>
-        {:else}
-          <p class="muted small">
-            The journal is currently stored <strong>unencrypted</strong>. Turn on encryption to protect it with a
-            password (AES-256 via SQLCipher). You'll enter the password each time you open the app.
-          </p>
-          <p class="notice warn-notice">
-            There is no recovery. If you forget this password, the journal cannot be opened by anyone — including you.
-          </p>
-          <div class="sec-block">
-            <input type="password" autocomplete="new-password" placeholder="Choose a password" bind:value={encNewPass} />
-            <input type="password" autocomplete="new-password" placeholder="Confirm password" bind:value={encNewPass2} />
-            <button class="primary small-btn" disabled={secBusy} onclick={doEnableEncryption}>Enable encryption</button>
-          </div>
-        {/if}
-      </section>
-
-      <section class="card">
-        <h2>Backup &amp; restore</h2>
-        {#if remote.connected}
-          <p class="muted small">Your journal lives on {serverName} — back it up there.</p>
-        {:else}
-        <p class="muted small">
-          A backup is a single-file copy of your whole journal. {db.encrypted
-            ? "It keeps its encryption — you'll need this password to restore or open it elsewhere."
-            : "The journal itself is unencrypted, so a plain backup is too — store it somewhere safe, or encrypt it below."}
-        </p>
-
-        {#if !db.encrypted}
-          <label class="dont-show">
-            <input type="checkbox" bind:checked={bkEncrypt} />
-            Encrypt this backup with a password
-          </label>
-          {#if bkEncrypt}
             <div class="sec-block">
-              <input type="password" autocomplete="new-password" placeholder="Backup password" bind:value={bkPassword} />
-              <input type="password" autocomplete="new-password" placeholder="Confirm backup password" bind:value={bkPassword2} />
-              <p class="muted small">You'll need this password to restore the backup — there's no recovery if you lose it.</p>
+              <h3>Change password</h3>
+              <input type="password" autocomplete="current-password" placeholder="Current password" bind:value={chgCurrent} />
+              <input type="password" autocomplete="new-password" placeholder="New password" bind:value={chgNew} />
+              <input type="password" autocomplete="new-password" placeholder="Confirm new password" bind:value={chgNew2} />
+              <button class="primary small-btn" disabled={secBusy} onclick={doChangePassphrase}>Change password</button>
             </div>
-          {/if}
-        {/if}
 
-        <div class="row-actions">
-          <button class="primary small-btn" disabled={secBusy} onclick={doExportBackup}>Export backup…</button>
-          <button class="ghost small-btn" disabled={secBusy} onclick={doImportBackup}>Restore from backup…</button>
-        </div>
-        <p class="muted small">Restoring replaces the journal on this device with the backup's contents. An encrypted backup opens the unlock screen so you can enter its password.</p>
-        {/if}
-      </section>
-
-      <section class="card">
-        <h2>Obsidian vault sync</h2>
-        {#if remote.connected}
-          <p class="muted small">Your journal lives on {serverName} — sync your vault from Field Notes there.</p>
-        {:else}
-        <p class="muted small">
-          Keep a copy of your journal in an Obsidian vault as Markdown notes — one per experience, with a
-          readable summary you can annotate. The sync itself is fully offline.
-        </p>
-        <p class="notice warn-notice">
-          Notes exported to your vault are <strong>plain, unencrypted Markdown</strong> that lives outside this
-          app — Field Notes' encryption does <em>not</em> protect them. If your vault syncs to iCloud, Obsidian
-          Sync, Dropbox, Git, or similar, this sensitive data <strong>leaves your device</strong> and is subject
-          to that service's security. <strong>Sync at your own risk</strong>, and prefer a local-only vault for
-          anything you want kept private.
-        </p>
-        {#if obsErr}<p class="notice bad-notice">{obsErr}</p>{/if}
-        {#if obsMsg}<p class="notice good-notice">{obsMsg}</p>{/if}
-
-        <div class="vault-pick">
-          <input readonly placeholder="No vault folder chosen" value={vaultFolder} />
-          <button class="ghost small-btn" disabled={obsBusy} onclick={chooseVaultFolder}>Choose folder…</button>
-        </div>
-        <div class="row-actions">
-          <button class="primary small-btn" disabled={obsBusy || !vaultFolder} onclick={doObsidianExport}>Export to vault →</button>
-          <button class="ghost small-btn" disabled={obsBusy || !vaultFolder} onclick={doObsidianImport}>← Import from vault</button>
-        </div>
-        <p class="muted small">
-          Export overwrites this app's own notes in that folder (app → vault). Import pulls experiences back in;
-          for anything already here, the vault's copy wins (vault → app). Hand-written notes are left untouched.
-        </p>
-        {/if}
-      </section>
-
-      <section class="card">
-        <h2>Companion <span class="off-badge" class:on={!companionOff}>{companionOff ? "off" : "on"}</span></h2>
-        <label class="share">
-          <input
-            type="checkbox"
-            checked={!companionOff}
-            onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
-          />
-          Turn on the Companion
-        </label>
-        <p class="muted small">
-          An optional AI to talk with before, during or after a session. It runs only on this
-          computer and needs a separate free download of a few gigabytes (Ollama and a model), which
-          the Companion tab walks you through. The journal, timeline, dose reference, interaction
-          checker and crisis resources don't use it and work the same either way.
-        </p>
-      </section>
-
-      <section class="card">
-        <h2>Startup disclaimer</h2>
-        <label class="dont-show">
-          <input
-            type="checkbox"
-            checked={dontShowDisclaimer}
-            onchange={(e) => {
-              dontShowDisclaimer = (e.currentTarget as HTMLInputElement).checked;
-              if (dontShowDisclaimer) localStorage.setItem(HIDE_DISCLAIMER_KEY, "1");
-              else localStorage.removeItem(HIDE_DISCLAIMER_KEY);
-            }}
-          />
-          Skip the disclaimer splash on startup
-        </label>
-      </section>
-
-      <section class="card">
-        <h2>Discreet mode</h2>
-        <p class="muted small">
-          For using Field Notes in public or while sharing your screen. When it's on here, an eye
-          button appears next to <strong>Get help</strong> on this computer and on paired phones.
-          Tapping it swaps substance names for stand-ins like "Substance K7" and hides entry titles
-          and previews in lists. Each device decides for itself when to hide; nothing in the journal
-          changes.
-        </p>
-        <label class="share">
-          <input type="checkbox" checked={discreet.available} onchange={toggleDiscreetAvailable} />
-          Offer discreet mode
-        </label>
-        {#if discreetErr}<p class="notice bad-notice">{discreetErr}</p>{/if}
-      </section>
-
-      <section class="card">
-        <h2>Feedback</h2>
-        <p class="muted small">
-          Hit a bug, or wish it did something it doesn't? Open an issue on GitHub. It opens
-          prefilled in your browser — nothing leaves your journal, and you write and send it
-          there. Reports are worked through in batches.
-        </p>
-        <div class="fb-kind">
-          <label><input type="radio" bind:group={fbKind} value="bug" /> Report a bug</label>
-          <label><input type="radio" bind:group={fbKind} value="feature" /> Request a feature</label>
-        </div>
-        <input
-          class="fb-field"
-          placeholder={fbKind === "bug" ? "What went wrong? (short summary)" : "What would you like? (short summary)"}
-          bind:value={fbSummary}
-        />
-        <textarea
-          class="fb-field"
-          rows="3"
-          placeholder="Any detail you want to include (optional — you can also write it on GitHub)"
-          bind:value={fbDetail}
-        ></textarea>
-        <button class="ghost small-btn" onclick={openFeedback}>Continue on GitHub →</button>
-      </section>
-
-      <section class="card danger-card">
-        <h2>Erase &amp; uninstall</h2>
-        <p class="muted small">
-          Your journal lives entirely on this device, in:
-        </p>
-        {#if dataDirPath}
-          <div class="vault-pick">
-            <input readonly value={dataDirPath} />
-            <button class="ghost small-btn" disabled={secBusy} onclick={showDataFolder}>Show folder</button>
-          </div>
-        {/if}
-
-        <div class="sec-block">
-          <h3>Erase all data</h3>
-          <p class="muted small">
-            Permanently delete every experience, dose, note, substance, and setting on this device, and turn off
-            encryption. This cannot be undone. Backups you've exported and notes already in an Obsidian vault are
-            <em>not</em> touched.
-          </p>
-          <button class="danger-btn" disabled={secBusy} onclick={eraseAllData}>Erase all data…</button>
-        </div>
-
-        <div class="sec-block">
-          <h3>Remove the app</h3>
-          {#if isMac}
-            <p class="muted small">
-              Quit Field Notes, then open <strong>Applications</strong> and drag <strong>Field Notes</strong> to the
-              Trash. To leave nothing behind, also delete the data folder above (erase your data first, or just
-              delete the folder).
-            </p>
-          {:else if isWindows}
-            <p class="muted small">
-              Quit Field Notes, then open <strong>Settings → Apps → Installed apps</strong>, find
-              <strong>Field Notes</strong>, and choose <strong>Uninstall</strong>. To leave nothing behind, also
-              delete the data folder above (erase your data first, or just delete the folder).
-            </p>
+            <div class="sec-block">
+              <h3>Turn off encryption</h3>
+              <p class="muted small">Returns the journal to plaintext on this device.</p>
+              <input type="password" autocomplete="current-password" placeholder="Current password" bind:value={encDisablePass} />
+              <button class="ghost small-btn" disabled={secBusy} onclick={doDisableEncryption}>Disable encryption</button>
+            </div>
           {:else}
             <p class="muted small">
-              Quit Field Notes, then remove it the way you installed it — delete the <code>.AppImage</code>, or
-              <code>sudo apt remove field-notes</code> / <code>sudo dnf remove field-notes</code>. To leave nothing
-              behind, also delete the data folder above.
+              The journal is currently stored <strong>unencrypted</strong>. Turn on encryption to protect it with a
+              password (AES-256 via SQLCipher). You'll enter the password each time you open the app.
             </p>
+            <p class="notice warn-notice">
+              There is no recovery. If you forget this password, the journal cannot be opened by anyone — including you.
+            </p>
+            <div class="sec-block">
+              <input type="password" autocomplete="new-password" placeholder="Choose a password" bind:value={encNewPass} />
+              <input type="password" autocomplete="new-password" placeholder="Confirm password" bind:value={encNewPass2} />
+              <button class="primary small-btn" disabled={secBusy} onclick={doEnableEncryption}>Enable encryption</button>
+            </div>
           {/if}
-          <button class="ghost small-btn" disabled={secBusy} onclick={quitApp}>Quit Field Notes</button>
-        </div>
-      </section>
+        </section>
+
+        <section class="card">
+          <h2>Backup &amp; restore</h2>
+          {#if remote.connected}
+            <p class="muted small">Your journal lives on {serverName} — back it up there.</p>
+          {:else}
+          <p class="muted small">
+            A backup is a single-file copy of your whole journal. {db.encrypted
+              ? "It keeps its encryption — you'll need this password to restore or open it elsewhere."
+              : "The journal itself is unencrypted, so a plain backup is too — store it somewhere safe, or encrypt it below."}
+          </p>
+
+          {#if !db.encrypted}
+            <label class="dont-show">
+              <input type="checkbox" bind:checked={bkEncrypt} />
+              Encrypt this backup with a password
+            </label>
+            {#if bkEncrypt}
+              <div class="sec-block">
+                <input type="password" autocomplete="new-password" placeholder="Backup password" bind:value={bkPassword} />
+                <input type="password" autocomplete="new-password" placeholder="Confirm backup password" bind:value={bkPassword2} />
+                <p class="muted small">You'll need this password to restore the backup — there's no recovery if you lose it.</p>
+              </div>
+            {/if}
+          {/if}
+
+          <div class="row-actions">
+            <button class="primary small-btn" disabled={secBusy} onclick={doExportBackup}>Export backup…</button>
+            <button class="ghost small-btn" disabled={secBusy} onclick={doImportBackup}>Restore from backup…</button>
+          </div>
+          <p class="muted small">Restoring replaces the journal on this device with the backup's contents. An encrypted backup opens the unlock screen so you can enter its password.</p>
+          {/if}
+        </section>
+
+        <section class="card">
+          <h2>Obsidian vault sync</h2>
+          {#if remote.connected}
+            <p class="muted small">Your journal lives on {serverName} — sync your vault from Field Notes there.</p>
+          {:else}
+          <p class="muted small">
+            Keep a copy of your journal in an Obsidian vault as Markdown notes — one per experience, with a
+            readable summary you can annotate. The sync itself is fully offline.
+          </p>
+          <p class="notice warn-notice">
+            Notes exported to your vault are <strong>plain, unencrypted Markdown</strong> that lives outside this
+            app — Field Notes' encryption does <em>not</em> protect them. If your vault syncs to iCloud, Obsidian
+            Sync, Dropbox, Git, or similar, this sensitive data <strong>leaves your device</strong> and is subject
+            to that service's security. <strong>Sync at your own risk</strong>, and prefer a local-only vault for
+            anything you want kept private.
+          </p>
+          {#if obsErr}<p class="notice bad-notice">{obsErr}</p>{/if}
+          {#if obsMsg}<p class="notice good-notice">{obsMsg}</p>{/if}
+
+          <div class="vault-pick">
+            <input readonly placeholder="No vault folder chosen" value={vaultFolder} />
+            <button class="ghost small-btn" disabled={obsBusy} onclick={chooseVaultFolder}>Choose folder…</button>
+          </div>
+          <div class="row-actions">
+            <button class="primary small-btn" disabled={obsBusy || !vaultFolder} onclick={doObsidianExport}>Export to vault →</button>
+            <button class="ghost small-btn" disabled={obsBusy || !vaultFolder} onclick={doObsidianImport}>← Import from vault</button>
+          </div>
+          <p class="muted small">
+            Export overwrites this app's own notes in that folder (app → vault). Import pulls experiences back in;
+            for anything already here, the vault's copy wins (vault → app). Hand-written notes are left untouched.
+          </p>
+          {/if}
+        </section>
+
+        <section class="card danger-card">
+          <h2>Erase &amp; uninstall</h2>
+          <p class="muted small">
+            Your journal lives entirely on this device, in:
+          </p>
+          {#if dataDirPath}
+            <div class="vault-pick">
+              <input readonly value={dataDirPath} />
+              <button class="ghost small-btn" disabled={secBusy} onclick={showDataFolder}>Show folder</button>
+            </div>
+          {/if}
+
+          <div class="sec-block">
+            <h3>Erase all data</h3>
+            <p class="muted small">
+              Permanently delete every experience, dose, note, substance, and setting on this device, and turn off
+              encryption. This cannot be undone. Backups you've exported and notes already in an Obsidian vault are
+              <em>not</em> touched.
+            </p>
+            <button class="danger-btn" disabled={secBusy} onclick={eraseAllData}>Erase all data…</button>
+          </div>
+
+          <div class="sec-block">
+            <h3>Remove the app</h3>
+            {#if isMac}
+              <p class="muted small">
+                Quit Field Notes, then open <strong>Applications</strong> and drag <strong>Field Notes</strong> to the
+                Trash. To leave nothing behind, also delete the data folder above (erase your data first, or just
+                delete the folder).
+              </p>
+            {:else if isWindows}
+              <p class="muted small">
+                Quit Field Notes, then open <strong>Settings → Apps → Installed apps</strong>, find
+                <strong>Field Notes</strong>, and choose <strong>Uninstall</strong>. To leave nothing behind, also
+                delete the data folder above (erase your data first, or just delete the folder).
+              </p>
+            {:else}
+              <p class="muted small">
+                Quit Field Notes, then remove it the way you installed it — delete the <code>.AppImage</code>, or
+                <code>sudo apt remove field-notes</code> / <code>sudo dnf remove field-notes</code>. To leave nothing
+                behind, also delete the data folder above.
+              </p>
+            {/if}
+            <button class="ghost small-btn" disabled={secBusy} onclick={quitApp}>Quit Field Notes</button>
+          </div>
+        </section>
+      {/if}
+
+      {#if settingsSection === "feedback"}
+        <section class="card">
+          <h2>Feedback</h2>
+          <p class="muted small">
+            Hit a bug, or wish it did something it doesn't? Open an issue on GitHub. It opens
+            prefilled in your browser — nothing leaves your journal, and you write and send it
+            there. Reports are worked through in batches.
+          </p>
+          <div class="fb-kind">
+            <label><input type="radio" bind:group={fbKind} value="bug" /> Report a bug</label>
+            <label><input type="radio" bind:group={fbKind} value="feature" /> Request a feature</label>
+          </div>
+          <input
+            class="fb-field"
+            placeholder={fbKind === "bug" ? "What went wrong? (short summary)" : "What would you like? (short summary)"}
+            bind:value={fbSummary}
+          />
+          <textarea
+            class="fb-field"
+            rows="3"
+            placeholder="Any detail you want to include (optional — you can also write it on GitHub)"
+            bind:value={fbDetail}
+          ></textarea>
+          <button class="ghost small-btn" onclick={openFeedback}>Continue on GitHub →</button>
+        </section>
+      {/if}
     {/if}
 
     <footer>
@@ -4522,6 +4546,12 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   .classes { display: flex; flex-wrap: wrap; gap: 0.35rem; width: 100%; }
   .classes.ro { margin-top: 0.3rem; }
+  /* Settings sections: a segmented row, like the Stats time range. */
+  .settings-nav { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 1rem; width: fit-content; max-width: 100%; }
+  .settings-nav button { background: none; border: 0; border-radius: 0; color: var(--muted); padding: 0.55rem 0.9rem; font-size: 0.9rem; min-height: 40px; }
+  .settings-nav button + button { border-left: 1px solid var(--line); }
+  .settings-nav button:hover:not(.on) { background: var(--surface-2); color: var(--ink); }
+  .settings-nav button.on { background: var(--accent); color: var(--accent-ink); }
   .chip { font-size: 0.75rem; border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.6rem; background: transparent; color: var(--muted); cursor: pointer; }
   .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
