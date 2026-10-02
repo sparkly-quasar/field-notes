@@ -29,6 +29,7 @@
   let timing = $state<"clock" | "offset" | "none">("none");
   let startClock = $state<number | null>(null);
   let day = $state(""); // yyyy-mm-dd, for clock logs
+  let datedFromLog = $state<string | null>(null); // the date the log itself gave
   let startAt = $state(""); // datetime-local, for offset/untimed logs
   let title = $state("");
   let err = $state<string | null>(null);
@@ -40,6 +41,15 @@
   const pad2 = (n: number) => String(n).padStart(2, "0");
   const ymd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   const localInput = (d: Date) => `${ymd(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  /** Does this browser write dates day-first (28/02/2026)? Settles "03/04/2026". */
+  const dayFirst = (() => {
+    try {
+      const parts = new Intl.DateTimeFormat(undefined).formatToParts(new Date(2026, 1, 28));
+      return parts.findIndex((p) => p.type === "day") < parts.findIndex((p) => p.type === "month");
+    } catch {
+      return false;
+    }
+  })();
   const daysAgo = (n: number) => {
     const d = new Date();
     d.setDate(d.getDate() - n);
@@ -84,7 +94,7 @@
       ]);
       catalogue = [...mine.map((s) => ({ name: s.name, aliases: s.aliases })), ...ref];
     }
-    const out = parseTripLog(raw, catalogue);
+    const out = parseTripLog(raw, catalogue, { dayFirst });
     if (!out.rows.length) {
       err = "Nothing to import in that.";
       return;
@@ -92,14 +102,21 @@
     rows = out.rows;
     timing = out.timing;
     startClock = out.startClockMin;
-    // A log of times with no date: today if that time has already passed, else last night's.
+    datedFromLog = out.date;
     if (timing === "clock" && startClock != null) {
+      // The log's own date if it gave one. Otherwise: today if that time has
+      // already passed, else last night's.
       const now = new Date();
-      day = startClock <= now.getHours() * 60 + now.getMinutes() ? daysAgo(0) : daysAgo(1);
+      day = out.date ?? (startClock <= now.getHours() * 60 + now.getMinutes() ? daysAgo(0) : daysAgo(1));
     } else {
-      const d = new Date();
+      let d = new Date();
       d.setDate(d.getDate() - 1);
-      d.setHours(21, 0, 0, 0);
+      if (out.date) {
+        const [y, m, dd] = out.date.split("-").map(Number);
+        d = new Date(y, m - 1, dd);
+      }
+      const at = out.dateClockMin ?? 21 * 60;
+      d.setHours(Math.floor(at / 60), at % 60, 0, 0);
       startAt = localInput(d);
     }
   }
@@ -190,9 +207,11 @@
         <button type="button" class="chip" class:on={day === daysAgo(2)} onclick={() => (day = daysAgo(2))}>2 days ago</button>
       </div>
       <input id="ti-day" type="date" bind:value={day} />
+      {#if datedFromLog && day === datedFromLog}<p class="muted small dated">Taken from the date at the top of the log.</p>{/if}
     {:else}
       <label for="ti-start">{timing === "offset" ? "When was T+0 — the first line?" : "When did it start? (No times in the log, so every line is placed here.)"}</label>
       <DateTimeField id="ti-start" bind:value={startAt} variant="phone" />
+      {#if datedFromLog && startAt.startsWith(datedFromLog)}<p class="muted small dated">Taken from the date at the top of the log.</p>{/if}
     {/if}
 
     <label for="ti-title">Title (optional)</label>
@@ -266,6 +285,7 @@
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
   .chip { border-radius: 999px; font-weight: 500; font-size: 0.92em; }
   .chip.on { background: var(--ti-accent); color: var(--ti-on-accent); border-color: var(--ti-accent); }
+  .dated { margin: -0.25rem 0 0.5rem; }
   .bad { color: var(--ti-danger); font-weight: 600; }
   .tip { color: var(--text-2, var(--muted)); }
 
