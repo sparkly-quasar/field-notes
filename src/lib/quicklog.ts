@@ -253,7 +253,8 @@ export function rememberDoseShape(substance: string, shape: DoseShape): void {
 /**
  * Save a pasted trip log (see tripimport.ts) as one past session: the entry, then
  * every line in order — doses through `log_dose`, the rest as timeline moments — then
- * ended at its last line so it reads as history rather than a session left open.
+ * ended at its last line so it reads as history rather than a session left open,
+ * with whatever was written after the log as its write-up.
  *
  * Every dose gets the same wider interaction check as a quick log. The warnings are
  * returned all together, deduplicated, because a log pasted in one go is read in one go.
@@ -270,7 +271,7 @@ export interface TripLine {
   intensity: number | null;
 }
 
-export async function saveTripLog(title: string, lines: TripLine[]): Promise<QuickLogResult> {
+export async function saveTripLog(title: string, lines: TripLine[], writeup = ""): Promise<QuickLogResult> {
   if (!lines.length) throw new Error("Nothing to import.");
   const sorted = [...lines].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   for (const l of sorted) {
@@ -298,7 +299,7 @@ export async function saveTripLog(title: string, lines: TripLine[]): Promise<Qui
       await addTimelineEvent({ experience_id: id, at: l.at, note: l.text.trim(), intensity: l.intensity });
     }
   }
-  await endExperience(id, end, null, "");
+  await endExperience(id, end, null, writeup.trim());
 
   const seen = new Set<string>();
   const warnings = all.filter((w) => {

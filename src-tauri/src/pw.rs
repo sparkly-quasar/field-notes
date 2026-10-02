@@ -14,6 +14,15 @@ use serde::{Deserialize, Serialize};
 /// whenever `resources/dosewiki.json` is regenerated from a fresh download.
 pub const DOSEWIKI_SNAPSHOT: &str = "2026-07-08";
 
+/// Names people write that DoseWiki doesn't list, added to its own on load so they
+/// survive a fresh snapshot. They let a pasted log or a quick log find the real
+/// entry, and with it the dose ranges and interaction warnings. (name, extra aliases)
+const EXTRA_ALIASES: &[(&str, &[&str])] = &[
+    ("Mephedrone", &["4mmc", "4-MMC", "meph", "m-cat"]),
+    ("1,4-Butanediol", &["14b", "1,4b"]),
+    ("Dextroamphetamine", &["dexamp"]),
+];
+
 /// Path of the bundled reference file, relative to the Tauri resource dir.
 const RESOURCE_PATH: &str = "resources/dosewiki.json";
 
@@ -213,9 +222,18 @@ fn map_sub(s: DwSub) -> PwInfo {
     interactions.extend(interactions_of(&s.interactions.unsafe_, "caution"));
     interactions.extend(interactions_of(&s.interactions.caution, "note"));
 
+    let mut common_names = s.alternative_names;
+    for (_, extra) in EXTRA_ALIASES.iter().filter(|(n, _)| n.eq_ignore_ascii_case(&s.title)) {
+        for a in extra.iter() {
+            if !common_names.iter().any(|c| c.eq_ignore_ascii_case(a)) {
+                common_names.push(a.to_string());
+            }
+        }
+    }
+
     PwInfo {
         name: s.title,
-        common_names: s.alternative_names,
+        common_names,
         psychoactive: s.psychoactive_class,
         chemical: s.chemical_class,
         roas,
@@ -257,6 +275,17 @@ mod tests {
         assert!(r.is_none());
 
         assert!(split_interaction("   ").is_none());
+    }
+
+    #[test]
+    fn adds_extra_aliases() {
+        let subs = parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        for (name, extra) in EXTRA_ALIASES {
+            let s = subs.iter().find(|s| s.name == *name).unwrap_or_else(|| panic!("{name} is no longer in DoseWiki"));
+            for a in extra.iter() {
+                assert!(s.common_names.iter().any(|c| c == a), "{name} is missing {a}");
+            }
+        }
     }
 
     #[test]
