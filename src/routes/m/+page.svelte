@@ -743,20 +743,6 @@
     loadResources();
   }
 
-  /** After a dose: has this session's combination become dangerous? The crisis layer
-   *  reads doses here, never anything written — same rule as the desktop. */
-  async function checkCrisis(id: number) {
-    try {
-      const c = await crisisScan("", id);
-      if (c.level !== "none") {
-        crisis = c;
-        crisisShown = false;
-      }
-    } catch {
-      // The warnings above already said what matters; this is the escalation.
-    }
-  }
-
   // ---------- opening things ----------
 
   async function openEntry(id: number, opts: { building?: boolean } = {}) {
@@ -945,7 +931,6 @@
       target = await getExperience(res.id);
       if (!target.ended_at) dWhen = nowLocalInput();
       else dWhen = isoToLocalInput(lastAt(target));
-      await checkCrisis(res.id);
     });
 
   /** Undo the dose just logged, from its receipt: the same few-seconds Undo as a
@@ -1094,7 +1079,6 @@
     closeSheet();
     await refresh();
     await openEntry(r.id);
-    await checkCrisis(r.id);
   }
 
   // ---------- editing rows ----------

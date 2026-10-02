@@ -1232,69 +1232,33 @@ pub fn companion_chat_traced(
 
 // ---------- crisis escalation (deterministic) ----------
 
-/// Scan a message for crisis signals, independent of the language model. If a
-/// session is active and its combination is flagged dangerous, elevate to medical.
+/// Scan what the person wrote for crisis signals, independent of the language model.
+///
+/// Only words count. What was taken never raises the crisis banner on its own:
+/// a combination in the log says nothing about how someone is doing right now,
+/// and an app announcing "this may be a medical emergency" over a dose list is
+/// wrong far more often than right (an imported report from months ago, a
+/// combination that's going fine). The interaction warnings say what's risky;
+/// the Help screen is always one tap away. `experience_id` is still accepted, so
+/// older clients keep working, and ignored.
 #[tauri::command]
 pub fn crisis_scan(
-    db: State<'_, Db>,
     text: String,
     experience_id: Option<i64>,
     // Earlier messages from the person this conversation, oldest first. Lets
     // expressive distress be judged on repetition rather than on one sentence.
     recent: Option<Vec<String>>,
 ) -> crate::crisis::CrisisResult {
-    crisis_scan_in(&db, text, experience_id, recent)
+    let _ = experience_id;
+    crisis_scan_text(text, recent)
 }
 
-/// [`crisis_scan`] against any person's journal (the portal picks it by device).
-pub fn crisis_scan_in(
-    db: &Db,
-    text: String,
-    experience_id: Option<i64>,
-    // Earlier messages from the person this conversation, oldest first. Lets
-    // expressive distress be judged on repetition rather than on one sentence.
-    recent: Option<Vec<String>>,
-) -> crate::crisis::CrisisResult {
-    let Some(detail) = experience_id.and_then(|id| db.with(|c| db::get_experience(c, id)).ok()) else {
-        return crisis_scan_names(db, text, &[], recent);
-    };
-    // A finished session is history: a combination in it is worth reading about,
-    // not a reason to tell someone to get help now. The words still count.
-    if detail.experience.ended_at.is_some() {
-        return crisis_scan_names(db, text, &[], recent);
-    }
-    let mut result = crisis_scan_names(db, text, &[], recent);
-    let warns = db.with(|c| db::session_warnings(c, detail.experience.id)).unwrap_or_default();
-    if warns.iter().any(|w| w.severity == "danger") {
-        result = crate::crisis::escalate(result, crate::crisis::Level::Medical, "a dangerous interaction is flagged in this session");
-    }
-    result
-}
-
-/// The body of [`crisis_scan`], given the session's substances directly rather than
-/// an experience id. A laptop whose journal lives on another computer calls this
-/// while that computer is out of reach, with the session it has cached and queued —
-/// so the crisis layer never goes dark just because the server is asleep.
-pub fn crisis_scan_names(
-    db: &Db,
-    text: String,
-    names: &[String],
-    recent: Option<Vec<String>>,
-) -> crate::crisis::CrisisResult {
+/// The body of [`crisis_scan`], shared by the portal and a laptop whose server is
+/// out of reach, so the crisis layer never goes dark just because the server is asleep.
+pub fn crisis_scan_text(text: String, recent: Option<Vec<String>>) -> crate::crisis::CrisisResult {
     let mut run = recent.unwrap_or_default();
     run.push(text);
-    let mut result = crate::crisis::scan_recent(&run);
-    let names: Vec<String> = names.iter().cloned().collect::<BTreeSet<String>>().into_iter().collect();
-    if !names.is_empty() {
-        let subs: Vec<(String, Vec<String>)> =
-            names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();
-        let mut warns = interactions::check(&subs);
-        warns.extend(db.with(|c| Ok(db::pw_interaction_warnings(c, &names))).unwrap_or_default());
-        if warns.iter().any(|w| w.severity == "danger") {
-            result = crate::crisis::escalate(result, crate::crisis::Level::Medical, "a dangerous interaction is flagged in this session");
-        }
-    }
-    result
+    crate::crisis::scan_recent(&run)
 }
 
 /// The full list of emergency/support resources — for the always-available panic screen.
@@ -2365,32 +2329,11 @@ mod tests {
         }
     }
 
-    /// A dangerous pair in a live session escalates to "get help now"; the same pair
-    /// in a finished (or imported) session doesn't, because it's history.
+    /// What was taken never raises the crisis banner, live or not; words do.
     #[test]
-    fn only_a_live_session_escalates_on_a_dangerous_pair() {
-        let path = std::env::temp_dir().join(format!("fn-crisis-test-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let mut conn = db::open(&path, None).unwrap();
-        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
-        db::pw_replace_all(&mut conn, &all).unwrap();
-        let exp = db::create_experience(&conn, &ExperienceInput {
-            kind: "session".into(), title: "t".into(), intention: String::new(), setting: String::new(),
-            started_at: "2026-01-01T02:00:00Z".into(),
-        }).unwrap();
-        for (name, at) in [("1,4-Butanediol", "2026-01-01T02:12:00Z"), ("Etizolam", "2026-01-01T03:00:00Z")] {
-            db::log_dose(&conn, &DoseInput {
-                experience_id: exp.id, substance_name: name.into(), amount: None, unit: "mg".into(),
-                route: "oral".into(), taken_at: at.into(), note: String::new(),
-            }).unwrap();
-        }
-        let db = Db::new(Some(conn), path.clone());
-        let live = crisis_scan_in(&db, String::new(), Some(exp.id), None);
-        assert_eq!(live.level, crate::crisis::Level::Medical);
-        db.with(|c| db::end_experience(c, exp.id, "2026-01-01T04:00:00Z", None, "")).unwrap();
-        let ended = crisis_scan_in(&db, String::new(), Some(exp.id), None);
-        assert_eq!(ended.level, crate::crisis::Level::None);
-        let _ = std::fs::remove_file(&path);
+    fn a_logged_combination_never_raises_the_crisis_banner() {
+        assert_eq!(crisis_scan(String::new(), Some(1), None).level, crate::crisis::Level::None);
+        assert_eq!(crisis_scan("i can't breathe".into(), Some(1), None).level, crate::crisis::Level::Medical);
     }
 
     #[test]
