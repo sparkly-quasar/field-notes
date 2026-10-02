@@ -88,6 +88,8 @@ pub struct SubstanceStats {
     pub series: Vec<UnitSeries>,
     /// Route → dose count, most used first. An empty route is reported as "".
     pub routes: Vec<(String, usize)>,
+    /// Drug families this substance counts toward (see [`families_for`]).
+    pub families: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,6 +175,96 @@ fn bands_for(conn: &Connection, name: &str, unit: &str, route: &str) -> Option<B
         strong: roa.strong.clone(),
         heavy: roa.heavy,
     })
+}
+
+// ---------- drug families ----------
+
+/// The families Stats can filter by, in display order. "other" catches anything
+/// that can't be classified, so nothing silently drops out of a family view.
+pub const FAMILIES: &[&str] =
+    &["psychedelics", "entactogens", "dissociatives", "stimulants", "depressants", "opioids", "cannabinoids", "other"];
+
+/// A DoseWiki psychoactive-class label as a family. Qualified labels ("Psychedelic
+/// (mild)", "Stimulant (low doses)") describe secondary effects and are ignored, or
+/// MDMA would reset "days since last psychedelic". "Hallucinogen" alone is too broad
+/// to place, and therapeutic descriptors (anxiolytic, muscle relaxant) aren't
+/// families.
+fn family_of_label(label: &str) -> Option<&'static str> {
+    if label.contains('(') {
+        return None;
+    }
+    match label.trim().to_lowercase().as_str() {
+        "psychedelic" | "entheogen" => Some("psychedelics"),
+        "entactogen" | "empathogen" => Some("entactogens"),
+        "dissociative" => Some("dissociatives"),
+        "stimulant" => Some("stimulants"),
+        "depressant" | "sedative" | "hypnotic" | "gabaergic" => Some("depressants"),
+        "opioid" => Some("opioids"),
+        "cannabinoid" => Some("cannabinoids"),
+        _ => None,
+    }
+}
+
+/// One of the app's own interaction classes (your catalogue, and the built-in name
+/// matcher) as a family.
+fn family_of_class(class: &str) -> Option<&'static str> {
+    match class {
+        "psychedelic" => Some("psychedelics"),
+        "serotonin_releaser" => Some("entactogens"),
+        "dissociative" => Some("dissociatives"),
+        "stimulant" => Some("stimulants"),
+        "depressant" | "benzodiazepine" => Some("depressants"),
+        "opioid" => Some("opioids"),
+        "cannabinoid" => Some("cannabinoids"),
+        _ => None,
+    }
+}
+
+/// Which families a substance belongs to. First source that says anything wins:
+/// your own catalogue (so you can always correct it), then DoseWiki's primary
+/// labels, then the app's built-in name matcher, which covers what DoseWiki leaves
+/// unclassed (alcohol, GHB, nitrous). A substance can be in more than one family
+/// (MDMA: entactogen and stimulant). Opioids aren't also listed as depressants.
+pub fn families_for(name: &str, catalogue_classes: &[String], dosewiki_labels: &[String]) -> Vec<String> {
+    let from = |it: Vec<&'static str>| -> Vec<&'static str> {
+        let mut v: Vec<&'static str> = Vec::new();
+        for f in it {
+            if !v.contains(&f) {
+                v.push(f);
+            }
+        }
+        if v.contains(&"opioids") {
+            v.retain(|f| *f != "depressants");
+        }
+        v
+    };
+    let mut fams = from(catalogue_classes.iter().filter_map(|c| family_of_class(c)).collect());
+    if fams.is_empty() {
+        fams = from(dosewiki_labels.iter().filter_map(|l| family_of_label(l)).collect());
+    }
+    if fams.is_empty() {
+        fams = from(crate::interactions::builtin_classes(name).iter().filter_map(|c| family_of_class(c)).collect());
+    }
+    if fams.is_empty() {
+        fams.push("other");
+    }
+    // Display order, so chips and breakdowns are stable.
+    let mut out: Vec<String> = FAMILIES.iter().filter(|f| fams.contains(f)).map(|f| f.to_string()).collect();
+    out.dedup();
+    out
+}
+
+fn families_of(conn: &Connection, name: &str) -> Vec<String> {
+    use rusqlite::OptionalExtension;
+    let catalogue: Vec<String> = conn
+        .query_row("SELECT classes FROM substances WHERE name = ?1 COLLATE NOCASE", [name], |r| r.get::<_, String>(0))
+        .optional()
+        .ok()
+        .flatten()
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default();
+    let dosewiki = db::pw_lookup(conn, name).ok().flatten().map(|i| i.psychoactive).unwrap_or_default();
+    families_for(name, &catalogue, &dosewiki)
 }
 
 /// Patterns across every dose taken at or after `since` (all time when `None`).
@@ -313,6 +405,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             })
             .collect();
 
+        let families = families_of(conn, &name);
         substances.push(SubstanceStats {
             key,
             name,
@@ -322,6 +415,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             gaps_days,
             series,
             routes,
+            families,
         });
     }
     substances.sort_by(|a, b| b.sessions.cmp(&a.sessions).then(b.doses.cmp(&a.doses)).then(a.name.cmp(&b.name)));
@@ -369,6 +463,32 @@ mod tests {
             params![exp, name, amount, unit, at],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn substances_sort_into_drug_families() {
+        let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        // DoseWiki's own labels, as bundled.
+        assert_eq!(families_for("LSD", &[], &v(&["Psychedelic"])), v(&["psychedelics"]));
+        // "Psychedelic (mild)" is a secondary effect: MDMA must not count as one.
+        assert_eq!(
+            families_for("MDMA", &[], &v(&["Entactogen", "Stimulant", "Psychedelic (mild)"])),
+            v(&["entactogens", "stimulants"])
+        );
+        assert_eq!(families_for("2C-B", &[], &v(&["Psychedelic", "Hallucinogen", "Entactogen (mild)"])), v(&["psychedelics"]));
+        assert_eq!(families_for("Ketamine", &[], &v(&["Dissociative", "Hallucinogen"])), v(&["dissociatives"]));
+        assert_eq!(families_for("Tramadol", &[], &v(&["Opioid", "Depressant"])), v(&["opioids"]));
+        assert_eq!(families_for("Kratom", &[], &v(&["Opioid", "Stimulant (low doses)", "Depressant (high doses)"])), v(&["opioids"]));
+        assert_eq!(families_for("Cannabis", &[], &v(&["Cannabinoid", "Hallucinogen (mild)"])), v(&["cannabinoids"]));
+        // DoseWiki leaves these unclassed; the built-in matcher fills in.
+        assert_eq!(families_for("Alcohol", &[], &[]), v(&["depressants"]));
+        assert_eq!(families_for("GHB", &[], &[]), v(&["depressants"]));
+        assert_eq!(families_for("Nitrous", &[], &[]), v(&["dissociatives"]));
+        // Nothing to go on: "other", never dropped.
+        assert_eq!(families_for("Blue lotus", &[], &[]), v(&["other"]));
+        assert_eq!(families_for("Salvia", &[], &v(&["Atypical Hallucinogen"])), v(&["other"]));
+        // Your catalogue wins over everything.
+        assert_eq!(families_for("LSD", &v(&["stimulant"]), &v(&["Psychedelic"])), v(&["stimulants"]));
     }
 
     #[test]
