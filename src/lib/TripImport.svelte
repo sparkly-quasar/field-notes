@@ -12,7 +12,7 @@
   import DateTimeField from "./DateTimeField.svelte";
   import { listSubstances, pwNames, type Warning } from "$lib/api";
   import { parseTripLog, decodePasted, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
-  import { saveTripLog, UNITS, type TripLine } from "$lib/quicklog";
+  import { saveTripLog, recallDoseShape, UNITS, type TripLine } from "$lib/quicklog";
 
   let {
     onsaved,
@@ -107,6 +107,13 @@
       err = "Nothing to import in that.";
       return;
     }
+    // No route written and none earlier in the log: the route this person
+    // usually logs this substance with, from quick log, beats a general default.
+    for (const r of out.rows) {
+      if (r.kind !== "dose" || !r.substance || (r.routeFrom !== null && r.routeFrom !== "typical")) continue;
+      const mine = recallDoseShape(r.substance)?.route;
+      if (mine && ROUTES.includes(mine)) [r.route, r.routeFrom] = [mine, "mine"];
+    }
     rows = out.rows;
     timing = out.timing;
     startClock = out.startClockMin;
@@ -143,6 +150,11 @@
     half = h;
     if (!datedFromLog) day = likelyDay();
   }
+  const ROUTE_FROM: Record<string, string> = {
+    log: "Route not written: taken from an earlier dose of this in the log.",
+    typical: "Route not written: this is rarely taken orally without an MAOI.",
+    mine: "Route not written: the one you usually log this with.",
+  };
   const clockText = (min: number, h: "am" | "pm") => `${Math.floor(min / 60) % 12 || 12}:${pad2(min % 60)}${h}`;
 
   /** Someone else's dose: kept, as a line on the timeline rather than a dose of yours. */
@@ -284,8 +296,9 @@
               <input aria-label="Substance" placeholder="Substance" bind:value={r.substance} autocapitalize="none" />
               <input aria-label="Amount" inputmode="decimal" placeholder="Amount" value={r.amount ?? ""} oninput={(e) => amountInput(r, e.currentTarget.value)} />
               <select aria-label="Unit" bind:value={r.unit}>{#each UNITS as u}<option>{u}</option>{/each}</select>
-              <select aria-label="Route" bind:value={r.route}>{#each ROUTES as rt}<option>{rt}</option>{/each}</select>
+              <select aria-label="Route" bind:value={r.route} onchange={() => (r.routeFrom = "written")}>{#each ROUTES as rt}<option>{rt}</option>{/each}</select>
             </div>
+            {#if r.routeFrom && ROUTE_FROM[r.routeFrom]}<p class="orig">{ROUTE_FROM[r.routeFrom]}</p>{/if}
             {#if theirs(r)}<p class="orig">Saved as a note: “{theirNote(r)}”</p>{:else if r.text}<p class="orig">“{r.text}”</p>{/if}
           {:else}
             <textarea aria-label="Moment" rows="2" bind:value={r.text}></textarea>
