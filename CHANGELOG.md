@@ -18,7 +18,8 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   logging a past session, pasting a trip log and writing a journal note are
   all under the **＋** button, which now says **New** so it's easier to spot.
   With an empty journal, Today also offers **Start a live trip report**.
-- **"Live session" is now "live trip report"**, on the phone and the desktop.
+- **"Live session" is now "live trip report"**, on the phone and the desktop,
+  and **End session** is now **End trip report**.
 - **＋ New offers Add a moment** while a live trip report is going.
 - Recent on Today shows six entries instead of four. The Home Screen tip moved
   below it.

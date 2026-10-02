@@ -1787,7 +1787,7 @@
           <!-- Ending sits apart from logging and from Help, so it isn't hit by accident. -->
           <div class="end-row">
             <button class="ghost small" onclick={toggleNight}>{night ? "Normal screen" : "Dim (red) screen"}</button>
-            <button class="ghost small" onclick={() => startEnd(live)}>End session…</button>
+            <button class="ghost small" onclick={() => startEnd(live)}>End trip report…</button>
           </div>
         </section>
       {:else}
@@ -2445,7 +2445,7 @@
 
         {:else if sheet === "end" && open}
           <div class="sheet-head">
-            <h2 id="sheet-title">{open.ended_at ? "Finish this session" : "End the session"}</h2>
+            <h2 id="sheet-title">{open.ended_at ? "Finish this session" : "End the trip report"}</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
           <label for="end-at">Ended</label>
@@ -2469,7 +2469,7 @@
           <p class="label">Rating (optional)</p>
           {@render scale(endRating, (v) => (endRating = v), "Rating 0 to 10")}
           <div class="sheet-actions">
-            <button class="primary" disabled={busy} onclick={saveEnd}>{busyKey === "end" ? "Saving…" : open.ended_at ? "Finish" : "End session"}</button>
+            <button class="primary" disabled={busy} onclick={saveEnd}>{busyKey === "end" ? "Saving…" : open.ended_at ? "Finish" : "End trip report"}</button>
           </div>
 
         {:else if sheet === "more" && open}
