@@ -13,6 +13,12 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.16.1
 
+- **Run from the menu bar.** For a computer that serves your journal, Settings →
+  Server Mode has a new option: **Run from the menu bar instead of the Dock** (on
+  Windows and Linux, the system tray instead of the taskbar). Field Notes then
+  lives as a small notebook icon next to the clock, closing the window keeps it
+  running so your devices can still reach it, and Open and Quit are in the
+  icon's menu. When it opens at login, it starts without a window.
 - **"Publish to my tailnet" no longer freezes the app.** If Tailscale needs
   Serve or HTTPS approved for your tailnet first, Field Notes now says so and
   gives you a button that opens the approval page. Before, the window froze while

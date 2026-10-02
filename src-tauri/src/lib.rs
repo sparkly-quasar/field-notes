@@ -23,6 +23,7 @@ pub mod pw;
 mod remote;
 mod server_update;
 mod stats;
+mod tray;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -146,10 +147,21 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         // Open at login — off until the user turns it on, for a computer that
         // serves the journal to their other devices.
+        // Opened at login, it starts hidden when it runs from the menu bar (`tray.rs`).
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![tray::HIDDEN_ARG]),
         ))
+        // With the menu bar option on, closing the window hides it: the server keeps
+        // running, and Quit is in the icon's menu.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if tray::enabled(window.app_handle()) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let path = dir.join("journal.db");
@@ -191,6 +203,17 @@ pub fn run() {
             app.manage(remote::Remote::default());
             remote::start_background(app.handle());
 
+            // The menu bar / tray icon, if that's how this computer runs.
+            if tray::enabled(app.handle()) {
+                if let Err(e) = tray::apply(app.handle()) {
+                    eprintln!("menu bar: {e}");
+                } else if std::env::args().any(|a| a == tray::HIDDEN_ARG) {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                }
+            }
+
             // Last, once every piece of state it touches is managed.
             let handle = app.handle().clone();
             std::thread::spawn(move || open_journal(handle, path));
@@ -215,6 +238,7 @@ pub fn run() {
             commands::server_update_status,
             commands::server_update_install,
             commands::set_phone_can_update,
+            commands::set_menu_bar,
             commands::update_experience,
             commands::update_dose,
             commands::update_timeline_event,

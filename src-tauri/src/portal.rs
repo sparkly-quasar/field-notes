@@ -619,6 +619,7 @@ mod tests {
             "keychain_forget",
             "server_prefs",
             "set_server_prefs",
+            "set_menu_bar",
             // A server must never act as a client of another server on a device's say-so.
             "remote_status",
             "remote_connect",
@@ -1044,5 +1045,6 @@ mod tests {
         assert!(EXPOSED.contains(&"server_update_install"));
         assert!(!EXPOSED.contains(&"set_phone_can_update"));
         assert!(!EXPOSED.contains(&"set_server_prefs"));
+        assert!(!EXPOSED.contains(&"set_menu_bar"));
     }
 }
