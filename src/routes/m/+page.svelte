@@ -256,6 +256,8 @@
 
   /** Height of the on-screen keyboard, so a sheet's buttons ride above it. */
   let kb = $state(0);
+  /** Height of what's visible above the keyboard, for sheets that fill it. */
+  let vvh = $state(0);
 
   function pairFromText() {
     if (!acceptPairing(pairText)) {
@@ -347,7 +349,10 @@
     }
     const vv = window.visualViewport;
     const onVv = () => {
-      if (vv) kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      if (vv) {
+        kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        vvh = vv.height;
+      }
     };
     vv?.addEventListener("resize", onVv);
     vv?.addEventListener("scroll", onVv);
@@ -1356,7 +1361,7 @@
 
 <!-- ================= page ================= -->
 
-<main style="--kb: {kb}px">
+<main style="--kb: {kb}px; --vvh: {vvh ? vvh + 'px' : '100vh'}">
   {#if !paired}
     <section class="pane unpaired">
       <h1>Not paired</h1>
@@ -1858,7 +1863,7 @@
     <!-- ================= sheets ================= -->
     {#if sheet}
       <button class="backdrop" aria-label="Close" onclick={closeSheet}></button>
-      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet" class:writing={sheet === "writeup"} class:kb-open={kb > 0} role="dialog" aria-modal="true" aria-labelledby="sheet-title">
         {#if sheet === "new"}
           <h2 id="sheet-title">New</h2>
           <ul class="menu">
@@ -2449,6 +2454,16 @@
   .end-row { display: flex; justify-content: space-between; gap: 1.5rem; margin-top: 1.2rem; padding-top: 0.6rem; border-top: 1px solid var(--divider); }
   .end-row .ghost { width: auto; margin: 0; }
   .set-out { margin: 0 0 0.6rem; color: var(--text-2); }
+  /* Writing sheets: the text box takes whatever room is left, so the heading and
+     "You set out to" stay in view above it while typing. Before, the box kept its
+     full ten rows with the keyboard up, the sheet scrolled to the cursor, and
+     everything above the box went off the top of the screen. */
+  .sheet.writing { display: flex; flex-direction: column; }
+  .sheet.writing > .sheet-head, .sheet.writing > .set-out, .sheet.writing > .sheet-actions { flex: none; }
+  .sheet.writing > .set-out { max-height: 5.5em; overflow-y: auto; }
+  .sheet.writing > textarea { flex: 1 1 14rem; min-height: 4.5rem; resize: none; }
+  .sheet.writing.kb-open { height: calc(var(--vvh, 100vh) - var(--sa-t) - 1rem); max-height: none; }
+  .sheet.writing.kb-open > .sheet-actions { position: static; }
   .with-skip { display: flex; align-items: center; gap: 0.3rem; }
   .with-skip .entry { flex: 1; min-width: 0; }
   .with-skip .skip { width: auto; flex: none; margin: 0; }
