@@ -136,6 +136,7 @@
     defaultUnitFor,
     sameUnit,
     UNITS,
+    groupWarnings,
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
@@ -2271,9 +2272,9 @@
 {#snippet doseWarnings()}
   {#if lastWarnings.length}
     <div class="warnings">
-      {#each lastWarnings as w}
+      {#each groupWarnings(lastWarnings) as w}
         <div class="warn {sevClass(w.severity)}">
-          <strong>{sevLabel(w.severity)}</strong> · {w.a} + {w.b}
+          <strong>{sevLabel(w.severity)}</strong> · {w.pairs.join(", ")}
           <div>{w.message}</div>
         </div>
       {/each}
@@ -2728,9 +2729,9 @@
 
               {#if qlWarnings.length}
                 <div class="warnings">
-                  {#each qlWarnings as w}
+                  {#each groupWarnings(qlWarnings) as w}
                     <div class="warn {sevClass(w.severity)}">
-                      <strong>{sevLabel(w.severity)}</strong> · {w.a} + {w.b}
+                      <strong>{sevLabel(w.severity)}</strong> · {w.pairs.join(", ")}
                       <div>{w.message}</div>
                     </div>
                   {/each}
@@ -3115,9 +3116,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <p class="notice">Nothing flagged between those. That isn't the same as "safe".</p>
           {:else}
             <div class="warnings">
-              {#each comboResult as w}
+              {#each groupWarnings(comboResult) as w}
                 <div class="warn {sevClass(w.severity)}">
-                  <strong>{sevLabel(w.severity)}</strong> · {w.a} + {w.b}
+                  <strong>{sevLabel(w.severity)}</strong> · {w.pairs.join(", ")}
                   <div>{w.message}</div>
                 </div>
               {/each}
