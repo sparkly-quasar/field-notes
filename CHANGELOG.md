@@ -11,6 +11,18 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.4
+
+- **A calmer Today screen on the phone.** Today now has one big **+ Log a
+  dose** button instead of a stack of four. Starting a live trip report,
+  logging a past session, pasting a trip log and writing a journal note are
+  all under the **＋** button, which now says **New** so it's easier to spot.
+  With an empty journal, Today also offers **Start a live trip report**.
+- **"Live session" is now "live trip report"**, on the phone and the desktop.
+- **＋ New offers Add a moment** while a live trip report is going.
+- Recent on Today shows six entries instead of four. The Home Screen tip moved
+  below it.
+
 ## v0.21.3
 
 - **Settings is split into sections, so less scrolling.** A row at the top
