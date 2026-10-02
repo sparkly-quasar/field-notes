@@ -639,7 +639,16 @@ pub fn combo_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interac
         names.iter().map(|n| (n.clone(), classes_for(conn, n))).collect();
     let mut warnings = crate::interactions::check(&with_classes);
     warnings.extend(pw_interaction_warnings(conn, names));
-    crate::interactions::dedup_pairs(warnings)
+    let mut warnings = crate::interactions::dedup_pairs(warnings);
+    for w in &mut warnings {
+        let (a, b) = (w.a.to_lowercase(), w.b.to_lowercase());
+        if let Some(o) = crate::interactions::SEVERITY_OVERRIDES.iter().find(|o| (o.0 == a && o.1 == b) || (o.0 == b && o.1 == a)) {
+            w.severity = o.2;
+            w.message = o.3.to_string();
+        }
+        w.advice = crate::interactions::advice_for(&classes_for(conn, &w.a), &classes_for(conn, &w.b));
+    }
+    warnings
 }
 
 pub fn add_timeline_event(conn: &Connection, input: &TimelineInput) -> rusqlite::Result<TimelineEvent> {
@@ -1092,6 +1101,7 @@ pub fn pw_interaction_warnings(conn: &Connection, names: &[String]) -> Vec<crate
                     a: na.clone(),
                     b: nb.clone(),
                     message: dosewiki_message(&x.severity, x.reason.as_deref()),
+                    advice: Vec::new(),
                 });
             }
         }
@@ -1549,6 +1559,17 @@ mod tests {
         assert!(w.iter().any(|x| x.severity == "danger" && [&x.a, &x.b].iter().any(|n| n.as_str() == "Etizolam")), "{w:?}");
         // MDMA at 23:00 is still active at 02:12 (6h + margin), so that pair stays too.
         assert!(w.iter().any(|x| [&x.a, &x.b].iter().any(|n| n.as_str() == "MDMA")), "{w:?}");
+    }
+
+    #[test]
+    fn mdma_and_mephedrone_is_a_caution_with_advice() {
+        let c = bundled();
+        let w = combo_warnings(&c, &["MDMA".into(), "Mephedrone".into()]);
+        let w = w.iter().find(|x| [&x.a, &x.b].iter().any(|n| n.as_str() == "Mephedrone")).expect("flagged");
+        assert_eq!(w.severity, "caution");
+        assert!(w.advice.iter().any(|a| a.contains("serotonin toxicity")), "{:?}", w.advice);
+        let w = combo_warnings(&c, &["1,4-Butanediol".into(), "Etizolam".into()]);
+        assert!(w[0].advice.iter().any(|a| a.contains("recovery position")), "{:?}", w[0].advice);
     }
 
 }
