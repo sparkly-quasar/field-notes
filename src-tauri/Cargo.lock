@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "field_notes"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "chrono",
  "getrandom 0.2.17",
