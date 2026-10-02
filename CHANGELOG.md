@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.2
+
+- **Settings puts what you reach for first at the top.** Check for updates comes
+  first, then using another computer as your server, then Devices & server
+  (paired devices, people, Server Mode). The Companion switch moved down, after
+  Obsidian vault sync.
+
 ## v0.21.1
 
 - **Install a server update from your phone even when someone else's journal is
