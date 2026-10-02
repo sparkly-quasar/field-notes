@@ -13,6 +13,12 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.18.0
 
+- **Pasting a trip log from some apps showed "%20" everywhere.** Text copied as
+  part of a link now turns back into normal words when you paste it or press
+  Read it. A log that just mentions a percentage is left alone.
+- **"Couldn't read the clipboard" is no longer a red error.** When a browser
+  won't let Field Notes read the clipboard, it now says how to paste into the
+  box instead, in ordinary text.
 - **A cleaner, quieter look.** On the desktop, content now sits directly on the
   page instead of inside cards, with a thin bar at the top of each view for its
   actions (Paste a log, Import, Note, Session, + Dose). The sidebar is smaller
