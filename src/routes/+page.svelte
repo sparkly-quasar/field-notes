@@ -3345,23 +3345,29 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       {#if secMsg}<p class="notice good-notice">{secMsg}</p>{/if}
 
       <section class="card">
-        <h2>Companion <span class="off-badge" class:on={!companionOff}>{companionOff ? "off" : "on"}</span></h2>
-        <label class="share">
-          <input
-            type="checkbox"
-            checked={!companionOff}
-            onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
-          />
-          Turn on the Companion
-        </label>
+        <h2>Updates</h2>
         <p class="muted small">
-          An optional AI to talk with before, during or after a session. It runs only on this
-          computer and needs a separate free download of a few gigabytes (Ollama and a model), which
-          the Companion tab walks you through. The journal, timeline, dose reference, interaction
-          checker and crisis resources don't use it and work the same either way.
+          Field Notes checks for a new version when it opens and every few hours while it
+          runs. The check asks GitHub for the latest version number; nothing about your
+          journal is sent.
+        </p>
+        <div class="row-actions">
+          <button class="ghost small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
+            {manualCheck === "checking" ? "Checking…" : "Check for updates"}
+          </button>
+          {#if manualCheck === "found" && update}
+            <button class="primary small-btn" disabled={updateBusy} onclick={installUpdate}>Install v{update.version} &amp; restart</button>
+          {/if}
+        </div>
+        <p class="muted small" role="status">
+          {#if updateBusy}{updateMsg}
+          {:else if manualCheck === "current"}You're on the latest version{appVersion ? ` (v${appVersion})` : ""}.
+          {:else if manualCheck === "found" && update}Version {update.version} is available{appVersion ? ` (you have v${appVersion})` : ""}.
+          {:else if manualCheck === "failed"}Couldn't check right now: {manualCheckErr}. You may be offline.
+          {:else if appVersion}You have v{appVersion}.
+          {/if}
         </p>
       </section>
-
 
       <section class="card">
         <h2>Use another computer as your server <span class="off-badge" class:on={remote.connected}>{remote.connected ? "on" : "off"}</span></h2>
@@ -3978,6 +3984,24 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       </section>
 
       <section class="card">
+        <h2>Companion <span class="off-badge" class:on={!companionOff}>{companionOff ? "off" : "on"}</span></h2>
+        <label class="share">
+          <input
+            type="checkbox"
+            checked={!companionOff}
+            onchange={(e) => (companionOff = !(e.currentTarget as HTMLInputElement).checked)}
+          />
+          Turn on the Companion
+        </label>
+        <p class="muted small">
+          An optional AI to talk with before, during or after a session. It runs only on this
+          computer and needs a separate free download of a few gigabytes (Ollama and a model), which
+          the Companion tab walks you through. The journal, timeline, dose reference, interaction
+          checker and crisis resources don't use it and work the same either way.
+        </p>
+      </section>
+
+      <section class="card">
         <h2>Startup disclaimer</h2>
         <label class="dont-show">
           <input
@@ -4007,31 +4031,6 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           Offer discreet mode
         </label>
         {#if discreetErr}<p class="notice bad-notice">{discreetErr}</p>{/if}
-      </section>
-
-      <section class="card">
-        <h2>Updates</h2>
-        <p class="muted small">
-          Field Notes checks for a new version when it opens and every few hours while it
-          runs. The check asks GitHub for the latest version number; nothing about your
-          journal is sent.
-        </p>
-        <div class="row-actions">
-          <button class="ghost small-btn" disabled={manualCheck === "checking" || updateBusy} onclick={checkForUpdateNow}>
-            {manualCheck === "checking" ? "Checking…" : "Check for updates"}
-          </button>
-          {#if manualCheck === "found" && update}
-            <button class="primary small-btn" disabled={updateBusy} onclick={installUpdate}>Install v{update.version} &amp; restart</button>
-          {/if}
-        </div>
-        <p class="muted small" role="status">
-          {#if updateBusy}{updateMsg}
-          {:else if manualCheck === "current"}You're on the latest version{appVersion ? ` (v${appVersion})` : ""}.
-          {:else if manualCheck === "found" && update}Version {update.version} is available{appVersion ? ` (you have v${appVersion})` : ""}.
-          {:else if manualCheck === "failed"}Couldn't check right now: {manualCheckErr}. You may be offline.
-          {:else if appVersion}You have v{appVersion}.
-          {/if}
-        </p>
       </section>
 
       <section class="card">
