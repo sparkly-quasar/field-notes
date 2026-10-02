@@ -11,6 +11,14 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.14.3
+
+- **Fixed: "All" in the phone's Journal now shows everything.** After picking
+  a substance, tapping **All** kept showing only that substance. Now **All**
+  clears the substance pick, and so does **Journal notes**, since notes don't
+  have doses. **Sessions** and **No write-up** keep it, so you can still ask
+  for, say, LSD sessions you haven't written up yet.
+
 ## v0.14.2
 
 - **Fixed: Stats now shows only the substance you pick.** Picking a
