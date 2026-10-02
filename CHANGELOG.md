@@ -36,14 +36,19 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   time.
 - **End trip report**, and **Start a trip report** on the desktop's empty
   journal.
-- **Interaction warnings look at timing.** Two doses only count as a
-  combination if both were active at the same time, by how long each lasts.
-  Repeated warnings with the same message show once, naming every pair. On the
-  phone, warnings now say which substances they're about.
-- **What you log no longer says "get help now".** A dangerous combination is
-  shown as a warning, live or past, and never as a medical emergency: what was
-  taken can't tell anyone how you're doing. The emergency banner now only
-  responds to what you write in Talk, and Help is always one tap away.
+- **Combination warnings are quieter and more useful.** Each one is a single
+  line with an icon and the substances involved. Tap it for what the risk is and
+  what lowers it: spacing, amounts, cooling down, who to have with you.
+  Repeated warnings with the same message show once, naming every pair.
+- **Warnings look at timing.** Two doses only count as a combination if both
+  were active at the same time, by how long each lasts.
+- **No more "get help now" over what you've logged.** A risky combination is a
+  note to read, live or past, never an emergency banner: what was taken can't
+  tell anyone how you're doing. If something you write in Talk sounds like it
+  might be urgent, the app offers the people who can help, calmly, and Help is
+  always one tap away.
+- **MDMA with mephedrone is now "use care"** rather than "dangerous": the risk
+  depends heavily on the amounts and how close together they're taken.
 - **Fewer false matches, one real one added.** Warnings about the 5-MeO
   tryptamines no longer fire for DMT. 1,4-butanediol now gets GHB's
   interaction warnings (it becomes GHB in the body), and rilmazafone is

@@ -152,8 +152,10 @@ fn headline_for(level: Level) -> &'static str {
         Level::None => "",
         // An offer, not a verdict — and phrased so it can be waved away.
         Level::Peer => "That sounds really hard. Would it help to have someone to talk to? I can show you a couple of options.",
-        Level::Psychiatric => "You don't have to be alone with this. Please reach out to someone — a person you trust, or one of these.",
-        Level::Medical => "This may be a medical emergency. Please get real-world help now — calling for help is the right move.",
+        // Conditional, never a verdict: the app can't know what's happening, only
+        // what was written. It says what help exists if it is, and stops there.
+        Level::Psychiatric => "If you're thinking about ending your life or hurting yourself or someone else, you don't have to carry that alone. These people are there for exactly this.",
+        Level::Medical => "If any of this is happening right now, emergency services or Poison Control can help, and calling is never an overreaction.",
     }
 }
 
