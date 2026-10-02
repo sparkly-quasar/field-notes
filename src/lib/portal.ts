@@ -66,6 +66,12 @@ export function isIos(): boolean {
   return /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
 
+/** Fired on `window` when the server says this person's journal is locked. */
+export const LOCKED_EVENT = "fieldnotes:locked";
+export class LockedError extends Error {
+  readonly locked = true;
+}
+
 export function hasToken(): boolean {
   return typeof localStorage !== "undefined" && !!localStorage.getItem(TOKEN_KEY);
 }
@@ -112,6 +118,12 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 503 && body.locked) {
+      // Another person's journal locked itself (the server restarted). Tell the
+      // page, which swaps in the password screen; Help stays reachable there.
+      window.dispatchEvent(new CustomEvent(LOCKED_EVENT));
+      throw new LockedError(body.error ?? "Your journal is locked.");
+    }
     throw new Error(body.error ?? `Request failed (${res.status}).`);
   }
   return (await res.json()) as T;

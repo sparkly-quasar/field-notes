@@ -91,6 +91,10 @@
     portalPair,
     portalDevices,
     portalRevoke,
+    peopleList,
+    personAdd,
+    personRemove,
+    type PersonInfo,
     serverPrefs,
     setServerPrefs,
     setPhoneCanUpdate,
@@ -274,6 +278,17 @@
   let pairing = $state<PairResult | null>(null);
   let pairedId = $state<number | null>(null);
   let pairLinkCopied = $state(false);
+  // Other people on this server (people.rs). Names, device counts and locked or
+  // unlocked: never anything from inside their journals.
+  let people = $state<PersonInfo[]>([]);
+  let personName = $state("");
+  let personErr = $state<string | null>(null);
+  // A device just paired for someone else, shown once like `pairing` above.
+  let personPairing = $state<{ who: PersonInfo; pair: PairResult } | null>(null);
+  let personQrSvg = $state<string | null>(null);
+  let personLinkCopied = $state(false);
+  let removingPerson = $state<number | null>(null);
+  let removeTyped = $state("");
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
   let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false, discreet_available: false, menu_bar: false });
@@ -819,7 +834,10 @@
 
   async function eraseAllData() {
     secReset();
-    if (!confirm("Erase ALL Field Notes data on this device?\n\nThis permanently deletes every entry, dose, moment, substance, and setting, and turns off encryption. It cannot be undone.")) return;
+    const others = people.length
+      ? `\n\nIt also deletes the journals of everyone else on this server (${people.map((p) => p.name).join(", ")}) and un-pairs their devices.`
+      : "";
+    if (!confirm(`Erase ALL Field Notes data on this device?\n\nThis permanently deletes every entry, dose, moment, substance, and setting, and turns off encryption. It cannot be undone.${others}`)) return;
     if (!confirm("Last chance — there is no recovery. Really erase everything?")) return;
     secBusy = true;
     try {
@@ -1650,6 +1668,7 @@
     portal = await portalStatus();
     ts = await portalTailscale();
     devices = await portalDevices();
+    people = await peopleList().catch(() => []);
     sprefs = await serverPrefs();
     kc = await keychainStatus();
     loginStart = await autostartIsEnabled().catch(() => false);
@@ -1680,7 +1699,7 @@
     { key: "https", label: "Turn on HTTPS for your tailnet", done: !!ts?.https_enabled },
     { key: "access", label: "Turn on device access", done: portal.running },
     { key: "publish", label: "Publish to your tailnet", done: !!ts?.serving },
-    { key: "pair", label: "Pair your phone", done: devices.length > 0 },
+    { key: "pair", label: "Pair your phone", done: devices.some((d) => d.person === 1) },
   ]);
   const setupNext = $derived(setupSteps.find((st) => !st.done)?.key ?? null);
   let setupOpen = $state(false);
@@ -1756,6 +1775,75 @@
     if (!confirm(`Un-pair “${d.name}”? It stops reaching this journal immediately. You can pair it again later.`)) return;
     devices = await portalRevoke(d.id);
     if (pairing?.device.id === d.id) donePairing();
+    if (personPairing?.pair.device.id === d.id) donePersonPairing();
+  }
+
+  // ---- People: more than one person on this server ----
+  const personOf = (id: number) => people.find((p) => p.id === id)?.name ?? "someone removed";
+  const deviceCount = (id: number) => devices.filter((d) => d.person === id).length;
+  function personState(p: PersonInfo): string {
+    if (!p.has_journal) return "waiting for them to choose a password";
+    if (!p.unlocked) return "locked";
+    return p.remembered ? "unlocked, kept unlocked on this server" : "unlocked";
+  }
+
+  async function addPerson() {
+    personErr = null;
+    try {
+      const p = await personAdd(personName);
+      personName = "";
+      people = await peopleList();
+      await pairForPerson(p);
+    } catch (e) {
+      personErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  /** Their first device, or a replacement for a lost one. */
+  async function pairForPerson(p: PersonInfo) {
+    personErr = null;
+    try {
+      const n = deviceCount(p.id);
+      const pair = await portalPair(n ? `${p.name}'s new device` : `${p.name}'s phone`, p.id);
+      personPairing = { who: p, pair };
+      personQrSvg = null;
+      personLinkCopied = false;
+      pairedId = null;
+      devices = await portalDevices();
+    } catch (e) {
+      personErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function revealPersonQr() {
+    const target = personPairing && pairLink(personPairing.pair.token);
+    if (target) personQrSvg = await portalQr(target);
+  }
+
+  async function copyPersonLink() {
+    const target = personPairing && pairLink(personPairing.pair.token);
+    if (!target) return;
+    await navigator.clipboard.writeText(target);
+    personLinkCopied = true;
+  }
+
+  function donePersonPairing() {
+    personPairing = null;
+    personQrSvg = null;
+    personLinkCopied = false;
+  }
+
+  async function removePerson(p: PersonInfo) {
+    personErr = null;
+    try {
+      people = await personRemove(p.id, removeTyped);
+      devices = await portalDevices();
+      removingPerson = null;
+      removeTyped = "";
+      if (personPairing?.who.id === p.id) donePersonPairing();
+    } catch (e) {
+      personErr = e instanceof Error ? e.message : String(e);
+    }
   }
 
   function whenSeen(unix: number | null): string {
@@ -3424,13 +3512,97 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <ul class="device-list">
               {#each devices as d (d.id)}
                 <li>
-                  <span><strong>{d.name}</strong><br /><span class="muted small">{whenSeen(d.last_seen)}</span></span>
+                  <span><strong>{d.name}</strong>{#if d.person !== 1} <span class="person-tag">{personOf(d.person)}</span>{/if}<br /><span class="muted small">{whenSeen(d.last_seen)}</span></span>
                   <button class="ghost small-btn" onclick={() => revokeDevice(d)}>Un-pair</button>
                 </li>
               {/each}
             </ul>
           </div>
         {/if}
+
+        <div class="sec-block">
+          <h3>People</h3>
+          <p class="muted small">
+            Someone else who uses this server gets their own journal, locked with a password only they know. You can
+            pair their devices and remove them, but you can't open their journal: this list shows names, devices and
+            whether a journal is locked, never entries.
+          </p>
+          {#if people.length}
+            <ul class="device-list">
+              {#each people as p (p.id)}
+                <li class="person-row">
+                  <span>
+                    <strong>{p.name}</strong><br />
+                    <span class="muted small">
+                      {deviceCount(p.id)} {deviceCount(p.id) === 1 ? "device" : "devices"} · {personState(p)}
+                    </span>
+                  </span>
+                  <span class="row-actions">
+                    <button class="ghost small-btn" onclick={() => pairForPerson(p)}>Pair a device for them</button>
+                    <button class="ghost small-btn" onclick={() => { removingPerson = removingPerson === p.id ? null : p.id; removeTyped = ""; }}>Remove…</button>
+                  </span>
+                </li>
+                {#if removingPerson === p.id}
+                  <li class="person-remove">
+                    <form onsubmit={(e) => { e.preventDefault(); removePerson(p); }}>
+                      <p class="small">
+                        <strong>This deletes {p.name}'s journal and un-pairs all their devices.</strong> It can't be undone,
+                        and because their journal is encrypted with their password, nobody can open it first to check
+                        what's in it or keep a copy. If they want to keep any entries, they can export them one at a time from their own phone first.
+                      </p>
+                      <label class="small" for="remove-{p.id}">Type <strong>{p.name}</strong> to confirm</label>
+                      <span class="remote-form">
+                        <input id="remove-{p.id}" bind:value={removeTyped} autocomplete="off" />
+                        <button class="danger-btn" type="submit" disabled={removeTyped.trim().toLowerCase() !== p.name.toLowerCase()}>Remove {p.name}</button>
+                        <button class="ghost small-btn" type="button" onclick={() => (removingPerson = null)}>Cancel</button>
+                      </span>
+                    </form>
+                  </li>
+                {/if}
+              {/each}
+            </ul>
+          {/if}
+
+          {#if personPairing}
+            {@const pp = personPairing}
+            {#if pairedId === pp.pair.device.id}
+              <p class="paired" role="status">
+                <span class="paired-dot" aria-hidden="true"></span>{pp.pair.device.name} is connected
+              </p>
+            {/if}
+            <p class="small">
+              <strong>Pair {pp.who.name}'s device.</strong> Let them scan the code with their phone's camera. The first
+              time, their phone asks them to choose a password for their journal.
+            </p>
+            {#if !ts?.serving}
+              <p class="muted small">
+                Not published to your tailnet yet, so this link only works on this computer. Publish first.
+              </p>
+            {/if}
+            <div class="row-actions">
+              {#if personQrSvg}
+                <button class="ghost small-btn" onclick={() => (personQrSvg = null)}>Hide code</button>
+              {:else}
+                <button class="ghost small-btn" onclick={revealPersonQr}>Show QR code…</button>
+              {/if}
+              <button class="ghost small-btn" onclick={copyPersonLink}>{personLinkCopied ? "Link copied ✓" : "Copy link"}</button>
+              <button class="ghost small-btn" onclick={donePersonPairing}>Done</button>
+            </div>
+            {#if personQrSvg}
+              <div class="qr">{@html personQrSvg}</div>
+            {/if}
+            <p class="muted small">
+              <strong>This is a key to {pp.who.name}'s journal,</strong> though it can't open it without their password.
+              Show it only to them. It's shown only until you press Done.
+            </p>
+          {:else}
+            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); addPerson(); }}>
+              <input placeholder="Their name, e.g. Sam" maxlength="40" bind:value={personName} />
+              <button class="ghost small-btn" type="submit" disabled={!personName.trim()}>Add a person</button>
+            </form>
+          {/if}
+          {#if personErr}<p class="notice bad-notice">{personErr}</p>{/if}
+        </div>
 
         <div class="sec-block">
           <h3>Server Mode</h3>
@@ -4237,6 +4409,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   .remote-form { display: flex; gap: 0.5rem; align-items: center; margin: 0.4rem 0; }
   .remote-form input { flex: 1; min-width: 0; padding: 0.45rem 0.6rem; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .person-tag { font-size: 0.75rem; border: 1px solid var(--line); border-radius: 6px; padding: 0 0.35rem; margin-left: 0.3rem; color: var(--muted); font-weight: 500; }
+  .device-list li.person-remove { display: block; border-color: var(--danger); }
+  .person-remove form { display: flex; flex-direction: column; gap: 0.4rem; }
   .device-list { list-style: none; padding: 0; margin: 0.4rem 0; display: flex; flex-direction: column; gap: 0.4rem; }
   .device-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 8px; }
   .pair-ways { margin: 0.2rem 0 0.5rem; padding-left: 1.2rem; }
