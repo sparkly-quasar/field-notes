@@ -113,6 +113,12 @@ pub fn update_experience(db: State<'_, Db>, id: i64, update: ExperienceUpdate) -
     db.with(|c| db::update_experience(c, id, &update))
 }
 
+/// "Doesn't need a write-up." Exposed to the phone and routed for a client.
+#[tauri::command]
+pub fn set_writeup_skipped(db: State<'_, Db>, id: i64, skipped: bool) -> Result<Experience, String> {
+    db.with(|c| db::set_writeup_skipped(c, id, skipped))
+}
+
 #[tauri::command]
 pub fn update_dose(db: State<'_, Db>, id: i64, update: DoseUpdate) -> Result<Dose, String> {
     db.with(|c| db::update_dose(c, id, &update))

@@ -13,6 +13,7 @@
     addTimelineEvent,
     addSubstance,
     updateExperience,
+    setWriteupSkipped,
     updateDose,
     updateTimelineEvent,
     type TimelineEvent,
@@ -718,7 +719,7 @@
   async function doObsidianImport() {
     obsErr = obsMsg = null;
     if (!vaultFolder) return (obsErr = "Choose a vault folder first.");
-    if (!confirm("Importing pulls experiences from the vault into this journal. For any experience already here, the vault's version wins. Continue?")) return;
+    if (!confirm("Importing pulls entries from the vault into this journal. For any entry already here, the vault's version wins. Continue?")) return;
     obsBusy = true;
     try {
       const r = await obsidianImport(vaultFolder);
@@ -774,7 +775,7 @@
 
   async function eraseAllData() {
     secReset();
-    if (!confirm("Erase ALL Field Notes data on this device?\n\nThis permanently deletes every experience, dose, note, substance, and setting, and turns off encryption. It cannot be undone.")) return;
+    if (!confirm("Erase ALL Field Notes data on this device?\n\nThis permanently deletes every entry, dose, moment, substance, and setting, and turns off encryption. It cannot be undone.")) return;
     if (!confirm("Last chance — there is no recovery. Really erase everything?")) return;
     secBusy = true;
     try {
@@ -1077,11 +1078,19 @@
     }
   }
 
+  /** A reflection is never owed: mark this one as fine without a write-up. */
+  async function skipWriteup(skipped: boolean) {
+    if (!selected) return;
+    await setWriteupSkipped(selected.id, skipped);
+    await refreshSelected();
+    await loadJournal();
+  }
+
   async function delExp() {
     const msg =
       selected?.kind === "note"
         ? "Delete this note? This cannot be undone."
-        : "Delete this experience and all its doses? This cannot be undone.";
+        : "Delete this session and all its doses? This cannot be undone.";
     if (!selected || !confirm(msg)) return;
     await deleteExperience(selected.id);
     selected = null;
@@ -1869,7 +1878,9 @@
     info.interactions.filter((i) => i.severity === severity);
 
   function classifyDose(amount: number, r: PwRoa): { label: string; level: string } {
-    if (r.heavy != null && amount >= r.heavy) return { label: "heavy", level: "danger" };
+    // Caution, not danger: a heavy dose is worth knowing, not an alarm. Red is
+    // kept for combinations that are known to be dangerous.
+    if (r.heavy != null && amount >= r.heavy) return { label: "heavy", level: "caution" };
     if (r.strong.min != null && amount >= r.strong.min) return { label: "strong", level: "caution" };
     if (r.common.min != null && amount >= r.common.min) return { label: "common", level: "ok" };
     if (r.light.min != null && amount >= r.light.min) return { label: "light", level: "ok" };
@@ -1892,6 +1903,9 @@
   });
 
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
+  /** Words that match the weight. Shouting DANGER at every flag teaches people
+   *  to stop reading them. */
+  const sevLabel = (s: string) => (s === "danger" ? "Known dangerous" : s === "caution" ? "Use care" : "Note");
 </script>
 
 <!-- Shared with the live-session screen, which covers the whole window: the
@@ -1927,7 +1941,7 @@
     <div class="warnings">
       {#each lastWarnings as w}
         <div class="warn {sevClass(w.severity)}">
-          <strong>{w.severity.toUpperCase()}</strong> · {w.a} + {w.b}
+          <strong>{sevLabel(w.severity)}</strong> · {w.a} + {w.b}
           <div>{w.message}</div>
         </div>
       {/each}
@@ -2093,7 +2107,7 @@
           <button class:active={tab === "companion"} onclick={() => goTab("companion")}>Companion</button>
         {/if}
         <button class:active={tab === "data"} onclick={() => goTab("data")}>Settings</button>
-        <button title="Emergency &amp; support resources" onclick={openHelp}>Emergency Resources</button>
+        <button class="nav-help" title="Emergency &amp; support resources" onclick={openHelp}>Get help</button>
         <button title="Report a bug or request a feature" onclick={openBugReport}>Report a bug</button>
       </nav>
     </header>
@@ -2131,9 +2145,9 @@
         </section>
       {:else if selected}
         <section class="card">
-          <button class="link" onclick={() => (selected = null)}>← All experiences</button>
+          <button class="link" onclick={() => (selected = null)}>← Journal</button>
           <div class="exp-head">
-            <h2>{selected.title || "Untitled experience"}</h2>
+            <h2>{selected.title || "Untitled session"}</h2>
             <span class="row-actions">
               {#if !selected.ended_at}<button class="primary small-btn" onclick={startLiveSession}>Live session</button>{/if}
               {#if !editExp}<button class="link" onclick={startEditExp}>Edit</button>{/if}
@@ -2158,7 +2172,13 @@
           {:else}
             {#if selected.intention}<p><strong>Intention:</strong> {selected.intention}</p>{/if}
             {#if selected.setting}<p><strong>Setting:</strong> {selected.setting}</p>{/if}
-            {#if selected.notes}<p><strong>Notes:</strong> {selected.notes}</p>{/if}
+            {#if selected.notes}
+              <p><strong>Write-up:</strong> {selected.notes}</p>
+            {:else if selected.ended_at && selected.writeup_skipped}
+              <p class="muted small">Doesn't need a write-up. <button class="link" onclick={() => skipWriteup(false)}>Undo</button></p>
+            {:else if selected.ended_at}
+              <p class="muted small">No write-up yet. <button class="link" onclick={startEditExp}>Write one</button> · <button class="link" onclick={() => skipWriteup(true)}>Doesn't need one</button></p>
+            {/if}
             {#if selected.rating != null}<p class="muted small">Rating: {selected.rating}/10</p>{/if}
           {/if}
 
@@ -2206,17 +2226,17 @@
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
-                <div class="dose-class {doseClass.level}">{dAmount}{dUnit} · <strong>{doseClass.label}</strong> dose{doseClass.level === "danger" ? " ⚠" : ""}</div>
+                <div class="dose-class {doseClass.level}">{dAmount}{dUnit} · <strong>{doseClass.label}</strong> dose{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
               {/if}
               <strong>{dRef.name}</strong> — reference doses
               {#each dRef.roas as r}
                 {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{durationSummary(r) ? ` · ${durationSummary(r)}` : ""}</div>{/if}
               {/each}
               {#if refInteractions(dRef, "danger").length}
-                <div class="small warn-text">⚠ dangerous with: {refInteractions(dRef, "danger").map((i) => i.name).join(", ")}</div>
+                <div class="small warn-text">Known dangerous with: {refInteractions(dRef, "danger").map((i) => i.name).join(", ")}</div>
               {/if}
               {#if refInteractions(dRef, "caution").length}
-                <div class="small warn-text muted">unsafe with: {refInteractions(dRef, "caution").map((i) => i.name).join(", ")}</div>
+                <div class="small warn-text muted">Use care with: {refInteractions(dRef, "caution").map((i) => i.name).join(", ")}</div>
               {/if}
               <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
             </div>
@@ -2251,17 +2271,17 @@
               {/each}
             </ul>
           {:else}
-            <p class="muted small">No timeline notes yet.</p>
+            <p class="muted small">No moments yet.</p>
           {/if}
           <div class="dose-form">
             <input placeholder="How are you feeling?" bind:value={tNote} />
             <input placeholder="mood" bind:value={tMood} class="narrow" />
             <input type="number" min="0" max="10" placeholder="0-10" bind:value={tIntensity} class="narrow" />
-            <button class="ghost small-btn" onclick={submitTimeline}>Add note</button>
+            <button class="ghost small-btn" onclick={submitTimeline}>Add moment</button>
           </div>
 
           {#if !selected.ended_at}
-            <button class="ghost" onclick={finishExperience}>End experience</button>
+            <button class="ghost" onclick={finishExperience}>End session</button>
           {/if}
           <button class="ghost" onclick={exportEntry}>Export this entry</button>
           {#if exportErr}<p class="notice bad-notice">{exportErr}</p>{/if}
@@ -2276,7 +2296,7 @@
               {#if !remote.connected}
                 <button class="ghost small-btn" onclick={openImport}>Import from text</button>
               {/if}
-              <button class="ghost small-btn" onclick={openNewNote}>+ Note</button>
+              <button class="ghost small-btn" onclick={openNewNote}>+ Journal note</button>
               <button class="ghost small-btn" onclick={openNewExp}>+ Session</button>
               <!-- Leads, because it's the thing most often being recorded. A
                    session is for the times you'll sit with it. -->
@@ -2353,7 +2373,7 @@
                 <div class="warnings">
                   {#each qlWarnings as w}
                     <div class="warn {sevClass(w.severity)}">
-                      <strong>{w.severity.toUpperCase()}</strong> · {w.a} + {w.b}
+                      <strong>{sevLabel(w.severity)}</strong> · {w.a} + {w.b}
                       <div>{w.message}</div>
                     </div>
                   {/each}
@@ -2499,13 +2519,13 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                     {:else}
                       <div>
                         <strong>{e.title || "Untitled"}</strong>
-                        <!-- "no notes yet" marks an entry still waiting for its story,
-                             so a quick log has somewhere obvious to be finished. -->
+                        <!-- A gentle marker for an entry that may still want its story,
+                             unless it's been marked as not needing one. -->
                         <span class="muted small">
                           {fmtDate(e.started_at)}{e.ended_at
-                            ? e.notes.trim()
+                            ? e.notes.trim() || e.writeup_skipped
                               ? ""
-                              : " · no notes yet"
+                              : " · no write-up yet"
                             : " · ongoing"}
                         </span>
                       </div>
@@ -2718,10 +2738,10 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                   {#if roaSummary(r)}<div class="muted small">{r.name}: {roaSummary(r)}{durationSummary(r) ? ` · ${durationSummary(r)}` : ""}</div>{/if}
                 {/each}
                 {#if refInteractions(kbDose, "danger").length}
-                  <div class="small warn-text">⚠ dangerous with: {refInteractions(kbDose, "danger").map((i) => i.name).join(", ")}</div>
+                  <div class="small warn-text">Known dangerous with: {refInteractions(kbDose, "danger").map((i) => i.name).join(", ")}</div>
                 {/if}
                 {#if refInteractions(kbDose, "caution").length}
-                  <div class="small warn-text muted">unsafe with: {refInteractions(kbDose, "caution").map((i) => i.name).join(", ")}</div>
+                  <div class="small warn-text muted">Use care with: {refInteractions(kbDose, "caution").map((i) => i.name).join(", ")}</div>
                 {/if}
                 <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
               </div>
@@ -3568,7 +3588,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <h3>Timeline</h3>
           <div class="quick-log">
             <input placeholder="How are you feeling right now?" bind:value={lsNote} onkeydown={(e) => e.key === "Enter" && quickNote()} />
-            <button class="primary" disabled={!lsNote.trim()} onclick={quickNote}>Add note</button>
+            <button class="primary" disabled={!lsNote.trim()} onclick={quickNote}>Add moment</button>
           </div>
           {#if selected.timeline.length}
             <ul class="live-events">
@@ -3618,6 +3638,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     --line: #2e323b;
     --accent: #6d8fb0;
     --accent-ink: #0c0e12;
+    /* Help's own colour, apart from danger red (see the phone page). */
+    --help-bg: #f2dcc4;
+    --help-ink: #1d140b;
     --danger: #e06b6b;
     --caution: #d6a24e;
     --note: #6fae8f;
@@ -3730,7 +3753,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .row-actions { display: inline-flex; gap: 0.5rem; align-items: center; margin-left: auto; }
   .icon-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.15rem 0.35rem; border-radius: 6px; font-size: 0.85rem; line-height: 1; }
   .icon-btn:hover { color: var(--ink); border-color: var(--line); }
-  .link.danger-link { color: var(--danger); }
+  /* Neutral until confirmed: Delete isn't danger, and red is kept for danger. */
+  .link.danger-link { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
   .edit-form { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
   .edit-form label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
   .edit-form input, .edit-form textarea { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.6rem; }
@@ -3864,7 +3888,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .footer-sub { margin-top: 0.2rem; font-size: 0.72rem; opacity: 0.75; }
 
   /* ---- crisis banner + emergency resources ---- */
-  .help-btn { background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 600; cursor: pointer; }
+  .help-btn { background: var(--help-bg); color: var(--help-ink); border: none; border-radius: 999px; padding: 0.45rem 1rem; font-weight: 700; cursor: pointer; }
+  nav button.nav-help { background: var(--help-bg); color: var(--help-ink); font-weight: 700; white-space: nowrap; }
   .help-btn:hover { filter: brightness(1.08); }
   .danger-card { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
   .danger-btn { background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.45rem 0.9rem; font-weight: 600; cursor: pointer; }
@@ -3880,7 +3905,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .crisis-res li { line-height: 1.4; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; padding: 1.5rem; z-index: 50; }
-  .help-modal { background: var(--card); border: 1px solid var(--danger); border-radius: 16px; padding: 1.6rem; max-width: 520px; width: 100%; }
+  .help-modal { background: var(--card); border: 1px solid var(--help-bg); border-radius: 16px; padding: 1.6rem; max-width: 520px; width: 100%; }
   .help-modal h2 { margin-top: 0; }
   .help-first { font-size: 1.05rem; margin: 0 0 0.8rem; }
 

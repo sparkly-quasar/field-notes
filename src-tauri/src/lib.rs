@@ -163,6 +163,7 @@ pub fn run() {
             commands::add_timeline_event,
             commands::usage_by_substance,
             commands::usage_stats,
+            commands::set_writeup_skipped,
             commands::server_update_status,
             commands::server_update_install,
             commands::set_phone_can_update,
