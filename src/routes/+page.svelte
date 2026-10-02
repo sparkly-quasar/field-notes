@@ -3835,7 +3835,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <p class="muted small">
               Installing restarts Field Notes here. A phone can only do it when device access turns on by
               itself at launch, the journal can unlock itself (its password saved below, if it's encrypted),
-              and no session is open. Only signed Field Notes releases can be installed.
+              and no session is open, including anyone else's who has used Field Notes in the last two hours.
+              If it would lock someone else's journal, the phone says whose and lets you install anyway.
+              Only signed Field Notes releases can be installed.
             </p>
           {/if}
           {#if kc.applicable}

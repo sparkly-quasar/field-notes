@@ -767,13 +767,15 @@ export interface ServerUpdateStatus {
   available: { version: string; notes: string } | null;
   /** Why this phone can't install it now; null means it can. */
   blocked: string | null;
+  /** `blocked` only locks other people's journals: the owner may install anyway. */
+  can_override: boolean;
   installing: boolean;
   /** A check is running on the server; ask again shortly. */
   checking: boolean;
   error: string | null;
 }
 export const serverUpdateStatus = () => invoke<ServerUpdateStatus>("server_update_status");
-export const serverUpdateInstall = () => invoke<ServerUpdateStatus>("server_update_install");
+export const serverUpdateInstall = (anyway = false) => invoke<ServerUpdateStatus>("server_update_install", { anyway });
 export const keychainStatus = () => invoke<KeychainStatus>("keychain_status");
 export const keychainRemember = (passphrase: string) =>
   invoke<KeychainStatus>("keychain_remember", { passphrase });

@@ -617,7 +617,8 @@
     srvUpdTarget = srvUpd.available.version;
     srvUpdStage = "installing";
     try {
-      srvUpd = await serverUpdateInstall();
+      // Past a guard only when it's one the owner may wave through and they've read it.
+      srvUpd = await serverUpdateInstall(!!srvUpd.blocked && srvUpd.can_override);
     } catch (e) {
       err = e instanceof Error ? e.message : String(e);
       srvUpdStage = "idle";
@@ -1728,12 +1729,19 @@
               (it's on v{srvUpd.current}).
             </p>
             {#if srvUpdStage === "confirm"}
+              {#if srvUpd.blocked}<p>{srvUpd.blocked}</p>{/if}
               <p class="muted">
                 Field Notes on the computer will restart, and every paired device loses access for a minute or two.
               </p>
               <div class="pair">
                 <button class="primary" onclick={installServerUpdate}>Install now</button>
                 <button onclick={() => (srvUpdStage = "idle")}>Cancel</button>
+              </div>
+            {:else if srvUpd.blocked && srvUpd.can_override}
+              <p class="muted">{srvUpd.blocked}</p>
+              <div class="pair">
+                <button onclick={() => (srvUpdStage = "confirm")}>Install anyway…</button>
+                <button class="ghost small" onclick={() => (srvUpdHidden = true)}>Not now</button>
               </div>
             {:else if srvUpd.blocked}
               <p class="muted">{srvUpd.blocked}</p>
