@@ -720,6 +720,11 @@ export const myDevices = () => invoke<MyDevice[]>("my_devices");
 export const pairOwnDevice = (name: string, origin: string) =>
   invoke<PairResult & { qr: string | null }>("pair_own_device", { name, origin });
 export const unpairMyDevice = (id: number) => invoke<MyDevice[]>("unpair_my_device", { id });
+/** Re-encrypt your journal under a new password. Needs the current one. */
+export const personChangePassword = (current: string, newPassword: string) =>
+  invoke<DbStatus>("person_change_password", { current, new: newPassword });
+/** Your journal as a file (base64), still encrypted with your password. */
+export const exportMyJournal = () => invoke<{ data: string }>("export_my_journal");
 
 // ---- this computer as the server ----
 export const serverPrefs = () => invoke<ServerPrefs>("server_prefs");

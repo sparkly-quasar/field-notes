@@ -34,6 +34,8 @@
     myDevices,
     pairOwnDevice,
     unpairMyDevice,
+    personChangePassword,
+    exportMyJournal,
     type DbStatus,
     type MyDevice,
     listExperiences,
@@ -442,7 +444,15 @@
     }
     unlocking = true;
     try {
+      const created = !!me?.new_journal;
       me = await personUnlock(pw1);
+      if (created) {
+        try {
+          localStorage.setItem(CREATED_KEY, String(Date.now()));
+        } catch {
+          // No storage: no reminder, nothing else lost.
+        }
+      }
       pw1 = "";
       pw2 = "";
       startJournal();
@@ -453,7 +463,32 @@
     }
   }
 
-  // Their own Settings: devices, keeping the journal unlocked, and the limits.
+  // A week after choosing a password, one reminder that a backup is the only way
+  // back if it's forgotten. Remembered per device: the one they chose it on.
+  const CREATED_KEY = "fieldnotes.journalCreatedAt";
+  const NUDGED_KEY = "fieldnotes.backupNudged";
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  let backupNudge = $state(false);
+  $effect(() => {
+    if (!isOther || locked) return;
+    try {
+      const at = Number(localStorage.getItem(CREATED_KEY) ?? 0);
+      backupNudge = at > 0 && Date.now() - at > WEEK_MS && !localStorage.getItem(NUDGED_KEY);
+    } catch {
+      backupNudge = false;
+    }
+  });
+  function dismissBackupNudge() {
+    backupNudge = false;
+    try {
+      localStorage.setItem(NUDGED_KEY, "1");
+    } catch {
+      // Shown again next time; harmless.
+    }
+  }
+
+  // Their own Settings: devices, password, backup, keeping the journal unlocked,
+  // and the limits.
   let mine = $state<MyDevice[]>([]);
   let newDevice = $state("");
   let pairedNew = $state<{ name: string; link: string; qr: string | null } | null>(null);
@@ -468,6 +503,9 @@
     unpairAsk = null;
     rememberAsk = false;
     rememberPw = "";
+    changingPw = false;
+    pwChanged = false;
+    backedUp = false;
     run("me", async () => (mine = await myDevices()));
   }
 
@@ -501,6 +539,44 @@
         paired = false;
         me = null;
       }
+    });
+
+  let pwCurrent = $state("");
+  let pwNew = $state("");
+  let pwNew2 = $state("");
+  let pwChanged = $state(false);
+  let changingPw = $state(false);
+  const changePassword = () =>
+    run("changepw", async () => {
+      pwChanged = false;
+      if (pwNew.length < 8) throw new Error("Choose a new password of at least 8 characters.");
+      if (pwNew !== pwNew2) throw new Error("The new password and the repeat don't match.");
+      me = await personChangePassword(pwCurrent, pwNew);
+      pwCurrent = pwNew = pwNew2 = "";
+      changingPw = false;
+      pwChanged = true;
+    });
+
+  let backedUp = $state(false);
+  /** Save their journal to this device as a file. It stays encrypted with their
+   *  password, so it's no less private sitting in Downloads. */
+  const downloadBackup = () =>
+    run("backup", async () => {
+      const { data } = await exportMyJournal();
+      const bin = atob(data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+      const who = (me?.person_name ?? "journal").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").toLowerCase() || "journal";
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `field-notes-${who}-${new Date().toISOString().slice(0, 10)}.db`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      backedUp = true;
+      dismissBackupNudge();
     });
 
   const setRemember = (on: boolean) =>
@@ -1581,7 +1657,7 @@
             <input id="lock-pw2" type="password" bind:value={pw2} autocomplete="new-password" autocapitalize="off" spellcheck="false" />
             <p class="banner caution small">
               Only you know this. If you forget it, your journal can't be recovered: nobody can reset it, including the
-              person who runs the server.
+              person who runs the server. You can download a backup any time from your settings.
             </p>
           {/if}
           {#if lockErr}<p class="err" role="alert">{lockErr}</p>{/if}
@@ -1624,6 +1700,18 @@
 
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
+      {#if backupNudge}
+        <section class="pane" role="status">
+          <p>
+            <strong>It's been a week since you chose your password.</strong> If you ever forget it, a backup is the only
+            way back to your journal. It stays locked with your password.
+          </p>
+          <div class="pair">
+            <button class="primary" disabled={busy} onclick={downloadBackup}>{busyKey === "backup" ? "Preparing…" : "Download a backup"}</button>
+            <button onclick={dismissBackupNudge}>Not now</button>
+          </div>
+        </section>
+      {/if}
       {#if srvUpdStage !== "idle" || (srvUpd?.available && !srvUpdHidden)}
         <section class="pane update-card" role="status">
           {#if srvUpdStage === "installing"}
@@ -2397,7 +2485,7 @@
             <h2 id="sheet-title">Your journal</h2>
             <button class="ghost small" onclick={closeSheet}>Close</button>
           </div>
-          {#if err}<p class="err" role="alert">{err}</p>{/if}
+          {#if err && !changingPw && !rememberAsk}<p class="err" role="alert">{err}</p>{/if}
           <p>
             <strong>Your journal is yours.</strong> Nobody else who uses this server can see it, and the person who runs
             the server can't read it without your password.
@@ -2448,6 +2536,39 @@
             <label for="new-device">Pair another device of yours</label>
             <input id="new-device" bind:value={newDevice} placeholder="e.g. Laptop" autocomplete="off" />
             <button disabled={busy} onclick={pairAnother}>{busyKey === "pairown" ? "Making a code…" : "Show a pairing code"}</button>
+          {/if}
+
+          <h3 class="sec">Back up your journal</h3>
+          <p>
+            Download a copy to this device. It stays locked with your password and opens only with that. To open it,
+            use Field Notes on a computer of your own: Settings, Backup &amp; restore, Restore from backup (this replaces
+            the journal on that computer). It's the only way back if you forget your password.
+          </p>
+          <button disabled={busy} onclick={downloadBackup}>{busyKey === "backup" ? "Preparing…" : "Download a backup"}</button>
+          {#if backedUp}<p class="muted small" role="status">Saved to your downloads.</p>{/if}
+
+          <h3 class="sec">Your password</h3>
+          {#if changingPw}
+            <form onsubmit={(e) => { e.preventDefault(); changePassword(); }}>
+              <label for="pw-current">Current password</label>
+              <input id="pw-current" type="password" bind:value={pwCurrent} autocomplete="current-password" autocapitalize="off" spellcheck="false" />
+              <label for="pw-new">New password (at least 8 characters)</label>
+              <input id="pw-new" type="password" bind:value={pwNew} autocomplete="new-password" autocapitalize="off" spellcheck="false" />
+              <label for="pw-new2">The new password again</label>
+              <input id="pw-new2" type="password" bind:value={pwNew2} autocomplete="new-password" autocapitalize="off" spellcheck="false" />
+              {#if err}<p class="err" role="alert">{err}</p>{/if}
+              <p class="muted small">
+                Your other devices stay paired and keep working. Backups you've already downloaded still open with the
+                old password.
+              </p>
+              <span class="pair">
+                <button class="primary" type="submit" disabled={busy || !pwCurrent || !pwNew}>{busyKey === "changepw" ? "Changing…" : "Change password"}</button>
+                <button type="button" onclick={() => { changingPw = false; pwCurrent = pwNew = pwNew2 = ""; }}>Cancel</button>
+              </span>
+            </form>
+          {:else}
+            {#if pwChanged}<p class="muted small" role="status">Password changed.</p>{/if}
+            <button onclick={() => { changingPw = true; pwChanged = false; }}>Change password…</button>
           {/if}
 
           <h3 class="sec">Keep my journal unlocked on this server</h3>
