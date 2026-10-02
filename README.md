@@ -60,7 +60,7 @@ which of your devices are connected, never what's in your journal.
   recent substances and times like "last night" are one tap — and leaves a real
   entry in the journal. Add the notes, rating and any other doses later, from
   either screen, or don't.
-- **Live session** — a quiet, altered-state-friendly screen for an ongoing
+- **Live trip report** — a quiet, altered-state-friendly screen for an ongoing
   experience: elapsed time, one-tap logging, the companion, and an always-visible
   **Get help now** button. Timeline notes can be edited after the fact — on the
   desktop and from the phone.
@@ -130,8 +130,8 @@ All screenshots use a fictional demo journal.
 
 | | |
 |:---:|:---:|
-| ![Journal home](docs/screenshots/journal-home.png) | ![Live session](docs/screenshots/live-session.png) |
-| **Journal**: sessions and notes by month, actions in one quiet bar | **Live session**: last dose, quick log and one-tap moments |
+| ![Journal home](docs/screenshots/journal-home.png) | ![Live trip report](docs/screenshots/live-session.png) |
+| **Journal**: sessions and notes by month, actions in one quiet bar | **Live trip report**: last dose, quick log and one-tap moments |
 | ![Session detail](docs/screenshots/session-detail.png) | ![Stats](docs/screenshots/stats.png) |
 | **Session detail**: what you took, when, and how it went | **Stats**: dose over time against reference ranges, spacing, frequency, calendar |
 | ![Companion chat](docs/screenshots/companion-chat.png) | ![Substance log](docs/screenshots/substance-log.png) |
@@ -150,7 +150,7 @@ All screenshots use a fictional demo journal.
 | | | |
 |:---:|:---:|:---:|
 | ![Today](docs/screenshots/phone-today.png) | ![Journal](docs/screenshots/phone-journal.png) | ![Entry](docs/screenshots/phone-entry.png) |
-| **Today**: the live session at your thumb | **Journal**: search and filter everything | **Entry**: a past session, editable |
+| **Today**: the live trip report at your thumb | **Journal**: search and filter everything | **Entry**: a past session, editable |
 | ![Stats](docs/screenshots/phone-stats.png) | ![Stats chart](docs/screenshots/phone-stats-chart.png) | ![Combo check](docs/screenshots/phone-check.png) |
 | **Stats**: range, substances, totals | **Dose over time**: tap a dose for details | **Check**: combinations, from the deterministic checker |
 

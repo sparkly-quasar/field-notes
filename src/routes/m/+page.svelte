@@ -149,6 +149,9 @@
   let err = $state<string | null>(null);
 
   let recent = $state<ExperienceSummary[]>([]);
+  // False until the journal has loaded once, so the empty-journal card doesn't
+  // flash for someone whose entries just haven't arrived yet.
+  let loaded = $state(false);
   let session = $state<ExperienceDetail | null>(null);
   /** The entry on screen in the Journal (possibly the live session). */
   let open = $state<ExperienceDetail | null>(null);
@@ -671,6 +674,7 @@
     discreetAvailable().then((v) => (discreet.available = v)).catch(() => (discreet.available = false));
     try {
       recent = await listExperiences();
+      loaded = true;
       // Only a *session* can be live — a plain note has no ended_at either, but
       // it isn't something you're "in".
       const live = recent.find((e) => e.kind === "session" && !e.ended_at);
@@ -1624,8 +1628,8 @@
       {/if}
       <span class="top-right">
         {#if session && !(view === "journal" && open?.id === session.id)}
-          <button class="pill live" onclick={openLive} aria-label="Open the live session">
-            <span class="live-dot" aria-hidden="true"></span>{hiding() ? "Live" : session.title || "Live session"}
+          <button class="pill live" onclick={openLive} aria-label="Open the live trip report">
+            <span class="live-dot" aria-hidden="true"></span>{hiding() ? "Live" : session.title || "Live trip report"}
           </button>
         {/if}
         {#if isOther && !locked}
@@ -1759,10 +1763,10 @@
       {#if session}
         {@const live = session}
         <section class="pane live-card">
-          <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Live session</p>
+          <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Live trip report</p>
           <h1 class="entry-title">{titleOf(live, "Untitled session")}</h1>
           <p class="muted">
-            Started {hhmm(live.started_at)}{#if t0Of(live)} · now {rel(new Date(nowTick).toISOString(), t0Of(live))}{/if}
+            Started {hhmm(live.started_at)}{#if t0Of(live)}{" · now "}{rel(new Date(nowTick).toISOString(), t0Of(live))}{/if}
           </p>
           {#if latestDose(live.doses)}
             {@const ld = latestDose(live.doses)!}
@@ -1787,15 +1791,19 @@
           </div>
         </section>
       {:else}
-        <section class="pane">
-          <h1>Log something you took</h1>
-          <button class="primary big" onclick={() => startDose(null)}>+ Log a dose</button>
-          <div class="pair">
-            <button onclick={() => (sheet = "start")}>Start a session</button>
-            <button onclick={startPast}>Log a past session</button>
-          </div>
-          <button onclick={() => (sheet = "jot")}>Write a journal note</button>
-        </section>
+        <!-- One obvious action. Sessions, past sessions, pasted logs and notes
+             all live under ＋ New, so they aren't repeated here. -->
+        {#if loaded && visible.length === 0}
+          <section class="pane">
+            <h1>Log something you took</h1>
+            <button class="primary big" onclick={() => startDose(null)}>+ Log a dose</button>
+            <button onclick={() => (sheet = "start")}>Start a live trip report</button>
+          </section>
+        {:else}
+          <section class="pane">
+            <button class="primary big" onclick={() => startDose(null)}>+ Log a dose</button>
+          </section>
+        {/if}
       {/if}
 
       {#if toWriteUp.length}
@@ -1818,6 +1826,21 @@
         </section>
       {/if}
 
+
+      <section class="pane">
+        <h2>Recent</h2>
+        <ul class="entries">
+          {#each visible.slice(0, 6) as e (e.id)}
+            <li>{@render entryRow(e)}</li>
+          {:else}
+            <li class="muted">Nothing logged yet. Tap <strong>＋ New</strong> for sessions, past trips, notes or pasted logs.</li>
+          {/each}
+        </ul>
+        {#if visible.length > 6}
+          <button class="ghost" onclick={() => goTo("journal")}>All entries ›</button>
+        {/if}
+      </section>
+
       {#if showHomeHint}
         <section class="pane">
           <h2>Saving to your Home Screen?</h2>
@@ -1830,20 +1853,6 @@
           <button class="ghost" onclick={dismissHomeHint}>Don't show this again</button>
         </section>
       {/if}
-
-      <section class="pane">
-        <h2>Recent</h2>
-        <ul class="entries">
-          {#each visible.slice(0, 4) as e (e.id)}
-            <li>{@render entryRow(e)}</li>
-          {:else}
-            <li class="muted">Nothing logged yet.</li>
-          {/each}
-        </ul>
-        {#if visible.length > 4}
-          <button class="ghost" onclick={() => goTo("journal")}>All entries ›</button>
-        {/if}
-      </section>
     {/if}
 
     <!-- ================= JOURNAL ================= -->
@@ -1991,7 +2000,7 @@
           <label for="combo">Two or more substances, separated by commas</label>
           <input id="combo" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocapitalize="none" enterkeyhint="go" onkeydown={(ev) => ev.key === "Enter" && runCombo()} />
           {#if session?.doses.length}
-            <button class="ghost small" onclick={useLiveInCombo}>Use what's in the live session</button>
+            <button class="ghost small" onclick={useLiveInCombo}>Use what's in the live trip report</button>
           {/if}
           <button class="primary" disabled={busy} onclick={runCombo}>{busyKey === "combo" ? "Checking…" : "Check"}</button>
           {#if comboWarnings}
@@ -2150,7 +2159,7 @@
     <nav aria-label="Sections">
       <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}><Icon name="today" />Today</button>
       <button class:on={view === "journal"} aria-current={view === "journal" ? "page" : undefined} onclick={() => goTo("journal")}><Icon name="journal" />Journal</button>
-      <button class="plus" aria-label="New: log a dose, a session, or a note" onclick={() => (sheet = "new")}>＋</button>
+      <button class="plus" aria-label="New: log a dose, a moment, a trip report, or a note" onclick={() => (sheet = "new")}><span class="plus-glyph" aria-hidden="true">＋</span><span aria-hidden="true">New</span></button>
       <button class:on={view === "check"} aria-current={view === "check" ? "page" : undefined} onclick={() => goTo("check")}><Icon name="check" />Check</button>
       {#if companionEnabled === true}
         <button class:on={view === "talk"} aria-current={view === "talk" ? "page" : undefined} onclick={() => goTo("talk")}><Icon name="talk" />Talk</button>
@@ -2168,13 +2177,21 @@
             <li>
               <button onclick={() => startDose(session)}>
                 <strong>Log a dose</strong>
-                <span class="muted">{session ? "Into the live session" : "A substance and roughly when — any day"}</span>
+                <span class="muted">{session ? "Into the live trip report" : "A substance and roughly when — any day"}</span>
               </button>
             </li>
+            {#if session}
+              <li>
+                <button onclick={() => startMoment(session!)}>
+                  <strong>Add a moment</strong>
+                  <span class="muted">What's happening right now, in the live trip report</span>
+                </button>
+              </li>
+            {/if}
             {#if !session}
               <li>
                 <button onclick={() => (sheet = "start")}>
-                  <strong>Start a live session</strong>
+                  <strong>Start a live trip report</strong>
                   <span class="muted">Log doses and moments as it happens</span>
                 </button>
               </li>
@@ -2204,7 +2221,7 @@
         {:else if sheet === "dose"}
           <div class="sheet-head">
             <h2 id="sheet-title">
-              {#if !target}Log a dose{:else if !target.ended_at}Dose · live session{:else}Dose · {target.title || fmtDay(target.started_at)}{/if}
+              {#if !target}Log a dose{:else if !target.ended_at}Dose · live trip report{:else}Dose · {target.title || fmtDay(target.started_at)}{/if}
             </h2>
             <button class="ghost small" onclick={closeSheet}>Close</button>
           </div>
@@ -2309,7 +2326,7 @@
 
         {:else if sheet === "start"}
           <div class="sheet-head">
-            <h2 id="sheet-title">Start a live session</h2>
+            <h2 id="sheet-title">Start a live trip report</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
           <label for="s-intention">What's your intention?</label>
@@ -2987,7 +3004,12 @@
   nav button { flex: 1; margin: 0; padding: 0.15rem 0 0; min-height: 56px; font-size: var(--fs-sm); background: transparent; border-color: transparent; color: var(--text-2);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; }
   nav button.on { color: var(--accent); background: transparent; border-color: transparent; font-weight: 800; }
-  nav button.plus { flex: 0 0 3.6rem; font-size: 1.7rem; font-weight: 500; background: var(--accent); color: var(--on-accent); border-radius: 999px; }
+  nav button.plus {
+    flex: 0 0 4.2rem; gap: 0; padding: 0; font-weight: 700; background: var(--accent); color: var(--on-accent); border-radius: 999px;
+    transform: translateY(-6px); box-shadow: 0 4px 12px #0004;
+  }
+  nav button.plus:active:not(:disabled) { background: var(--accent); filter: brightness(0.93); transform: translateY(-5px); }
+  .plus-glyph { font-size: 1.45rem; font-weight: 500; line-height: 1; }
 
   /* ---------- sheets ---------- */
   .backdrop {
