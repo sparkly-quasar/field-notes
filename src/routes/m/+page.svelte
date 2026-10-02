@@ -110,6 +110,7 @@
     stretchToCover,
     defaultUnitFor,
     UNITS,
+    groupWarnings,
   } from "$lib/quicklog";
 
   type View = "today" | "journal" | "check" | "talk";
@@ -1501,9 +1502,10 @@
 {/snippet}
 
 {#snippet warnings(list: Warning[])}
-  {#each list as w}
+  {#each groupWarnings(list) as w}
     <p class="banner {w.severity}" role={w.severity === "danger" ? "alert" : "status"}>
       <strong>{w.severity === "danger" ? "Known dangerous:" : w.severity === "caution" ? "Use care:" : "Note:"}</strong>
+      {w.pairs.join(", ")}.
       {w.message}
     </p>
   {/each}

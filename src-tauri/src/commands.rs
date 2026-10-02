@@ -1255,11 +1255,20 @@ pub fn crisis_scan_in(
     // expressive distress be judged on repetition rather than on one sentence.
     recent: Option<Vec<String>>,
 ) -> crate::crisis::CrisisResult {
-    let names: Vec<String> = experience_id
-        .and_then(|id| db.with(|c| db::get_experience(c, id)).ok())
-        .map(|detail| detail.doses.iter().map(|d| d.substance_name.clone()).collect())
-        .unwrap_or_default();
-    crisis_scan_names(db, text, &names, recent)
+    let Some(detail) = experience_id.and_then(|id| db.with(|c| db::get_experience(c, id)).ok()) else {
+        return crisis_scan_names(db, text, &[], recent);
+    };
+    // A finished session is history: a combination in it is worth reading about,
+    // not a reason to tell someone to get help now. The words still count.
+    if detail.experience.ended_at.is_some() {
+        return crisis_scan_names(db, text, &[], recent);
+    }
+    let mut result = crisis_scan_names(db, text, &[], recent);
+    let warns = db.with(|c| db::session_warnings(c, detail.experience.id)).unwrap_or_default();
+    if warns.iter().any(|w| w.severity == "danger") {
+        result = crate::crisis::escalate(result, crate::crisis::Level::Medical, "a dangerous interaction is flagged in this session");
+    }
+    result
 }
 
 /// The body of [`crisis_scan`], given the session's substances directly rather than
@@ -2354,6 +2363,34 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    /// A dangerous pair in a live session escalates to "get help now"; the same pair
+    /// in a finished (or imported) session doesn't, because it's history.
+    #[test]
+    fn only_a_live_session_escalates_on_a_dangerous_pair() {
+        let path = std::env::temp_dir().join(format!("fn-crisis-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut conn = db::open(&path, None).unwrap();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        db::pw_replace_all(&mut conn, &all).unwrap();
+        let exp = db::create_experience(&conn, &ExperienceInput {
+            kind: "session".into(), title: "t".into(), intention: String::new(), setting: String::new(),
+            started_at: "2026-01-01T02:00:00Z".into(),
+        }).unwrap();
+        for (name, at) in [("1,4-Butanediol", "2026-01-01T02:12:00Z"), ("Etizolam", "2026-01-01T03:00:00Z")] {
+            db::log_dose(&conn, &DoseInput {
+                experience_id: exp.id, substance_name: name.into(), amount: None, unit: "mg".into(),
+                route: "oral".into(), taken_at: at.into(), note: String::new(),
+            }).unwrap();
+        }
+        let db = Db::new(Some(conn), path.clone());
+        let live = crisis_scan_in(&db, String::new(), Some(exp.id), None);
+        assert_eq!(live.level, crate::crisis::Level::Medical);
+        db.with(|c| db::end_experience(c, exp.id, "2026-01-01T04:00:00Z", None, "")).unwrap();
+        let ended = crisis_scan_in(&db, String::new(), Some(exp.id), None);
+        assert_eq!(ended.level, crate::crisis::Level::None);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

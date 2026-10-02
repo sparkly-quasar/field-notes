@@ -97,7 +97,7 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
   return {
     id,
     title: entry.title,
-    warnings: await allWarnings(substance, input.at, logged.warnings),
+    warnings: await allWarnings(substance, input.at, logged.warnings, id),
     doseId: logged.dose.id,
     fresh,
   };
@@ -134,10 +134,12 @@ export async function stretchToCover(id: number, at: string) {
  * in the journal, so this can flag a pair that was hours apart. That is the
  * right way to be wrong: a warning you can dismiss beats silence you can't.
  */
-export async function allWarnings(substance: string, at: string, own: Warning[]): Promise<Warning[]> {
+export async function allWarnings(substance: string, at: string, own: Warning[], entryId?: number): Promise<Warning[]> {
   const t = new Date(at).getTime();
+  // The entry's own check (`own`) already covers it, and knows when each dose was
+  // taken; checking its names again here would bring back pairs that never met.
   const nearby = (await listExperiences())
-    .filter((e) => Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000)
+    .filter((e) => e.id !== entryId && Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000)
     .flatMap((e) => e.substances);
 
   const names = [...new Set([substance, ...nearby].map((n) => n.trim()).filter(Boolean))];
@@ -154,6 +156,21 @@ export async function allWarnings(substance: string, at: string, own: Warning[])
     seen.add(key);
     return true;
   });
+}
+
+/** Warnings that say the same thing, as one: "Stimulant + psychedelic" for five
+ *  pairs is one thing to know, not five. Most severe first, each with its pairs. */
+export function groupWarnings(list: Warning[]): { severity: string; message: string; pairs: string[] }[] {
+  const rank = (s: string) => (s === "danger" ? 0 : s === "caution" ? 1 : 2);
+  const groups = new Map<string, { severity: string; message: string; pairs: string[] }>();
+  for (const w of list) {
+    const key = `${w.severity}|${w.message}`;
+    const pair = `${w.a} + ${w.b}`;
+    const g = groups.get(key) ?? { severity: w.severity, message: w.message, pairs: [] };
+    if (!g.pairs.includes(pair)) g.pairs.push(pair);
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => rank(a.severity) - rank(b.severity));
 }
 
 /** What you've logged lately, most recent first — the list worth offering as a tap. */
@@ -294,7 +311,7 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
         // Keep the words around the dose when there were any worth keeping.
         note: l.text.split(/\s+/).length > 4 ? l.text : "",
       });
-      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings)));
+      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings, id)));
     } else if (l.text.trim()) {
       await addTimelineEvent({ experience_id: id, at: l.at, note: l.text.trim(), intensity: l.intensity });
     }
