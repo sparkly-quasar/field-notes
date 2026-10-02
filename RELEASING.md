@@ -44,7 +44,7 @@ Add a `## vX.Y.Z` section to the top of **`CHANGELOG.md`** with the user-facing
 workflow extracts this exact section and uses it as the release body — which is
 also what goes into `latest.json` and what the in-app "a new version is
 available" prompt now shows. So keep it to what changed; **no** download links
-or Gatekeeper/SmartScreen help here (those go on the GitHub page in step 4).
+or Gatekeeper/SmartScreen help here (the workflow adds those to the GitHub page; see step 4).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag, or the build falls
 back to a generic one-liner (and logs a warning).
@@ -84,71 +84,39 @@ To get builds onto your own devices without offering them to everyone:
 - **Mid-build?** Cancel the run from the Actions tab, then delete the draft and
   the tag as in *If a platform build fails* below.
 
-## 4. Round out the GitHub release page
+## 4. Check the GitHub release page
 
-The workflow already fills the draft body with the `CHANGELOG.md` section from
-step 2a — that part is done, and it's what `latest.json` and the in-app prompt
-carry. What the changelog deliberately leaves out is the web-page furniture, so
-**append** it to the draft body (don't replace what's there):
+This step is automatic now. When all three platform builds have uploaded, the
+workflow's `install-guide` job appends **`.github/release-install.md`** to the
+draft body, below the `CHANGELOG.md` section, with `@VERSION@` / `@TAG@` filled
+in. The guide has step-by-step install instructions per OS with direct
+download links, the SmartScreen and Gatekeeper workarounds, and a note on which
+files belong to the updater. To change what every release page says, edit that
+file.
 
-1. **Downloads table** — direct links to the files a human wants
-   (`_x64-setup.exe`, `.msi`, `_universal.dmg`, `.AppImage`, `.deb`, `.rpm`).
-   Asset URLs follow the pattern:
-   `https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/<asset-name>`
-2. **First-launch notes** — SmartScreen (Windows) and Gatekeeper (macOS)
-   workarounds, since installers are unsigned.
+The guide is added *after* `latest.json` is written, so it stays **out of the
+in-app update prompt**. That's why it isn't in `CHANGELOG.md`.
 
-Keep this download/first-launch furniture **out of `latest.json`** — it lives
-only on the web page. That's why it's appended here rather than in `CHANGELOG.md`.
+Before publishing, open the draft and check:
 
-The text appended to every release so far, with `X.Y.Z` replaced:
+- The guide is there, under the changelog section.
+- The `install-guide` job logged no warnings. It warns if the guide links an
+  asset name that isn't on the release (a toolchain change can rename one). If
+  it did, fix the name in `.github/release-install.md` and correct the draft by
+  hand.
 
-```markdown
-## Downloads
-
-| Platform | File |
-| --- | --- |
-| **Windows** (installer) | [Field.Notes_X.Y.Z_x64-setup.exe](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_x64-setup.exe) |
-| **Windows** (MSI) | [Field.Notes_X.Y.Z_x64_en-US.msi](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_x64_en-US.msi) |
-| **macOS** (Apple Silicon + Intel) | [Field.Notes_X.Y.Z_universal.dmg](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_universal.dmg) |
-| **Linux** (AppImage) | [Field.Notes_X.Y.Z_amd64.AppImage](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_amd64.AppImage) |
-| **Linux** (Debian/Ubuntu) | [Field.Notes_X.Y.Z_amd64.deb](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes_X.Y.Z_amd64.deb) |
-| **Linux** (Fedora/RHEL) | [Field.Notes-X.Y.Z-1.x86_64.rpm](https://github.com/sparkly-quasar/field-notes/releases/download/vX.Y.Z/Field.Notes-X.Y.Z-1.x86_64.rpm) |
-
-Already have Field Notes installed? You don't need any of these: the app offers
-the update itself on next launch.
-
-## First launch
-
-The installers aren't code-signed, so each OS will warn you once:
-
-- **macOS**: "Field Notes can't be opened because it is from an unidentified
-  developer." Right-click (or Control-click) the app in Applications and choose
-  **Open**, then confirm. Only needed the first time.
-- **Windows**: SmartScreen shows "Windows protected your PC." Click
-  **More info → Run anyway**.
-- **Saved your journal password in the Keychain (Server Mode)?** Because the app
-  isn't code-signed, macOS asks once after each update whether Field Notes may
-  use it. Choose **Always Allow**. Until you do, the journal waits at the unlock
-  screen instead of unlocking itself.
-
-## The other files
-
-`latest.json`, `Field.Notes_universal.app.tar.gz`, and every `.sig` file belong to
-the in-app updater. You don't need to download them.
-```
-
-Check the asset names against the draft's file list before publishing: they
-follow the version, but a toolchain change can rename one.
+The job skips a release whose body already contains `<!-- install-guide -->`,
+so re-running it is safe. If a platform build failed, the job doesn't run, but
+you won't publish that draft anyway (see below).
 
 Constraints worth knowing:
 
 - **Assets cannot be grouped, reordered, or renamed.** GitHub shows a flat
   alphabetical list, and `latest.json` references several assets by exact URL
-  for the auto-updater — renaming anything breaks in-app updates. The downloads
-  table in the body is the fix.
-- The `.sig` files, `.app.tar.gz`, and `latest.json` belong to the updater; say
-  so in the notes so nobody wonders.
+  for the auto-updater — renaming anything breaks in-app updates. The download
+  links in the guide are the fix.
+- The `.sig` files, `.app.tar.gz`, and `latest.json` belong to the updater; the
+  guide says so, so nobody wonders.
 
 ## 5. Publish
 
