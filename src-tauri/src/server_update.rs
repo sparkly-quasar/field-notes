@@ -45,7 +45,7 @@ pub struct ServerUpdate {
     inner: Mutex<Inner>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Inner {
     checked: Option<Instant>,
     available: Option<Available>,
@@ -224,9 +224,14 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> ServerUpdateStatus {
     if start {
         let handle = app.clone();
         std::thread::spawn(move || {
-            let result = tauri::async_runtime::block_on(check_now(&handle));
+            // A panicking check (no updater configured, say) must not leave
+            // `checking` stuck on, so catch it and record it as a failed check.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tauri::async_runtime::block_on(check_now(&handle))
+            }))
+            .unwrap_or_else(|_| Err("the update check stopped unexpectedly".into()));
             let state = handle.state::<ServerUpdate>();
-            let mut s = state.inner.lock().unwrap();
+            let mut s = state.inner.lock().unwrap_or_else(|e| e.into_inner());
             s.checking = false;
             s.checked = Some(Instant::now());
             match result {
@@ -239,7 +244,9 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> ServerUpdateStatus {
             }
         });
     }
-    let s = state.inner.lock().unwrap();
+    // Copy what we need and let go of the lock before gates(), which reads the
+    // database: a slow query there shouldn't hold up the background check.
+    let s = state.inner.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let blocked = if s.available.is_some() { blocked_reason(&gates(app)) } else { None };
     ServerUpdateStatus {
         current: app.package_info().version.to_string(),

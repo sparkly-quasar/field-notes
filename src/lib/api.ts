@@ -232,6 +232,8 @@ export interface PwRoa {
   common: PwRange;
   strong: PwRange;
   heavy: number | null;
+  /** Top of the heavy band, when a source gives one. */
+  heavy_max?: number | null;
   onset: string | null;
   come_up: string | null;
   peak: string | null;
@@ -252,6 +254,8 @@ export interface PwInfo {
   chemical: string[];
   roas: PwRoa[];
   interactions: PwInteraction[];
+  /** Where the dose figures come from, when it isn't DoseWiki. */
+  dose_note?: string | null;
 }
 export interface PwStatus {
   count: number;
