@@ -172,6 +172,18 @@ paragraph pasted in); a date-only line before the first timed line
 when ambiguous; and the first line under a bare time (`12:30pm` on its own) is
 read as that line, so a dose there is a dose.
 
+v0.21.5: 12-hour logs with no am/pm roll half a day, not a day, and the preview
+asks am or pm (guessed from a time on the date line; an am/pm further down
+settles it). `+` and comma lists split into a dose per item when every item reads
+as a substance and one is anchored (an amount, or a whole catalogue name). Doses
+are tagged with whose they were (`- Name`, `(11 A 6 B)`, then `Name 40mg`); the
+preview asks which is you and saves the rest as notes. Untimed paragraphs after
+the last timed line and a blank line become the write-up. Route words stay out
+of names; an unwritten route comes from the same substance earlier in the log,
+then quick log's remembered shape, then `RARELY_ORAL` (DMT/5-MeO-DMT vaporized
+unless an MAOI is mentioned, ketamine insufflated). `EXTRA_ALIASES` in `pw.rs`
+adds names DoseWiki lacks (4mmc, 14b, dexamp…) on load, surviving a refresh.
+
 **Dev harness:** `cargo test --lib portal::tests::dev_portal -- --ignored
 --nocapture` serves a real portal on a seeded throwaway journal (with the real dose
 reference) for driving the phone UI in a browser.

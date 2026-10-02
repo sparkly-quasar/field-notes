@@ -97,7 +97,9 @@ which of your devices are connected, never what's in your journal.
   [Architecture](#architecture) for how.
 - **Paste a trip log** — copy a log from your notes app (`8:43am - 35mg mesc`,
   `T+1:30 peak`…) and it becomes a timed session, doses recognised by name or
-  street name. Read on the device, no AI; every line shown before it's saved.
+  street name. Lists of doses, other people's doses and the write-up after the
+  log are sorted out too. Read on the device, no AI; every line shown before
+  it's saved.
 - **One journal, all your computers** (optional) — let a computer that stays on
   be your Field Notes server, and connect a laptop to it over Tailscale: same
   journal, everywhere. Each device gets its own revocable key. If the server
