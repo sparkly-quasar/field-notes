@@ -941,7 +941,7 @@ using the model switch and reading the screens as a first-timer would.
    the phone's date-column journal; the Shulgin quote.
 
 4. **Tailscale built into the app — phone access without installing anything on the
-   computer.** ✅ **Built 2026-10-02 for v0.21.0** (`tailnet.rs`, `tailnet/`,
+   computer.** ✅ **Shipped in v0.21.0** (built 2026-10-02: `tailnet.rs`, `tailnet/`,
    `scripts/build-tailnet.sh`). Changes from the plan below:
    - **Library: Go `tsnet`, as a Tauri sidecar**, not `tailscale-rs`. At build time
      `tailscale-rs` 0.6.1 listed HTTPS certificates, MagicDNS and Intel Macs as

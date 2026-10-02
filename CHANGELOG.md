@@ -11,6 +11,27 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.0
+
+- **Phone access without installing Tailscale on your computer.** Tailscale is
+  now built into Field Notes. In Settings → Devices & server, press **Connect**
+  and sign in to Tailscale in your browser (with Google, Apple, Microsoft or
+  GitHub; signing in creates an account if you don't have one). Then install
+  Tailscale on your phone, sign in with the same account, and scan the code.
+  Your computer shows up in Tailscale as "field-notes". Tailscale can see which
+  of your devices are connected, never what's in your journal, and Field Notes
+  turns off Tailscale's log uploads.
+- **Already using the Tailscale app on this computer?** Nothing changes: your
+  phone keeps working at the same address. You can switch to the built-in one
+  in Settings whenever you like (your phone then needs its code scanned again).
+- **Clearer messages on the phone when it can't connect.** It now says what to
+  check: that Tailscale is on and signed in with the same account as your
+  computer, or that Field Notes is open on the computer.
+- **The Companion is now optional and off on new installs.** Turn it on in
+  Settings if you want it; it needs a separate download. The interaction
+  checker, dose reference and crisis resources never used it and work the same.
+  If you already use the Companion, it stays on.
+
 ## v0.20.2
 
 - **Spacing guidance in Stats.** The Spacing card for psychedelics,
