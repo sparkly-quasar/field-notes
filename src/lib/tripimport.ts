@@ -17,6 +17,10 @@
  * - separators after the time: `-`, `–`, `—`, `:`, `|`, `>`, or just a space
  * - lines with no time: continue the row above (or start the log, untimed)
  * - `(6/10)` / `6/10` anywhere: the moment's intensity
+ *
+ * And, before the first timed line, a line that's just a date (`Date: 02-28-2026
+ * 12:30pm`, `Saturday, Feb 28 2026`, `2026-02-28`): it becomes the log's date
+ * instead of a row.
  */
 
 export type Unit = "mg" | "µg" | "g" | "ml" | "tab" | "capsule" | "pill";
@@ -43,6 +47,10 @@ export interface ParsedLog {
   timing: "clock" | "offset" | "none";
   /** Minutes after midnight of the first timed line, for clock logs. */
   startClockMin: number | null;
+  /** The day the log says it's from (yyyy-mm-dd), from a date line at the top. */
+  date: string | null;
+  /** A time of day written with that date (minutes after midnight), if any. */
+  dateClockMin: number | null;
 }
 
 export interface CatalogueEntry {
@@ -214,35 +222,101 @@ function intensityOf(text: string): { intensity: number | null; text: string } {
   return { intensity: Number(m[1]), text: text.replace(m[0], "").replace(/\s{2,}/g, " ").trim() };
 }
 
+/** Decode the runs of %XX escapes in a string, leaving anything invalid as it was. */
+function decodeRuns(text: string): string {
+  return text.replace(/(%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+}
+
 /**
  * Undo percent-encoding that came along with a paste. Some apps and share sheets
  * copy text as it appeared in a link ("I%20don%E2%80%99t%20want"), which no one can
- * read and nothing below can parse. Only decodes when the text is clearly encoded:
- * percent sequences and few or no real spaces, so a log that merely mentions "50%"
- * is left alone. Anything that won't decode cleanly is returned as it was.
+ * read and nothing below can parse. Often only part of a paste is like that: a log
+ * written normally with one encoded paragraph stuck on the end. So this works a
+ * word at a time (a "word" being a run with no real whitespace): a word is decoded
+ * when it holds an encoded space or line break, or two or more escapes. A log that
+ * merely mentions "50%" or "100%!" is left alone.
  */
 export function decodePasted(text: string): string {
-  const escapes = text.match(/%[0-9A-Fa-f]{2}/g)?.length ?? 0;
-  if (escapes < 3) return text;
-  const spaces = text.match(/ /g)?.length ?? 0;
-  if (spaces > escapes / 4) return text;
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    // A stray "%" that isn't an escape: decode the valid runs and keep the rest.
-    return text.replace(/(%[0-9A-Fa-f]{2})+/g, (run) => {
-      try {
-        return decodeURIComponent(run);
-      } catch {
-        return run;
-      }
-    });
-  }
+  return text.replace(/\S+/g, (word) => {
+    const escapes = word.match(/%[0-9A-Fa-f]{2}/g)?.length ?? 0;
+    if (escapes === 0) return word;
+    if (escapes < 2 && !/%(20|0A|0D|09)/i.test(word)) return word;
+    return decodeRuns(word);
+  });
 }
 
-export function parseTripLog(raw: string, catalogue: CatalogueEntry[]): ParsedLog {
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const MONTH_RE = "(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?";
+const WEEKDAY_RE = /^(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\.?,?\s+/i;
+
+function validYmd(y: number, m: number, d: number): string | null {
+  if (y < 100) y += 2000;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(y, m - 1, d);
+  if (dt.getMonth() !== m - 1) return null; // 31 Feb
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
+ * A line that is only a date, perhaps labelled and perhaps with a time: `Date:
+ * 02-28-2026 12:30pm`, `Sat 28 Feb 2026`, `February 28th, 2026`, `2026-02-28`.
+ * Anything else on the line and it isn't a date line, so a sentence that happens to
+ * mention a date stays a sentence. `dayFirst` settles `03/04/2026` (4 March or
+ * 3 April); when one number is over 12 the order is plain either way.
+ */
+export function takeDate(line: string, dayFirst = false): { date: string; clockMin: number | null } | null {
+  let s = line
+    .trim()
+    .replace(/^[-*•·>#\s]+/, "")
+    .replace(/^(trip\s+)?(date|day|when|dosed on|dosed|on)\s*[:\-–—]?\s*/i, "")
+    .replace(WEEKDAY_RE, "");
+  let date: string | null = null;
+  let m: RegExpMatchArray | null;
+  if ((m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/))) {
+    date = validYmd(+m[1], +m[2], +m[3]);
+  } else if ((m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})\b/))) {
+    const [a, b] = [+m[1], +m[2]];
+    const dFirst = a > 12 ? true : b > 12 ? false : dayFirst;
+    date = dFirst ? validYmd(+m[3], b, a) : validYmd(+m[3], a, b);
+  } else if ((m = s.match(new RegExp(`^${MONTH_RE}\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b`, "i")))) {
+    date = validYmd(+m[3], MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1, +m[2]);
+  } else if ((m = s.match(new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH_RE},?\\s+(\\d{4})\\b`, "i")))) {
+    date = validYmd(+m[3], MONTHS.indexOf(m[2].slice(0, 3).toLowerCase()) + 1, +m[1]);
+  }
+  if (!date || !m) return null;
+  s = s.slice(m[0].length).replace(/^\s*(,|at|@|-|–|—)?\s*/i, "");
+  if (!s) return { date, clockMin: null };
+  const { stamp, rest } = takeStamp(s);
+  if (stamp?.kind !== "clock" || rest.replace(/[\s.,;:!)\]-]/g, "")) return null;
+  return { date, clockMin: stamp.min };
+}
+
+/** What a line says, apart from when: dose or moment, and the details. */
+function rowOf(line: string, catalogue: CatalogueEntry[], index: Map<string, string>): Omit<ParsedRow, "offsetMin" | "clock"> {
+  const { intensity, text } = intensityOf(line);
+  const dose = doseOf(text, catalogue, index);
+  return {
+    kind: dose ? "dose" : "moment",
+    text,
+    substance: dose?.substance ?? "",
+    amount: dose?.amount ?? null,
+    unit: dose?.unit ?? "mg",
+    route: dose?.route ?? "oral",
+    intensity,
+  };
+}
+
+export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { dayFirst?: boolean } = {}): ParsedLog {
   const index = nameIndex(catalogue);
   const rows: ParsedRow[] = [];
+  let date: string | null = null;
+  let dateClockMin: number | null = null;
   let timing: ParsedLog["timing"] = "none";
   let firstClock: number | null = null;
   let lastClockAbs: number | null = null; // minutes, rolled across midnight
@@ -250,13 +324,29 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[]): ParsedLo
 
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
+    // Before the first timed line, a date on its own line dates the log. (Checked
+    // before takeStamp, which would read "12.02.2026" as 12:02.)
+    if (date == null && timing === "none") {
+      const d = takeDate(line, opts.dayFirst);
+      if (d) {
+        date = d.date;
+        dateClockMin = d.clockMin;
+        continue;
+      }
+    }
     const { stamp, rest } = takeStamp(line);
 
     if (!stamp) {
       // No time: it continues the line above, however it was written.
       const prev = rows.at(-1);
       if (prev) {
-        prev.text = `${prev.text}${prev.text ? " " : ""}${rest}`.trim();
+        if (!prev.text) {
+          // The time was alone on its line ("12:30pm", then the words below it):
+          // this is the line's real start, so read it as one.
+          Object.assign(prev, rowOf(rest, catalogue, index));
+        } else {
+          prev.text = `${prev.text} ${rest}`.trim();
+        }
         continue;
       }
     }
@@ -278,23 +368,11 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[]): ParsedLo
     }
     lastOffset = offsetMin;
 
-    const { intensity, text } = intensityOf(rest);
-    const dose = doseOf(text, catalogue, index);
-    rows.push({
-      kind: dose ? "dose" : "moment",
-      offsetMin,
-      clock,
-      text,
-      substance: dose?.substance ?? "",
-      amount: dose?.amount ?? null,
-      unit: dose?.unit ?? "mg",
-      route: dose?.route ?? "oral",
-      intensity,
-    });
+    rows.push({ offsetMin, clock, ...rowOf(rest, catalogue, index) });
   }
 
   // T+ in the journal counts from the first *dose*. If the log opened with a note
   // ("feeling nervous"), offsets above are from that line, which is the start of the
   // session — the journal recomputes T+ from the first dose itself.
-  return { rows, timing, startClockMin: firstClock == null ? null : firstClock % 1440 };
+  return { rows, timing, startClockMin: firstClock == null ? null : firstClock % 1440, date, dateClockMin };
 }
