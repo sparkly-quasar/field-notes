@@ -1898,6 +1898,15 @@ pub fn set_discreet_available(prefs: State<'_, Prefs>, available: bool) -> Resul
     prefs.update(|p| p.discreet_available = available)
 }
 
+/// Run from the menu bar / system tray instead of the Dock / taskbar (`tray.rs`).
+/// Desktop only: never on the portal allowlist.
+#[tauri::command]
+pub fn set_menu_bar(app: AppHandle, prefs: State<'_, Prefs>, on: bool) -> Result<ServerPrefs, String> {
+    let p = prefs.update(|p| p.menu_bar = on)?;
+    crate::tray::apply(&app)?;
+    Ok(p)
+}
+
 /// Let paired phones install updates. Desktop only: never on the portal allowlist.
 #[tauri::command]
 pub fn set_phone_can_update(prefs: State<'_, Prefs>, allowed: bool) -> Result<ServerPrefs, String> {

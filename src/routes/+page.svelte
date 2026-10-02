@@ -94,6 +94,7 @@
     serverPrefs,
     setServerPrefs,
     setPhoneCanUpdate,
+    setMenuBar,
     discreetAvailable,
     setDiscreetAvailable,
     keychainStatus,
@@ -269,7 +270,7 @@
   let pairLinkCopied = $state(false);
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
-  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false, discreet_available: false });
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, phone_can_update: false, discreet_available: false, menu_bar: false });
   let loginStart = $state(false);
   let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
   let kcPass = $state("");
@@ -1737,6 +1738,17 @@
       portalErr = e instanceof Error ? e.message : String(e);
     } finally {
       serving = false;
+    }
+  }
+
+  // "Menu bar" on a Mac, "system tray" elsewhere: the words people use for that spot.
+  const trayName = isMac ? "menu bar" : "system tray";
+  async function toggleMenuBar() {
+    portalErr = null;
+    try {
+      sprefs = await setMenuBar(!sprefs.menu_bar);
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -3319,6 +3331,17 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <input type="checkbox" checked={loginStart} onchange={toggleLoginStart} />
             Open Field Notes when I log in to this computer
           </label>
+          <label class="share">
+            <input type="checkbox" checked={sprefs.menu_bar} onchange={toggleMenuBar} />
+            Run from the {trayName} instead of the {isMac ? "Dock" : "taskbar"}
+          </label>
+          {#if sprefs.menu_bar}
+            <p class="muted small">
+              Field Notes keeps running when you close its window, so your devices can still reach it.
+              Open the window or quit from the small notebook icon {isMac ? "at the top of the screen, next to the clock" : "next to the clock"}.
+              {#if loginStart}When it opens at login, it starts without a window.{/if}
+            </p>
+          {/if}
           <label class="share">
             <input type="checkbox" checked={sprefs.phone_can_update} onchange={togglePhoneCanUpdate} />
             Let paired phones install Field Notes updates on this computer

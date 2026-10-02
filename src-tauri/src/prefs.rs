@@ -30,6 +30,10 @@ pub struct ServerPrefs {
     /// per-device choice kept in each browser; this only makes the toggle appear.
     #[serde(default)]
     pub discreet_available: bool,
+    /// Run from the menu bar (macOS) or system tray (Windows, Linux) instead of the
+    /// Dock or taskbar; closing the window hides it. See `tray.rs`.
+    #[serde(default)]
+    pub menu_bar: bool,
 }
 
 pub struct Prefs {
