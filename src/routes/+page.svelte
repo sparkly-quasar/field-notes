@@ -1171,7 +1171,7 @@
     const msg =
       selected?.kind === "note"
         ? "Delete this note? This cannot be undone."
-        : "Delete this session and all its doses? This cannot be undone.";
+        : "Delete this experience and all its doses? This cannot be undone.";
     if (!selected || !confirm(msg)) return;
     await deleteExperience(selected.id);
     selected = null;
@@ -2462,7 +2462,7 @@
               <button class="tb" onclick={openImport}><Icon name="import" size={15} />Import</button>
             {/if}
             <button class="tb" onclick={openNewNote}><Icon name="note" size={15} />Note</button>
-            <button class="tb" onclick={openNewExp}><Icon name="session" size={15} />Session</button>
+            <button class="tb" onclick={openNewExp}><Icon name="session" size={15} />Experience</button>
             <!-- Leads, because it's the thing most often being recorded. -->
             <button class="primary small-btn tb-primary" onclick={openQuickLog}>+ Dose</button>
           </div>
@@ -2505,7 +2505,7 @@
         <section class="card">
           <button class="link" onclick={() => (selected = null)}>← Journal</button>
           <div class="exp-head">
-            <h2>{selected.title || "Untitled session"}</h2>
+            <h2>{selected.title || "Untitled experience"}</h2>
             <span class="row-actions">
               {#if !selected.ended_at}<button class="primary small-btn" onclick={startLiveSession}>Live trip report</button>{/if}
               {#if !editExp}<button class="link" onclick={startEditExp}>Edit</button>{/if}
@@ -2666,7 +2666,7 @@
                 </p>
               {:else}
                 <p class="muted small">
-                  A dose and roughly when — that's the whole entry. No session to end and
+                  A dose and roughly when — that's the whole entry. No trip report to end and
                   nothing to write up, though you can add all of that later.
                 </p>
               {/if}
@@ -2733,7 +2733,7 @@
             <div class="new-exp">
               <input
                 placeholder="Title (optional — else the first substance)"
-                title="Leave blank and the session takes the name of the first substance you log."
+                title="Leave blank and the experience takes the name of the first substance you log."
                 bind:value={neTitle}
               />
               <DateTimeField bind:value={neStart} title={nePast ? "When it started" : "Start time"} />
@@ -2824,7 +2824,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                     <p><strong>No doses were picked out.</strong> If your account did mention them, the model may have
                     missed them — going <em>Back</em> and naming each substance with an amount (e.g. “100&nbsp;µg LSD”,
                     “15&nbsp;mg 2C-B”) usually does the trick.</p>
-                    <p class="muted small">You can also import as-is and add doses by hand from the session afterward.</p>
+                    <p class="muted small">You can also import as-is and add doses by hand from the entry afterward.</p>
                   </div>
                 {/if}
                 {#if importParsed.timeline.length}
@@ -2859,7 +2859,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                       </div>
                     {:else}
                       <div class="exp-main">
-                        <strong>{hiding() ? "Session" : e.title || "Untitled"}</strong>
+                        <strong>{hiding() ? "Experience" : e.title || "Untitled"}</strong>
                         <!-- A gentle marker for an entry that may still want its story,
                              unless it's been marked as not needing one. -->
                         {#if !e.ended_at}
@@ -2888,7 +2888,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 </div>
                 <ul>
                   <li>
-                    <strong>Log a dose</strong> with <strong>+ Dose</strong>, or start a <strong>session</strong> for a
+                    <strong>Log a dose</strong> with <strong>+ Dose</strong>, or start an <strong>experience</strong> for a
                     night you'll want to look back on: doses, moments as they happen, and a write-up after.
                   </li>
                   <li>
@@ -3019,18 +3019,18 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
           <label class="share">
             <input type="checkbox" bind:checked={cShareSession} />
-            Share a session with the companion
+            Share an experience with the companion
           </label>
           {#if cShareSession}
             <div class="share-pick">
-              <select bind:value={cSessionChoice} class="model-sel" aria-label="Which session to share">
-                <option value={null}>Current session (most recent)</option>
+              <select bind:value={cSessionChoice} class="model-sel" aria-label="Which experience to share">
+                <option value={null}>Current experience (most recent)</option>
                 {#each shareableSessions as s}
                   <option value={s.id}>{s.title || "Untitled"} · {fmtDate(s.started_at)}</option>
                 {/each}
               </select>
               <span class="muted small">
-                {#if attachedExp}Sharing “{attachedExp.title || "Untitled"}”{:else}No sessions yet — nothing to share.{/if}
+                {#if attachedExp}Sharing “{attachedExp.title || "Untitled"}”{:else}No experiences yet — nothing to share.{/if}
               </span>
             </div>
           {/if}
@@ -3051,7 +3051,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
           <div class="chat">
             {#if !cMessages.length}
-              <p class="muted small chat-empty">Start chatting about an experience you're planning, having currently, or want to discuss for integration. If you share a session with me, I can see what doses you've taken and, at your request, I can log doses or take notes for you while we chat.</p>
+              <p class="muted small chat-empty">Start chatting about an experience you're planning, having currently, or want to discuss for integration. If you share an experience with me, I can see what doses you've taken and, at your request, I can log doses or take notes for you while we chat.</p>
             {/if}
             {#each cMessages as m}
               <div class="bubble {m.role}">{m.content}</div>
@@ -3371,7 +3371,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             Turn on the Companion
           </label>
           <p class="muted small">
-            An optional AI to talk with before, during or after a session. It runs only on this
+            An optional AI to talk with before, during or after an experience. It runs only on this
             computer and needs a separate free download of a few gigabytes (Ollama and a model), which
             the Companion tab walks you through. The journal, timeline, dose reference, interaction
             checker and crisis resources don't use it and work the same either way.
@@ -3422,7 +3422,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
               shows, and paste it here.
             </p>
             <p class="muted small">
-              If the server can't be reached, new sessions, doses and timeline notes still save here and are
+              If the server can't be reached, new experiences, doses and timeline notes still save here and are
               sent the moment it's back; the interaction checker and crisis resources keep working on this
               computer. Editing and deleting wait for the connection. Entries already on this computer stay
               here, hidden while you're connected — once connected, <strong>Sync journal to server</strong>
@@ -3884,7 +3884,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
               <p class="muted small">
                 Installing restarts Field Notes here. A phone can only do it when device access turns on by
                 itself at launch, the journal can unlock itself (its password saved below, if it's encrypted),
-                and no session is open, including anyone else's who has used Field Notes in the last two hours.
+                and no trip report is live, including anyone else's who has used Field Notes in the last two hours.
                 If it would lock someone else's journal, the phone says whose and lets you install anyway.
                 Only signed Field Notes releases can be installed.
               </p>

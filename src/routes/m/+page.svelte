@@ -7,9 +7,9 @@
   in the dark, possibly altered. Designed from a three-lens UX review (task flows,
   impaired-state accessibility, reading/editing — see ROADMAP.md, v0.13.0):
 
-  - **One word per thing.** An *entry* is anything in the journal. A *session* is
-    an entry with doses; a *journal note* is a plain written entry; a *moment* is
-    a line in a session's timeline; the *write-up* is the story afterwards.
+  - **One word per thing.** An *entry* is anything in the journal. An *experience* is
+    an entry with doses (a *live trip report* while it's happening); a *journal note* is a plain written entry; a *moment* is
+    a line in an experience's timeline; the *write-up* is the story afterwards.
   - **Everything you act on opens at the thumb**, in a bottom sheet, never below
     a long list where it can't be seen.
   - **Nothing destructive is one slip away.** Delete sits apart from Save, and
@@ -320,7 +320,7 @@
   /** A title can name a drug ("Quiet LSD day"), so in discreet mode titles become
    *  what the entry is. The opened entry still shows its own words. */
   const titleOf = (e: { title: string; kind: string }, fallback = "Untitled") =>
-    hiding() ? (e.kind === "note" ? "Journal note" : "Session") : e.title || fallback;
+    hiding() ? (e.kind === "note" ? "Journal note" : "Experience") : e.title || fallback;
   const subsOf = (names: string[]) => names.map(nameShown).join(", ");
 
   // ---------- dim (red) night theme ----------
@@ -1726,7 +1726,7 @@
         {@const live = session}
         <section class="pane live-card">
           <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Live trip report</p>
-          <h1 class="entry-title">{titleOf(live, "Untitled session")}</h1>
+          <h1 class="entry-title">{titleOf(live, "Untitled experience")}</h1>
           <p class="muted">
             Started {hhmm(live.started_at)}{#if t0Of(live)}{" · now "}{rel(new Date(nowTick).toISOString(), t0Of(live))}{/if}
           </p>
@@ -1745,7 +1745,7 @@
             <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
             <button class="moment log" onclick={() => startMoment(live)}>+ Moment</button>
           </div>
-          <button class="ghost small open-link" onclick={openLive}>Open session ›</button>
+          <button class="ghost small open-link" onclick={openLive}>Open trip report ›</button>
           <!-- Ending sits apart from logging and from Help, so it isn't hit by accident. -->
           <div class="end-row">
             <button class="ghost small" onclick={toggleNight}>{night ? "Normal screen" : "Dim (red) screen"}</button>
@@ -1795,7 +1795,7 @@
           {#each visible.slice(0, 6) as e (e.id)}
             <li>{@render entryRow(e)}</li>
           {:else}
-            <li class="muted">Nothing logged yet. Tap <strong>＋ New</strong> for sessions, past trips, notes or pasted logs.</li>
+            <li class="muted">Nothing logged yet. Tap <strong>＋ New</strong> for a live trip report, a past experience, a note or a pasted log.</li>
           {/each}
         </ul>
         {#if visible.length > 6}
@@ -1900,7 +1900,7 @@
           <label class="sr" for="search">Search the journal</label>
           <input id="search" type="search" placeholder="Search titles, write-ups, substances" bind:value={search} autocapitalize="none" enterkeyhint="search" />
           <div class="chips" role="group" aria-label="Show">
-            {#each [["all", "All"], ["sessions", "Sessions"], ["notes", "Journal notes"], ["writeup", "To write up"]] as [k, label]}
+            {#each [["all", "All"], ["sessions", "Experiences"], ["notes", "Journal notes"], ["writeup", "To write up"]] as [k, label]}
               <button class="chip" class:on={filter === k} aria-pressed={filter === k} onclick={() => setFilter(k as typeof filter)}>{label}</button>
             {/each}
           </div>
@@ -1929,7 +1929,7 @@
               <button onclick={() => { search = ""; filter = "all"; subFilter = null; }}>Clear filters</button>
             {:else}
               <p>Nothing here yet. Log something from Today, or add something that already happened.</p>
-              <button class="primary" onclick={startPast}>Log a past session</button>
+              <button class="primary" onclick={startPast}>Log a past experience</button>
             {/if}
           </section>
         {/each}
@@ -2160,7 +2160,7 @@
             {/if}
             <li>
               <button onclick={startPast}>
-                <strong>Log a past session</strong>
+                <strong>Log a past experience</strong>
                 <span class="muted">Something that already happened: doses, timeline, write-up</span>
               </button>
             </li>
@@ -2296,14 +2296,14 @@
           <label for="s-title">Title (optional)</label>
           <input id="s-title" bind:value={sTitle} />
           <p class="hint">Leave it blank and it takes the name of the first substance you log.</p>
-          <label class="check"><input type="checkbox" checked={night} onchange={(e) => setNight(e.currentTarget.checked)} /> Dim (red) screen for this session</label>
+          <label class="check"><input type="checkbox" checked={night} onchange={(e) => setNight(e.currentTarget.checked)} /> Dim (red) screen for this trip report</label>
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={submitStart}>{busyKey === "start" ? "Starting…" : "Start"}</button>
           </div>
 
         {:else if sheet === "past"}
           <div class="sheet-head">
-            <h2 id="sheet-title">Log a past session</h2>
+            <h2 id="sheet-title">Log a past experience</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
           <p class="muted">First, roughly when it started. Then you'll add what you took and what happened, in order.</p>
@@ -2379,7 +2379,7 @@
           {#if open.kind === "session"}
             <label for="en-end">Ended</label>
             <DateTimeField id="en-end" bind:value={enEnd} variant="phone" />
-            <p class="hint">Leave it blank and the session stays live.</p>
+            <p class="hint">Leave it blank and the trip report stays live.</p>
             <p class="label">Rating (optional)</p>
             {@render scale(enRating, (v) => (enRating = v), "Rating 0 to 10")}
             <label for="en-int">Intention</label>
@@ -2407,7 +2407,7 @@
 
         {:else if sheet === "end" && open}
           <div class="sheet-head">
-            <h2 id="sheet-title">{open.ended_at ? "Finish this session" : "End the trip report"}</h2>
+            <h2 id="sheet-title">{open.ended_at ? "Finish this experience" : "End the trip report"}</h2>
             <button class="ghost small" onclick={closeSheet}>Cancel</button>
           </div>
           <label for="end-at">Ended</label>

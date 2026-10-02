@@ -127,10 +127,10 @@ pub(crate) fn blocked_reason(g: &Gates) -> Option<Blocked> {
     }
     if let Some(t) = &g.open_session {
         let t = if t.is_empty() { "untitled" } else { t.as_str() };
-        return hard(format!("A session (\"{t}\") is still open. End it first: the restart would cut off every device."));
+        return hard(format!("A live trip report (\"{t}\") is still open. End it first: the restart would cut off every device."));
     }
     if g.others_live_session {
-        return hard("Someone else on this server has a session going. Wait until it's ended: the restart would cut them off.");
+        return hard("Someone else on this server has a live trip report going. Wait until it's ended: the restart would cut them off.");
     }
     if g.others_would_lock.is_empty() && !g.others_stale_session {
         return None;
@@ -142,9 +142,9 @@ pub(crate) fn blocked_reason(g: &Gates) -> Option<Blocked> {
         many => why.push(format!("{}'s journals are unlocked on this server, and restarting would lock them until they unlock them again from their phones.", names(many))),
     }
     if g.others_stale_session {
-        why.push("Someone else has a session that was never ended, but nobody has used it in over two hours.".into());
+        why.push("Someone else has a live trip report that was never ended, but nobody has used it in over two hours.".into());
     }
-    why.push("Nobody has a session going right now.".into());
+    why.push("Nobody has a live trip report going right now.".into());
     Some(Blocked { why: why.join(" "), can_override: true })
 }
 
@@ -335,7 +335,7 @@ mod tests {
         assert!(why(Gates { remembered: false, ..ready() }).0.contains("stay locked"));
         let open = why(Gates { open_session: Some("Autumn sit".into()), ..ready() }).0;
         assert!(open.contains("Autumn sit"), "{open}");
-        assert!(why(Gates { others_live_session: true, ..ready() }).0.contains("session going"));
+        assert!(why(Gates { others_live_session: true, ..ready() }).0.contains("trip report going"));
     }
 
     #[test]

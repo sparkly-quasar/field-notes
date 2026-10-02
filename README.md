@@ -2,7 +2,7 @@
 
 **A private offline journal and safety companion for psychedelic and other substance experiences.**
 
-Field Notes is a journal that understands what a session is. Write plain diary
+Field Notes is a journal that understands what an experience is. Write plain diary
 entries or log an experience as it happens — what you took, how much, and how
 you're feeling over time. Before you combine substances, check them against a
 built-in reference of known dangerous combinations. If you want one, an
@@ -34,13 +34,13 @@ show you how to get past it.
 - **Journal** — log experiences with intention, set & setting, doses, and a
   running timeline of how you feel. Edit, delete, or backdate anything. Logging
   something that already happened is a first-class option — tick "this already
-  happened" on a new session and it's saved as a finished trip, with doses
-  defaulting to when it occurred rather than now. Every timestamp in a session
+  happened" on a new experience and it's saved as a finished trip, with doses
+  defaulting to when it occurred rather than now. Every timestamp in an experience
   also shows the time since your first dose (`14:02 (t+1:23)`), so the timeline
-  reads against the clock that matters. A session you never got round to titling
+  reads against the clock that matters. An experience you never got round to titling
   takes the name of the first substance you log into it, so nothing sits in the
   journal as "Untitled" — rename it whenever you like.
-- **Plain notes** — not everything is a session. Write ordinary journal entries
+- **Plain notes** — not everything is an experience. Write ordinary journal entries
   (a title, your words, a date) alongside them.
 - **Combination warnings** — every dose is checked against the others taken
   around the same time for well-documented risky combinations. Each shows as a
@@ -53,7 +53,7 @@ show you how to get past it.
   alongside. Sourced from [DoseWiki](https://dose.wiki) (public domain).
 - **Companion** (optional, off until you turn it on) — a calm, non-judgmental
   support chat that runs on a local AI
-  model. It can be aware of your current session, look up references, and log
+  model. It can be aware of your live trip report, look up references, and log
   things for you when you ask. Pick a support style ("just listen", "keep me
   grounded", …) and it honors it. It loads in the background so the window never
   freezes while it thinks, and it tells you up front if your machine is short on
@@ -94,16 +94,16 @@ show you how to get past it.
   shows a green **"Paired successfully"** light the moment the phone first uses
   the code, so you're not left guessing whether the scan took. Companion
   replies run as a background job on the desktop, so a slow local model — or a
-  locked phone screen — no longer drops the answer. Starting a session from the
+  locked phone screen — no longer drops the answer. Starting a live trip report from the
   phone takes an optional title — or leave it blank and the first substance you
-  log names it. Or skip the session entirely: **log something you took** —
+  log names it. Or skip the trip report entirely: **log something you took** —
   substance, amount, and when — as a one-shot entry, for any day you're catching
   up on. Past entries are editable from the phone too: tap any dose or note to
   correct it, add one you forgot, or open the entry to change its title, times,
   rating and write-up. Private by design: see
   [Architecture](#architecture) for how.
 - **Paste a trip log** — copy a log from your notes app (`8:43am - 35mg mesc`,
-  `T+1:30 peak`…) and it becomes a timed session, doses recognised by name or
+  `T+1:30 peak`…) and it becomes a timed experience, doses recognised by name or
   street name. Lists of doses, other people's doses and the write-up after the
   log are sorted out too. Read on the device, no AI; every line shown before
   it's saved.
@@ -119,7 +119,7 @@ show you how to get past it.
 - **Substance catalogue & log** — keep your own substance list with notes, and
   review your history grouped by substance.
 - **Stats** (desktop and phone): dose over time against the reference's dose
-  ranges, spacing between sessions, how often, a calendar, and what you've taken
+  ranges, spacing between experiences, how often, a calendar, and what you've taken
   together. Descriptive only: no streaks, scores or warnings, and a toggle hides
   substance names for screen-sharing.
 - **Updates** — automatic, a **Check for updates** button in Settings, and
@@ -140,9 +140,9 @@ All screenshots use a fictional demo journal.
 | | |
 |:---:|:---:|
 | ![Journal home](docs/screenshots/journal-home.png) | ![Live trip report](docs/screenshots/live-session.png) |
-| **Journal**: sessions and notes by month, actions in one quiet bar | **Live trip report**: last dose, quick log and one-tap moments |
-| ![Session detail](docs/screenshots/session-detail.png) | ![Stats](docs/screenshots/stats.png) |
-| **Session detail**: what you took, when, and how it went | **Stats**: dose over time against reference ranges, spacing, frequency, calendar |
+| **Journal**: experiences and notes by month, actions in one quiet bar | **Live trip report**: last dose, quick log and one-tap moments |
+| ![Experience detail](docs/screenshots/session-detail.png) | ![Stats](docs/screenshots/stats.png) |
+| **Experience detail**: what you took, when, and how it went | **Stats**: dose over time against reference ranges, spacing, frequency, calendar |
 | ![Companion chat](docs/screenshots/companion-chat.png) | ![Substance log](docs/screenshots/substance-log.png) |
 | **Companion**: local AI support chat with selectable support styles | **Every dose, by substance**: the full history, under Stats |
 | ![Check](docs/screenshots/substances-reference.png) | ![Reference search](docs/screenshots/reference-search.png) |
@@ -159,7 +159,7 @@ All screenshots use a fictional demo journal.
 | | | |
 |:---:|:---:|:---:|
 | ![Today](docs/screenshots/phone-today.png) | ![Journal](docs/screenshots/phone-journal.png) | ![Entry](docs/screenshots/phone-entry.png) |
-| **Today**: the live trip report at your thumb | **Journal**: search and filter everything | **Entry**: a past session, editable |
+| **Today**: the live trip report at your thumb | **Journal**: search and filter everything | **Entry**: a past experience, editable |
 | ![Stats](docs/screenshots/phone-stats.png) | ![Stats chart](docs/screenshots/phone-stats-chart.png) | ![Combo check](docs/screenshots/phone-check.png) |
 | **Stats**: range, substances, totals | **Dose over time**: tap a dose for details | **Check**: combinations, from the deterministic checker |
 
@@ -224,7 +224,7 @@ passing Field Notes along to a harm reduction group help too.
 - **Tauri 2 + Svelte (TypeScript)** desktop app (Windows + macOS + Linux), built
   on the same stack as [Cairn](https://github.com/sparkly-quasar/cairn).
 - **Local SQLite** (`rusqlite`, bundled) at the app data dir — `substances`,
-  `experiences` (sessions *and* plain notes, split by an explicit `kind` column),
+  `experiences` (experiences with doses *and* plain notes, split by an explicit `kind` column),
   `doses`, `timeline_events`. No network, no accounts. Opt-in **SQLCipher**
   encryption at rest (AES-256).
 - The safety-critical layers are **deterministic Rust, independent of any model** —
