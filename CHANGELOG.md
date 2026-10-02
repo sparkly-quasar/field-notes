@@ -11,6 +11,26 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.21.6
+
+- **Combination warnings are quieter and more useful.** Each one is a single
+  line with an icon and the substances involved. Tap it for what the risk is and
+  what lowers it: spacing, amounts, cooling down, who to have with you.
+  Repeated warnings with the same message show once, naming every pair.
+- **Warnings look at timing.** Two doses only count as a combination if both
+  were active at the same time, by how long each lasts.
+- **No more "get help now" over what you've logged.** A risky combination is a
+  note to read, live or past, never an emergency banner: what was taken can't
+  tell anyone how you're doing. If something you write in Talk sounds like it
+  might be urgent, the app offers the people who can help, calmly, and Help is
+  always one tap away.
+- **MDMA with mephedrone is now "use care"** rather than "dangerous": the risk
+  depends heavily on the amounts and how close together they're taken.
+- **Fewer false matches, one real one added.** Warnings about the 5-MeO
+  tryptamines no longer fire for DMT. 1,4-butanediol now gets GHB's
+  interaction warnings (it becomes GHB in the body), and rilmazafone is
+  recognised as a benzodiazepine.
+
 ## v0.21.5
 
 - **Pasting a trip log gets the times right when it has no am/pm.** A log
@@ -36,23 +56,6 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   time.
 - **End trip report**, and **Start a trip report** on the desktop's empty
   journal.
-- **Combination warnings are quieter and more useful.** Each one is a single
-  line with an icon and the substances involved. Tap it for what the risk is and
-  what lowers it: spacing, amounts, cooling down, who to have with you.
-  Repeated warnings with the same message show once, naming every pair.
-- **Warnings look at timing.** Two doses only count as a combination if both
-  were active at the same time, by how long each lasts.
-- **No more "get help now" over what you've logged.** A risky combination is a
-  note to read, live or past, never an emergency banner: what was taken can't
-  tell anyone how you're doing. If something you write in Talk sounds like it
-  might be urgent, the app offers the people who can help, calmly, and Help is
-  always one tap away.
-- **MDMA with mephedrone is now "use care"** rather than "dangerous": the risk
-  depends heavily on the amounts and how close together they're taken.
-- **Fewer false matches, one real one added.** Warnings about the 5-MeO
-  tryptamines no longer fire for DMT. 1,4-butanediol now gets GHB's
-  interaction warnings (it becomes GHB in the body), and rilmazafone is
-  recognised as a benzodiazepine.
 
 ## v0.21.4
 

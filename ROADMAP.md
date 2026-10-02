@@ -58,6 +58,12 @@ installer).
   wired to the dose-reference interaction data; DoseWiki's dangerous/unsafe/caution
   tiers map onto our danger/caution/note severities (with the reason text), and
   inline dose-range + interaction warnings appear while logging a dose.
+  *v0.21.6:* pairs only count when both doses were active at once
+  (`session_warnings`, by DoseWiki total duration per route); warnings render as
+  tappable `RiskNotes` with harm-reduction `advice` per class pair; wildcard
+  families (`5-MeO-xxT`, `2C-x`) match by pattern; 1,4-B inherits GHB's
+  warnings; `SEVERITY_OVERRIDES` (MDMA + mephedrone → caution). The crisis
+  layer now reads only what's written: a logged combination never raises it.
 - **Distribution** — cross-platform installers (macOS universal `.dmg` +
   Linux `.AppImage`/`.deb`/`.rpm` + **Windows NSIS `.exe`/`.msi` from v0.5.0**)
   via `tauri-action` CI on `v*` tags, plus **in-app auto-update** (Tauri updater;
