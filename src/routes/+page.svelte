@@ -2929,7 +2929,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 </ul>
               </div>
             {:else}
-              <p class="muted">Nothing here yet. Start a session, or just write a note.</p>
+              <p class="muted">Nothing here yet. Start a trip report, or just write a note.</p>
             {/if}
           {/if}
         </section>
