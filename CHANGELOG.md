@@ -11,6 +11,21 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.14.4
+
+- **Fixed: warnings now show during a live session on the desktop.** The live
+  session screen covers the whole window, and combination warnings and safety
+  prompts were appearing on the page underneath it, out of sight. They now
+  appear right under the session's title.
+- **Fixed: the phone's elapsed time keeps up.** "now T+…" on the live session
+  card was set once and never moved. It now updates every 30 seconds, and
+  straight away when you unlock the phone or come back to the app.
+- **Help stays on screen on the phone.** The top bar with **Help** stays put
+  while you scroll, and no longer sits under the clock and battery.
+- **Get help now on the desktop** starts with "If someone is in danger, call
+  your local emergency number now," and only closes when you press **Close**,
+  not when you click outside it.
+
 ## v0.14.3
 
 - **Fixed: "All" in the phone's Journal now shows everything.** After picking
