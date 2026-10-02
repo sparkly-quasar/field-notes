@@ -2063,7 +2063,7 @@
       <section class="pane">
         <h1>Companion</h1>
         {#if companionEnabled === false}
-          <p class="muted">The Companion is turned off in Settings on your server. Everything else still works.</p>
+          <p class="muted">The Companion isn't turned on. It's optional: turn it on in Settings on your server if you want it. Everything else works either way.</p>
         {:else if !ai}
           <p class="muted">Couldn't ask the server about its local model.</p>
           <button disabled={busy} onclick={loadAi}>Try again</button>

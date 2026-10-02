@@ -20,6 +20,17 @@ pub struct ServerPrefs {
     /// `portal_serve`, cleared by `portal_unserve`. Not user-editable.
     #[serde(default)]
     pub served_https: Option<u16>,
+    /// Published through the Tailscale built into Field Notes (`tailnet.rs`). Set
+    /// when the user connects, cleared when they disconnect or sign out, and read
+    /// at launch to bring it back up.
+    #[serde(default)]
+    pub builtin_tailnet: bool,
+    /// Use the Tailscale app installed on this computer instead of the built-in
+    /// one. Chosen in Settings; also implied by `served_https` (published through
+    /// the app before the built-in one existed), so nobody's setup changes under
+    /// them on update.
+    #[serde(default)]
+    pub tailscale_app: bool,
     /// Paired phones may install a Field Notes update on this computer (and
     /// restart it). Off by default; only settable at the computer. See
     /// `server_update.rs` for the guards that apply even when it's on.
@@ -39,6 +50,13 @@ pub struct ServerPrefs {
 pub struct Prefs {
     path: PathBuf,
     inner: Mutex<ServerPrefs>,
+}
+
+impl ServerPrefs {
+    /// Reach the tailnet through the Tailscale app rather than the built-in one.
+    pub fn uses_tailscale_app(&self) -> bool {
+        self.tailscale_app || self.served_https.is_some()
+    }
 }
 
 impl Prefs {

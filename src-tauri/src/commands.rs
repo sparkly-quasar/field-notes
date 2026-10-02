@@ -7,6 +7,7 @@ use crate::db::{self, *};
 use crate::devices::{DeviceInfo, Devices};
 use crate::keychain;
 use crate::prefs::{Prefs, ServerPrefs};
+use crate::tailnet::Tailnet;
 use crate::interactions::{self, Warning};
 use crate::knowledge::Hit;
 use crate::ollama::{self, AiStatus, ChatMsg};
@@ -1504,6 +1505,8 @@ pub fn wipe_all_data(app: AppHandle, db: State<'_, Db>) -> Result<(), String> {
     // A wiped journal keeps no way back in: stop serving, un-pair every device,
     // and forget any remembered passphrase.
     app.state::<Portal>().stop();
+    // The built-in Tailscale's keys for this computer go too.
+    app.state::<Tailnet>().forget();
     let _ = app.state::<Devices>().revoke_all();
     // Everyone else's journal too: this erases the whole server.
     app.state::<crate::people::People>().remove_all();
@@ -1606,11 +1609,25 @@ pub fn set_companion_enabled(portal: State<'_, Portal>, enabled: bool) {
 /// Turn on phone access. Requires an unlocked journal; binds `127.0.0.1` only.
 #[tauri::command]
 pub fn portal_enable(app: AppHandle) -> Result<portal::PortalStatus, String> {
-    portal::start(&app)
+    let st = portal::start(&app)?;
+    // Connected through the built-in Tailscale before: reconnect with it.
+    let prefs = app.state::<Prefs>().get();
+    if prefs.builtin_tailnet && !prefs.uses_tailscale_app() {
+        if let Some(port) = st.port {
+            // Device access is on either way; a helper that won't start shows up
+            // in the setup steps (`problem`, or "missing its built-in Tailscale").
+            if let Err(e) = app.state::<Tailnet>().start(port) {
+                eprintln!("portal enable: couldn't start the built-in Tailscale: {e}");
+            }
+        }
+    }
+    Ok(st)
 }
 
 #[tauri::command]
-pub fn portal_disable(portal: State<'_, Portal>) -> portal::PortalStatus {
+pub fn portal_disable(portal: State<'_, Portal>, tailnet: State<'_, Tailnet>) -> portal::PortalStatus {
+    // Nothing for the built-in Tailscale to forward to any more.
+    tailnet.stop();
     portal.stop();
     portal.status()
 }
@@ -1646,11 +1663,23 @@ pub struct TailscaleStatus {
     pub https_port: Option<u16>,
     /// The equivalent command, for anyone who would rather run it themselves or
     /// wants to see what the button does. `portal_serve` runs exactly this.
-    pub serve_command: Option<String>,    /// Tailscale is running and signed in (its `BackendState` is "Running").
+    pub serve_command: Option<String>,
+    /// Tailscale is running and signed in (its `BackendState` is "Running").
     pub signed_in: bool,
     /// HTTPS certificates are enabled for the tailnet (the admin console's DNS
     /// page), which publishing needs. Read from `CertDomains`.
     pub https_enabled: bool,
+    /// Reached through the Tailscale built into Field Notes (`tailnet.rs`), not
+    /// the Tailscale app. `installed` then means "this build includes it".
+    pub builtin: bool,
+    /// The Tailscale app is installed on this computer, so Settings can offer it.
+    pub app_available: bool,
+    /// The account this computer is signed in as. Built-in only.
+    pub login: Option<String>,
+    /// Tailscale's sign-in page, while it's waiting for one. Built-in only.
+    pub auth_url: Option<String>,
+    /// The built-in Tailscale's last error, in its own words.
+    pub problem: Option<String>,
 }
 
 /// Where Tailscale's CLI actually lives. The Mac App Store build hides it inside
@@ -1824,7 +1853,41 @@ fn parse_serve(raw: &str, local: Option<u16>) -> (Option<u16>, std::collections:
 
 // Off the main thread: it runs `tailscale`, which can be slow.
 #[tauri::command(async)]
-pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
+pub fn portal_tailscale(portal: State<'_, Portal>, prefs: State<'_, Prefs>, tailnet: State<'_, Tailnet>) -> TailscaleStatus {
+    tailscale_status(&portal, &prefs, &tailnet)
+}
+
+fn tailscale_status(portal: &Portal, prefs: &Prefs, tailnet: &Tailnet) -> TailscaleStatus {
+    if prefs.get().uses_tailscale_app() {
+        app_status(portal)
+    } else {
+        builtin_status(tailnet)
+    }
+}
+
+/// The built-in Tailscale's state, in the shape the setup screen already reads.
+fn builtin_status(tailnet: &Tailnet) -> TailscaleStatus {
+    let s = tailnet.status();
+    let host = s.dns_name.clone().filter(|d| !d.is_empty());
+    TailscaleStatus {
+        installed: Tailnet::helper_path().is_some(),
+        url: host.as_deref().filter(|_| s.serving).map(|h| format!("https://{h}/m")),
+        host,
+        serving: s.serving,
+        https_port: s.serving.then_some(443),
+        serve_command: None,
+        signed_in: s.signed_in(),
+        https_enabled: s.https,
+        builtin: true,
+        app_available: tailscale_bin().is_some(),
+        login: s.login.filter(|l| !l.is_empty()),
+        auth_url: s.auth_url.filter(|u| !u.is_empty()),
+        problem: s.error.filter(|e| !e.is_empty()),
+    }
+}
+
+/// The Tailscale app's state, read through its CLI.
+fn app_status(portal: &Portal) -> TailscaleStatus {
     let Some(bin) = tailscale_bin() else {
         return TailscaleStatus {
             installed: false,
@@ -1835,6 +1898,11 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
             serve_command: None,
             signed_in: false,
             https_enabled: false,
+            builtin: false,
+            app_available: false,
+            login: None,
+            auth_url: None,
+            problem: None,
         };
     };
 
@@ -1872,6 +1940,11 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
             .map(|(local, https)| format!("{bin} serve --bg --https={https} {local}")),
         signed_in,
         https_enabled,
+        builtin: false,
+        app_available: true,
+        login: None,
+        auth_url: None,
+        problem: None,
     }
 }
 
@@ -1889,9 +1962,79 @@ fn tailscale_readiness(status: &serde_json::Value) -> (bool, bool) {
 /// refuses if the portal isn't actually running, rather than serving a dead port.
 // Off the main thread: it runs `tailscale`, which can be slow.
 #[tauri::command(async)]
-pub fn portal_serve(portal: State<'_, Portal>, prefs: State<'_, Prefs>) -> Result<TailscaleStatus, String> {
-    publish(&portal, &prefs, None)?;
-    Ok(portal_tailscale(portal))
+pub fn portal_serve(portal: State<'_, Portal>, prefs: State<'_, Prefs>, tailnet: State<'_, Tailnet>) -> Result<TailscaleStatus, String> {
+    if prefs.get().uses_tailscale_app() {
+        publish(&portal, &prefs, None)?;
+    } else {
+        let port = portal.status().port.ok_or("Turn on device access first.")?;
+        tailnet.start(port)?;
+        prefs.update(|p| p.builtin_tailnet = true)?;
+    }
+    Ok(tailscale_status(&portal, &prefs, &tailnet))
+}
+
+/// "Connect this computer": the one button a new user presses. Turns on device
+/// access if it's off, starts the built-in Tailscale, and remembers to bring it
+/// back at launch. The sign-in page arrives a moment later in the status
+/// (`auth_url`), and the setup screen opens it.
+#[tauri::command(async)]
+pub fn tailnet_connect(app: AppHandle) -> Result<TailscaleStatus, String> {
+    let prefs = app.state::<Prefs>();
+    if prefs.get().uses_tailscale_app() {
+        return Err("This computer is set to use the Tailscale app. Switch to the built-in Tailscale first.".into());
+    }
+    let portal = app.state::<Portal>();
+    let port = match portal.status().port {
+        Some(p) => p,
+        None => portal::start(&app)?.port.ok_or("Couldn't turn on device access.")?,
+    };
+    let tailnet = app.state::<Tailnet>();
+    tailnet.start(port)?;
+    prefs.update(|p| p.builtin_tailnet = true)?;
+    Ok(tailscale_status(&portal, &prefs, &tailnet))
+}
+
+/// Sign this computer out of the built-in Tailscale. It leaves the user's
+/// tailnet, its keys are deleted, and paired phones can't reach it until it's
+/// connected again. Pairings themselves are kept.
+#[tauri::command(async)]
+pub fn tailnet_sign_out(portal: State<'_, Portal>, prefs: State<'_, Prefs>, tailnet: State<'_, Tailnet>) -> Result<TailscaleStatus, String> {
+    tailnet.sign_out()?;
+    prefs.update(|p| p.builtin_tailnet = false)?;
+    Ok(tailscale_status(&portal, &prefs, &tailnet))
+}
+
+/// Switch between the built-in Tailscale and the Tailscale app on this computer.
+/// Either way the other one stops carrying the journal, so it's never reachable
+/// at two addresses by accident.
+#[tauri::command(async)]
+pub fn tailnet_use_app(
+    portal: State<'_, Portal>,
+    prefs: State<'_, Prefs>,
+    tailnet: State<'_, Tailnet>,
+    use_app: bool,
+) -> Result<TailscaleStatus, String> {
+    if use_app {
+        tailscale_bin().ok_or("The Tailscale app isn't installed on this computer.")?;
+        tailnet.stop();
+        prefs.update(|p| {
+            p.tailscale_app = true;
+            p.builtin_tailnet = false;
+        })?;
+    } else {
+        // Take our handler off the app's tailnet first; leaving it would keep the
+        // journal published at the old address.
+        if let Some(bin) = tailscale_bin() {
+            if let (Some(https), _) = serve_map(&bin, portal.status().port) {
+                tailscale_run(&bin, &["serve", &format!("--https={https}"), "off"])?;
+            }
+        }
+        prefs.update(|p| {
+            p.tailscale_app = false;
+            p.served_https = None;
+        })?;
+    }
+    Ok(tailscale_status(&portal, &prefs, &tailnet))
 }
 
 /// The body of [`portal_serve`]. `reclaim` is the HTTPS port we held before a restart:
@@ -1948,8 +2091,21 @@ pub fn bring_up_server<R: tauri::Runtime>(app: &AppHandle<R>) {
     if !p.serve_on_launch || !app.state::<Db>().is_unlocked() {
         return;
     }
-    if let Err(e) = portal::start(app) {
-        eprintln!("bring up server: {e}");
+    let port = match portal::start(app) {
+        Ok(st) => st.port,
+        Err(e) => {
+            eprintln!("bring up server: {e}");
+            return;
+        }
+    };
+    if !p.uses_tailscale_app() {
+        if p.builtin_tailnet {
+            if let Some(port) = port {
+                if let Err(e) = app.state::<Tailnet>().start(port) {
+                    eprintln!("bring up server: couldn't start the built-in Tailscale: {e}");
+                }
+            }
+        }
         return;
     }
     if let Some(https) = p.served_https {
@@ -1963,19 +2119,26 @@ pub fn bring_up_server<R: tauri::Runtime>(app: &AppHandle<R>) {
 /// the tailnet's route to it.
 // Off the main thread: it runs `tailscale`, which can be slow.
 #[tauri::command(async)]
-pub fn portal_unserve(portal: State<'_, Portal>, prefs: State<'_, Prefs>) -> Result<TailscaleStatus, String> {
+pub fn portal_unserve(portal: State<'_, Portal>, prefs: State<'_, Prefs>, tailnet: State<'_, Tailnet>) -> Result<TailscaleStatus, String> {
+    if !prefs.get().uses_tailscale_app() {
+        // Stop answering on the tailnet. The device stays signed in, so
+        // reconnecting needs no new sign-in.
+        tailnet.stop();
+        prefs.update(|p| p.builtin_tailnet = false)?;
+        return Ok(tailscale_status(&portal, &prefs, &tailnet));
+    }
     let bin = tailscale_bin().ok_or("Tailscale isn't installed on this computer.")?;
 
     // Retract *our* handler and nothing else. Assuming 443 was ours would take down
     // whatever else the machine publishes there — and leave the journal published.
     let (ours, _) = serve_map(&bin, portal.status().port);
     let Some(https) = ours else {
-        return Ok(portal_tailscale(portal));
+        return Ok(tailscale_status(&portal, &prefs, &tailnet));
     };
 
     tailscale_run(&bin, &["serve", &format!("--https={https}"), "off"])?;
     let _ = prefs.update(|p| p.served_https = None);
-    Ok(portal_tailscale(portal))
+    Ok(tailscale_status(&portal, &prefs, &tailnet))
 }
 
 // ---------- paired devices ----------

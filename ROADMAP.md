@@ -941,7 +941,36 @@ using the model switch and reading the screens as a first-timer would.
    the phone's date-column journal; the Shulgin quote.
 
 4. **Tailscale built into the app — phone access without installing anything on the
-   computer.** *Proposed 2026-10-02, not started.* Today a new user installs Tailscale
+   computer.** ✅ **Built 2026-10-02 for v0.21.0** (`tailnet.rs`, `tailnet/`,
+   `scripts/build-tailnet.sh`). Changes from the plan below:
+   - **Library: Go `tsnet`, as a Tauri sidecar**, not `tailscale-rs`. At build time
+     `tailscale-rs` 0.6.1 listed HTTPS certificates, MagicDNS and Intel Macs as
+     unsupported and had no direct connections, so it couldn't serve the phone's
+     `https://…ts.net` page. `tsnet` is the code the Tailscale app itself runs.
+     A separate small program (rather than a linked Go library) keeps the Go
+     runtime out of the app's process and cross-compiles with `CGO_ENABLED=0`,
+     so no C toolchain is involved on any OS. Adds about 22 MB per platform.
+   - **It's its own tailnet device**, `field-notes` (Tailscale adds `-1` for a
+     second computer), answering on port 443. No port juggling, unlike `tailscale
+     serve`, which shares the computer's ports with whatever else it publishes.
+   - **HTTPS is still a step when a tailnet doesn't have it on.** Step 1 shows it
+     only in that case, with a button to the exact page. Settle with a fresh
+     account whether new tailnets need it (still open, see risks below).
+   - **Sign-out removes this computer from the tailnet** and deletes its keys;
+     "Disconnect" only stops answering. "Erase all data" deletes the keys but
+     can't sign out (that would block on the network), so the device lingers in
+     the Tailscale admin until it expires.
+   - **Verified here:** the helper builds for all three OSes, starts, reports
+     "waiting for sign-in" through the Rust side (`drives_the_real_helper`), stops
+     and signs out; the setup screen renders every state (headless Chromium, with
+     a mocked Tauri bridge). **Not verifiable in CI:** a real sign-in, the
+     certificate, and a phone on cellular. Those need a person, an account and a
+     phone; see RELEASING.md.
+   - **Also in v0.21.0: the Companion is opt-in** (owner, 2026-10-02). Off on a
+     fresh install, including the first-run box; installs that ran before keep
+     their setting. The portal reports it off until the desktop says otherwise.
+
+   *Original proposal (2026-10-02):* Today a new user installs Tailscale
    on the computer, signs in, installs it on the phone, signs in again, then pairs. That
    first half is where people get lost (the README's "too much to ask of an end user").
    Bundling Tailscale into Field Notes removes it: the computer joins the user's tailnet

@@ -8,9 +8,11 @@
 //! ## The four rules
 //!
 //! 1. **Bind `127.0.0.1` only.** Never `0.0.0.0`. The server is not reachable from
-//!    the LAN, a coffee-shop network, or anywhere else — the only way in is
-//!    `tailscale serve`, which fronts loopback with HTTPS on your tailnet. Change
-//!    this line and you have published a substance journal to the local network.
+//!    the LAN, a coffee-shop network, or anywhere else — the only way in is through
+//!    Tailscale, which fronts loopback with HTTPS on your tailnet: the Tailscale
+//!    built into Field Notes (`tailnet.rs`, which never uses Funnel), or the
+//!    Tailscale app's `tailscale serve`. Change this line and you have published a
+//!    substance journal to the local network.
 //! 2. **A token on every API request, tailnet or not.** A tailnet is *not* a trust
 //!    boundary for this data — every device you ever added to it is on it, forever.
 //!    Each paired device has its own token (see `devices.rs`): compared in constant
@@ -73,7 +75,10 @@ pub struct PortalStatus {
 
 impl Default for Portal {
     fn default() -> Self {
-        Portal { inner: Mutex::new(None), companion_enabled: AtomicBool::new(true) }
+        // Off until the desktop says otherwise: the Companion is opt-in, and a phone
+        // that asks before the desktop page has pushed the real setting should not
+        // be offered a chat the user never turned on.
+        Portal { inner: Mutex::new(None), companion_enabled: AtomicBool::new(false) }
     }
 }
 
@@ -782,6 +787,10 @@ mod tests {
             "portal_tailscale",
             "portal_serve",
             "portal_unserve",
+            // Nor sign the built-in Tailscale in or out, or swap it for the app.
+            "tailnet_connect",
+            "tailnet_sign_out",
+            "tailnet_use_app",
             // Nor pair new devices, list them, or revoke anyone — including itself.
             "portal_pair",
             "portal_devices",
@@ -1358,6 +1367,14 @@ mod tests {
     /// instead of offering a chat that shouldn't be there — but it must never be
     /// able to switch it back on. That would be the phone reconfiguring the
     /// desktop, which rule 4 exists to prevent.
+    #[test]
+    fn the_companion_is_off_until_the_desktop_turns_it_on() {
+        let portal = Portal::default();
+        assert!(!portal.companion_enabled());
+        portal.set_companion_enabled(true);
+        assert!(portal.companion_enabled());
+    }
+
     #[test]
     fn the_phone_can_read_the_companion_switch_but_not_flip_it() {
         assert!(EXPOSED.contains(&"companion_enabled"));

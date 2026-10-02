@@ -5,14 +5,16 @@
 Field Notes is a journal that understands what a session is. Write plain diary
 entries or log an experience as it happens — what you took, how much, and how
 you're feeling over time. Before you combine substances, check them against a
-built-in reference of known dangerous combinations. During a session, a calm
-AI companion is there to talk — it runs entirely on your machine, so the
-conversation never leaves the room.
+built-in reference of known dangerous combinations. If you want one, an
+optional AI companion can be there to talk — it runs entirely on your machine,
+so the conversation never leaves the room.
 
 There are no accounts, no cloud, and no network requests. Your journal can be
 encrypted with a password, and nothing you write is ever scanned, analyzed, or
 sent anywhere. It works on **Windows, macOS, and Linux**, with optional access
-from your phone.
+from your phone: that's the one exception, off until you turn it on, and it
+uses a free Tailscale account to connect your own devices. Tailscale sees
+which of your devices are connected, never what's in your journal.
 
 > ⚠️ **Harm-reduction and journaling tool — not medical advice, and not
 > encouragement to use anything.** Dose and interaction information is a reference
@@ -42,14 +44,16 @@ from your phone.
   reference prose, or read any of the 575 substance entries **in full** —
   pharmacology, harm potential, tolerance, legality — with the exact dose figures
   alongside. Sourced from [DoseWiki](https://dose.wiki) (public domain).
-- **Companion** — a calm, non-judgmental support chat that runs on a local AI
+- **Companion** (optional, off until you turn it on) — a calm, non-judgmental
+  support chat that runs on a local AI
   model. It can be aware of your current session, look up references, and log
   things for you when you ask. Pick a support style ("just listen", "keep me
   grounded", …) and it honors it. It loads in the background so the window never
   freezes while it thinks, and it tells you up front if your machine is short on
   memory to run the model. It's improving but still rough in places — see
-  [Companion quality](#companion-quality). You can also turn it off entirely and
-  use everything else.
+  [Companion quality](#companion-quality). It's off on a new install: turn it on
+  in Settings, and the Companion tab walks you through the separate download.
+  Nothing else in the app needs it.
 - **Quick dose log** — most of what gets recorded isn't a trip you sit through and
   write up, it's "I took this, at about this time". **+ Dose** on the desktop, or
   the top of the phone's Now screen, takes a substance, an amount and a time —
@@ -75,7 +79,10 @@ from your phone.
   notes and import them back; works both ways, fully offline. Any single entry
   can also be exported on its own ("Export this entry" on the desktop, "Export"
   on the phone) in the same format, so it drops straight into a vault.
-- **Phone access** (optional, off by default) — pair your phone and use the
+- **Phone access** (optional, off by default) — Tailscale is built in, so the
+  computer needs nothing else installed: press **Connect**, sign in to Tailscale
+  in your browser, then install Tailscale on your phone, sign in with the same
+  account, and scan the code. Then use the
   journal, combo checker, reference, and Companion from bed at 3am. The desktop
   shows a green **"Paired successfully"** light the moment the phone first uses
   the code, so you're not left guessing whether the scan took. Companion
@@ -134,7 +141,7 @@ All screenshots use a fictional demo journal.
 | ![Emergency help](docs/screenshots/emergency-help.png) | ![Updates](docs/screenshots/settings-updates.png) |
 | **Get help now**: real crisis and peer-support contacts, always one tap away | **Updates**: automatic, or check by hand any time |
 | ![Devices and server](docs/screenshots/settings-phone-access.png) | ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) |
-| **Devices & server**: optional, Tailscale-only, off by default | **Encryption & backups**: AES-256 at rest, one-file backup and restore |
+| **Devices & server**: optional, built-in Tailscale, off by default | **Encryption & backups**: AES-256 at rest, one-file backup and restore |
 | ![Obsidian vault sync](docs/screenshots/settings-obsidian-sync.png) | ![Erase and uninstall](docs/screenshots/settings-data-location.png) |
 | **Obsidian sync**: two-way Markdown export, fully offline | **Your data, one folder**: everything lives on your device, erase anytime |
 
@@ -204,6 +211,13 @@ passing Field Notes along to a harm reduction group help too.
   journal, the passphrase, backups, and filesystem access are unreachable from a
   phone by construction. Its module docs state four load-bearing rules, and tests
   pin all four.
+- `tailnet.rs` + [`tailnet/`](./tailnet/) — the Tailscale built into the app: a
+  small Go program around Tailscale's own `tsnet` library, shipped as a Tauri
+  sidecar. It joins your tailnet as its own device (`field-notes`) and forwards
+  HTTPS there to the portal on loopback, so the computer needs no Tailscale
+  install. It never uses Funnel, forwards only to `127.0.0.1`, and uploads no
+  logs; a test reads its source to keep it that way. A computer that already
+  published through the Tailscale app keeps using the app.
 - `remote.rs` — the client half: a desktop that uses another computer as its
   journal. Journal commands go over that computer's portal; new entries queue in
   the local (encrypted) journal while it's unreachable, with the interaction
@@ -249,9 +263,14 @@ See [`ROADMAP.md`](./ROADMAP.md) for the full picture and design history.
 
 ```bash
 npm install
+scripts/build-tailnet.sh   # the bundled Tailscale helper; needs Go 1.27+
 npm run tauri dev
 npm run tauri build
 ```
+
+Build the helper once before any `cargo` command (`cargo test` included): Tauri
+checks that `src-tauri/binaries/fieldnotes-tailnet-<target>` exists at compile
+time. Rebuild it after changing anything in `tailnet/`.
 
 Releases are cut per [`RELEASING.md`](./RELEASING.md).
 
