@@ -11,6 +11,18 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.14.2
+
+- **Fixed: Stats now shows only the substance you pick.** Picking a
+  substance used to change the dose chart and spacing, but the totals,
+  sessions per month, calendar, "taken together" and time of day kept
+  showing everything. Now the whole page follows your pick. Choose **All**
+  for the overview of every substance.
+- **Fixed: one substance logged as "ug" and "µg" showed up twice** (for
+  example "LSD · ug" and "LSD · µg"), and a dose could be missing from the
+  chart. Micrograms are one unit however they're written, so they're one
+  series now.
+
 ## v0.14.1
 
 - **Maintenance release.** Internal code tidying with no change to how the app
