@@ -11,6 +11,20 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.19.0
+
+- **Stats by drug family.** A new row above the substances lets you pick
+  Psychedelics, Entactogens, Dissociatives, Stimulants, Depressants, Opioids or
+  Cannabinoids, and the whole page narrows to it: days since the last one of
+  any kind, sessions and doses, spacing across the family (LSD then mushrooms
+  nine days later counts as nine days), which substances it was, and the
+  calendar, charts and combinations for just that family.
+- **How substances are sorted.** Your own catalogue comes first, so you can
+  always correct one. Then the DoseWiki reference, using its main classes only,
+  so MDMA counts as an entactogen and a stimulant but not as a psychedelic.
+  Then Field Notes' own name matching, for things the reference leaves out,
+  like alcohol, GHB and nitrous. Anything it can't place goes under Other.
+
 ## v0.18.1
 
 - **A few desktop buttons had no style.** "Pair", "Stop publishing to my

@@ -367,6 +367,9 @@ export interface StatsSubstance {
   gaps_days: number[];
   series: StatsUnitSeries[];
   routes: [string, number][];
+  /** Drug families it counts toward: psychedelics, entactogens, dissociatives,
+   *  stimulants, depressants, opioids, cannabinoids, other (stats.rs). */
+  families: string[];
 }
 export interface StatsSession {
   experience_id: number;

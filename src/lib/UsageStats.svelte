@@ -27,7 +27,7 @@
   // Per-device conveniences only. Storage can be missing or throw; the page works
   // the same without it.
   const PREF = "fieldnotes.stats";
-  function loadPref(): { range?: RangeKey; hide?: boolean; pick?: string } {
+  function loadPref(): { range?: RangeKey; hide?: boolean; pick?: string; fam?: string } {
     try { return JSON.parse(localStorage.getItem(PREF) ?? "{}"); } catch { return {}; }
   }
   const saved = loadPref();
@@ -37,6 +37,9 @@
   // the same stand-in on the journal.
   /** `key|unit` of the series on the dose chart. */
   let pick = $state<string>(saved.pick ?? "");
+  /** A drug family, or "" for none. Picking a family clears the substance, and
+   *  the other way round: one filter at a time. */
+  let fam = $state<string>(saved.fam ?? "");
   let data = $state<UsageStats | null>(null);
   let err = $state<string | null>(null);
   let loading = $state(false);
@@ -48,7 +51,7 @@
   let heatPage = $state(0);
 
   $effect(() => {
-    try { localStorage.setItem(PREF, JSON.stringify({ range, pick })); } catch {}
+    try { localStorage.setItem(PREF, JSON.stringify({ range, pick, fam })); } catch {}
   });
 
   async function load() {
@@ -86,10 +89,47 @@
   const current = $derived(choices.find((c) => c.id === pick) ?? null);
   const sub = $derived(current?.sub ?? null);
 
+  // ---- drug families ----
+  const FAMILY_ORDER = ["psychedelics", "entactogens", "dissociatives", "stimulants", "depressants", "opioids", "cannabinoids", "other"];
+  const FAMILY_LABEL: Record<string, string> = {
+    psychedelics: "Psychedelics", entactogens: "Entactogens", dissociatives: "Dissociatives", stimulants: "Stimulants",
+    depressants: "Depressants", opioids: "Opioids", cannabinoids: "Cannabinoids", other: "Other",
+  };
+  /** "days since the last psychedelic" */
+  const FAMILY_ONE: Record<string, string> = {
+    psychedelics: "psychedelic", entactogens: "entactogen", dissociatives: "dissociative", stimulants: "stimulant",
+    depressants: "depressant", opioids: "opioid", cannabinoids: "cannabinoid", other: "of these",
+  };
+  const families = $derived(
+    FAMILY_ORDER.filter((f) => (data?.substances ?? []).some((s) => (s.families ?? []).includes(f))),
+  );
+  /** The family in force: only while no single substance is picked, and only if
+   *  this range has any of it. */
+  const family = $derived(!sub && fam && families.includes(fam) ? fam : "");
+  const famSubs = $derived(
+    family ? (data?.substances ?? []).filter((s) => (s.families ?? []).includes(family)) : [],
+  );
+  const famKeys = $derived(new Set(famSubs.map((s) => s.key)));
+  /** What the page is narrowed to, for headings: a substance, a family, or nothing. */
+  const scope = $derived(sub ? label(sub.key) : family ? FAMILY_LABEL[family] : "");
+  function pickFamily(f: string) {
+    fam = f;
+    pick = "";
+    selected = null;
+  }
+  function pickSubstance(id: string) {
+    pick = id;
+    selected = null;
+  }
+  /** With a family picked, the substance chips narrow to its members. */
+  const shownChoices = $derived(family ? choices.filter((c) => famKeys.has(c.sub.key)) : choices);
+
   // ---- time window ----
   const now = Date.now();
   const sessions = $derived(
-    (data?.sessions ?? []).filter((s) => !sub || s.substances.includes(sub.key)),
+    (data?.sessions ?? []).filter((s) =>
+      sub ? s.substances.includes(sub.key) : family ? s.substances.some((k) => famKeys.has(k)) : true,
+    ),
   );
   const sessionTimes = $derived(
     sessions.map((s) => ts(s.started_at)).filter((t): t is number => t != null),
@@ -98,7 +138,7 @@
    *  picked substance first. */
   const pairs = $derived(
     (data?.pairs ?? [])
-      .filter((p) => !sub || p.a === sub.key || p.b === sub.key)
+      .filter((p) => (sub ? p.a === sub.key || p.b === sub.key : family ? famKeys.has(p.a) || famKeys.has(p.b) : true))
       .map((p) => (sub && p.b === sub.key ? { ...p, a: p.b, b: p.a } : p)),
   );
   const windowFrom = $derived.by(() => {
@@ -151,6 +191,18 @@
 
   // ---- spacing, for the picked substance ----
   const lastT = $derived(sub ? ts(sub.last_used) : null);
+  // ---- and for a family: across sessions with anything in it, so LSD then
+  // mushrooms nine days later is a nine-day gap. ----
+  const famLastT = $derived.by(() => {
+    const t = famSubs.map((s) => ts(s.last_used)).filter((x): x is number => x != null);
+    return t.length ? Math.max(...t) : null;
+  });
+  const famDoses = $derived(famSubs.reduce((n, s) => n + s.doses, 0));
+  const famGaps = $derived.by(() => {
+    if (!family) return [];
+    const t = [...sessionTimes].sort((a, b) => a - b);
+    return t.slice(1).map((x, i) => Math.round(((x - t[i]) / 86_400_000) * 10) / 10);
+  });
   const subRatings = $derived(
     sub ? sessions.filter((s) => s.rating != null).map((s) => s.rating as number) : [],
   );
@@ -206,7 +258,7 @@
 
   // ---- time of day ----
   const hours = $derived(
-    byHour((sub ? sub.series : (data?.substances ?? []).flatMap((x) => x.series))
+    byHour((sub ? sub.series : (family ? famSubs : data?.substances ?? []).flatMap((x) => x.series))
       .flatMap((u) => u.points)
       .map((p) => ts(p.taken_at))
       .filter((t): t is number => t != null)),
@@ -249,10 +301,20 @@
   {:else if !data.total_sessions}
     <p class="msg">No doses logged {range === "all" ? "yet" : "in this range"}.</p>
   {:else}
+    {#if families.length > 1 || families[0] === "other"}
+      <div class="chips fams" role="group" aria-label="Drug family">
+        <button class:on={!family && !current} aria-pressed={!family && !current} onclick={() => pickFamily("")}>All</button>
+        {#each families as f}
+          <button class:on={family === f} aria-pressed={family === f} onclick={() => pickFamily(f)}>{FAMILY_LABEL[f]}</button>
+        {/each}
+      </div>
+    {/if}
     <div class="chips" role="group" aria-label="Substance">
-      <button class:on={!current} aria-pressed={!current} onclick={() => { pick = ""; selected = null; }}>All</button>
-      {#each choices as c}
-        <button class:on={current?.id === c.id} aria-pressed={current?.id === c.id} onclick={() => { pick = c.id; selected = null; }}>
+      {#if !family}
+        <button class:on={!current} aria-pressed={!current} onclick={() => { pick = ""; fam = ""; selected = null; }}>All</button>
+      {/if}
+      {#each shownChoices as c}
+        <button class:on={current?.id === c.id} aria-pressed={current?.id === c.id} onclick={() => pickSubstance(c.id)}>
           {label(c.sub.key)}{c.split ? ` · ${c.series.unit}` : ""}
         </button>
       {/each}
@@ -266,13 +328,24 @@
           <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last session</span></div>
         {/if}
       </div>
+    {:else if family}
+      <div class="tiles">
+        {#if famLastT != null}
+          <div class="tile"><span class="big">{daysSince(famLastT)}</span><span class="cap">{daysSince(famLastT) === 1 ? "day" : "days"} since the last {FAMILY_ONE[family]}</span></div>
+        {/if}
+        <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "session" : "sessions"}</span></div>
+        <div class="tile"><span class="big">{famDoses}</span><span class="cap">{famDoses === 1 ? "dose" : "doses"}</span></div>
+      </div>
+      {#if family === "other"}
+        <p class="note pickhint">Substances Field Notes couldn't place in a family. Give one classes in your catalogue, under Check, to sort it.</p>
+      {/if}
     {:else}
       <div class="tiles">
         <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "session" : "sessions"}</span></div>
         <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
         <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
       </div>
-      <p class="note pickhint">Pick a substance to see its doses over time and the spacing between sessions.</p>
+      <p class="note pickhint">Pick a family or a substance to narrow everything below to it.</p>
     {/if}
 
     <div class="grid">
@@ -373,9 +446,33 @@
         </section>
       {/if}
 
+      <!-- a family: spacing across it, and what's in it -->
+      {#if family}
+        <section class="card">
+          <h3>Spacing · {FAMILY_LABEL[family]}</h3>
+          <div class="facts">
+            {#if famGaps.length === 1}
+              <p class="note">One gap so far: {fmtNum(famGaps[0])} {famGaps[0] === 1 ? "day" : "days"}.</p>
+            {:else if famGaps.length}
+              <div><span class="big">{fmtNum(median(famGaps) ?? 0)}</span><span class="cap">median days between</span></div>
+              <div><span class="big">{fmtNum(Math.min(...famGaps))}</span><span class="cap">shortest gap (days)</span></div>
+            {:else}
+              <p class="note">Only one session in this range, so there's no gap to measure yet.</p>
+            {/if}
+          </div>
+          <p class="note">Counted across every session with anything in this family, whichever substance it was.</p>
+          <h4>In this family (sessions)</h4>
+          <ul class="bars">
+            {#each famSubs as s}
+              <li><span class="lbl">{label(s.key)}</span><span class="track"><span class="fill" style:width={`${(s.sessions / Math.max(1, sessions.length)) * 100}%`}></span></span><span class="n" title={plural(s.sessions, "session")}>{s.sessions}</span></li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
       <!-- frequency -->
       <section class="card">
-        <h3>Sessions per {freq[0]?.unit ?? "week"}{sub ? ` · ${label(sub.key)}` : ""}</h3>
+        <h3>Sessions per {freq[0]?.unit ?? "week"}{scope ? ` · ${scope}` : ""}</h3>
         <div class="chart" bind:clientWidth={freqW}>
           <svg width={freqW} height={FH} role="img" aria-label="Number of sessions in each period">
             {#each [0, freqScale.max] as t}
@@ -403,7 +500,7 @@
       <!-- calendar -->
       <section class="card wide">
         <div class="head">
-          <h3>Days with a session{sub ? ` · ${label(sub.key)}` : ""}</h3>
+          <h3>Days with a session{scope ? ` · ${scope}` : ""}</h3>
           {#if heatPages > 1}
             <div class="pager">
               <button class="link" disabled={heatPage >= heatPages - 1} onclick={() => heatPage++} aria-label="Earlier">‹ Earlier</button>
@@ -437,7 +534,7 @@
 
       <!-- combinations -->
       <section class="card">
-        <h3>Taken together{sub ? ` · ${label(sub.key)}` : ""}</h3>
+        <h3>Taken together{scope ? ` · ${scope}` : ""}</h3>
         {#if pairs.length}
           <ul class="pairs">
             {#each pairs.slice(0, 8) as p}
@@ -451,13 +548,13 @@
             {/each}
           </ul>
         {:else}
-          <p class="note">{sub ? `${label(sub.key)} wasn't taken with anything else in this range.` : "No two substances in the same session in this range."}</p>
+          <p class="note">{scope ? `${scope} ${family ? "weren't" : "wasn't"} taken with anything else in this range.` : "No two substances in the same session in this range."}</p>
         {/if}
       </section>
 
       <!-- time of day -->
       <section class="card">
-        <h3>Time of day{sub ? ` · ${label(sub.key)}` : ""}</h3>
+        <h3>Time of day{scope ? ` · ${scope}` : ""}</h3>
         <div class="hours" role="img" aria-label="Doses by hour of day">
           {#each hours as n, h}
             <span class="hcol" title={`${h}:00: ${plural(n, "dose")}`}>
