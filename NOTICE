@@ -5,6 +5,13 @@ Licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
 Non-commercial use is permitted free of charge. Commercial use requires a
 separate commercial license (a contract) from the author.
 
+Third-party fonts (bundled in static/fonts, used offline):
+
+  - Atkinson Hyperlegible, Copyright 2020 Braille Institute of America, Inc.
+  - Literata, Copyright 2017 The Literata Project Authors.
+  Both are licensed under the SIL Open Font License 1.1; the full license texts
+  ship alongside the font files (static/fonts/OFL-*.txt).
+
 Third-party data:
 
   - Substance reference data (dose ranges, durations, graded interactions) is a

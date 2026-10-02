@@ -65,6 +65,11 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   so far", and years on the dose chart when the range crosses a year.
 - **The desktop uses the same words as the phone:** session, moment, write-up
   and journal note.
+- **New type.** Everything you read at a glance (doses, times, buttons) is set
+  in Atkinson Hyperlegible, designed by the Braille Institute so that look-alike
+  characters such as I, l and 1, or O and 0, can't be mistaken. Your intentions,
+  write-ups and moments are set in Literata, a serif made for long reading on
+  screens. Both are built into the app; nothing is downloaded.
 
 ## v0.14.3
 

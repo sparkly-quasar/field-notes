@@ -1312,7 +1312,7 @@
                 {fmtAmt(r.dose)} <span class="muted">{r.dose.route}</span>
                 {#if r.dose.note}<span class="sub">{r.dose.note}</span>{/if}
               {:else}
-                <span class="dot moment" aria-hidden="true"></span>{#if r.ev.mood}<strong>{r.ev.mood}</strong>{r.ev.note ? " · " : ""}{/if}{r.ev.note}
+                <span class="dot moment" aria-hidden="true"></span>{#if r.ev.mood}<strong>{r.ev.mood}</strong>{r.ev.note ? " · " : ""}{/if}<span class="moment-note">{r.ev.note}</span>
                 {#if r.ev.intensity != null}<span class="muted"> · {r.ev.intensity}/10</span>{/if}
               {/if}
             </span>
@@ -1976,7 +1976,7 @@
             {/each}
           </div>
           <label for="m-text">Anything to add? (optional)</label>
-          <textarea id="m-text" rows="2" bind:value={mText}></textarea>
+          <textarea id="m-text" class="reflect" rows="2" bind:value={mText}></textarea>
           <p class="label">Intensity (optional)</p>
           {@render scale(mIntensity, (v) => (mIntensity = v), "Intensity 0 to 10")}
           <label for="m-when">When</label>
@@ -1998,7 +1998,7 @@
           <label for="j-title">Title (optional)</label>
           <input id="j-title" bind:value={jTitle} />
           <label for="j-body">Note</label>
-          <textarea id="j-body" rows="6" bind:value={jBody}></textarea>
+          <textarea id="j-body" class="reflect" rows="6" bind:value={jBody}></textarea>
           <div class="sheet-actions">
             <button class="primary" disabled={busy || !jBody.trim()} onclick={submitJot}>{busyKey === "jot" ? "Saving…" : "Save note"}</button>
           </div>
@@ -2074,7 +2074,7 @@
             <button class="danger-text" onclick={removeMoment}>Delete</button>
           </div>
           <label for="ev-text">What happened</label>
-          <textarea id="ev-text" rows="3" bind:value={evText}></textarea>
+          <textarea id="ev-text" class="reflect" rows="3" bind:value={evText}></textarea>
           <p class="label">Intensity (optional)</p>
           {@render scale(evIntensity, (v) => (evIntensity = v), "Intensity 0 to 10")}
           <label for="ev-when">When</label>
@@ -2100,9 +2100,9 @@
             <p class="label">Rating (optional)</p>
             {@render scale(enRating, (v) => (enRating = v), "Rating 0 to 10")}
             <label for="en-int">Intention</label>
-            <textarea id="en-int" rows="2" bind:value={enIntention}></textarea>
+            <textarea id="en-int" class="reflect" rows="2" bind:value={enIntention}></textarea>
             <label for="en-set">Setting</label>
-            <textarea id="en-set" rows="2" bind:value={enSetting}></textarea>
+            <textarea id="en-set" class="reflect" rows="2" bind:value={enSetting}></textarea>
           {/if}
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={saveDetails}>{busyKey === "details" ? "Saving…" : "Save"}</button>
@@ -2294,7 +2294,7 @@
     background: var(--bg);
     color: var(--text);
     font: -apple-system-body;
-    font-family: -apple-system, system-ui, sans-serif;
+    font-family: var(--font-data, -apple-system, system-ui, sans-serif);
     font-size: var(--fs-body);
     line-height: 1.45;
     -webkit-text-size-adjust: 100%;
@@ -2352,7 +2352,10 @@
   .facts { color: var(--text-2); margin: 0 0 0.8rem; }
   .sec { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin: 1.2rem 0 0.3rem; }
   .sec-head { display: flex; justify-content: space-between; align-items: baseline; }
-  .prose { white-space: pre-wrap; font-size: var(--fs-body); line-height: 1.6; margin: 0 0 0.6rem; max-width: 60ch; }
+  /* Reflection (intention, setting, write-up, moments) is set in Literata. */
+  .prose { white-space: pre-wrap; font-family: var(--font-reflect); font-size: var(--fs-body); line-height: 1.6; margin: 0 0 0.6rem; max-width: 60ch; }
+  textarea.reflect { font-family: var(--font-reflect); line-height: 1.55; }
+  .excerpt, .set-out em, .moment-note { font-family: var(--font-reflect); }
 
   /* ---------- fields ---------- */
   label, .label { display: block; font-size: var(--fs-sm); color: var(--text-2); margin: 0.2rem 0 0.25rem; }

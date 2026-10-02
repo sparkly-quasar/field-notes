@@ -2164,7 +2164,7 @@
             <div class="edit-form">
               <label>Title<input bind:value={eTitle} /></label>
               <label>Date<DateTimeField bind:value={eStart} /></label>
-              <label>Entry<textarea bind:value={eNotes} rows="10"></textarea></label>
+              <label>Entry<textarea class="reflect" bind:value={eNotes} rows="10"></textarea></label>
               <div class="row-actions">
                 <button class="primary small-btn" onclick={saveExp}>Save</button>
                 <button class="ghost small-btn" onclick={() => (editExp = false)}>Cancel</button>
@@ -2193,9 +2193,9 @@
             <div class="edit-form">
               <label>Title<input bind:value={eTitle} /></label>
               <label>Started<DateTimeField bind:value={eStart} /></label>
-              <label>Intention<input bind:value={eIntention} /></label>
+              <label>Intention<input class="reflect" bind:value={eIntention} /></label>
               <label>Setting<input bind:value={eSetting} /></label>
-              <label>Notes<textarea id="exp-writeup" bind:value={eNotes} rows="3"></textarea></label>
+              <label>Write-up<textarea id="exp-writeup" class="reflect" bind:value={eNotes} rows="6"></textarea></label>
               <label>Rating (0–10)<input type="number" min="0" max="10" bind:value={eRating} /></label>
               <div class="row-actions">
                 <button class="primary small-btn" onclick={saveExp}>Save</button>
@@ -2203,10 +2203,11 @@
               </div>
             </div>
           {:else}
-            {#if selected.intention}<p><strong>Intention:</strong> {selected.intention}</p>{/if}
-            {#if selected.setting}<p><strong>Setting:</strong> {selected.setting}</p>{/if}
+            {#if selected.intention}<p><strong>Intention:</strong> <span class="reflect">{selected.intention}</span></p>{/if}
+            {#if selected.setting}<p><strong>Setting:</strong> <span class="reflect">{selected.setting}</span></p>{/if}
             {#if selected.notes}
-              <p><strong>Write-up:</strong> {selected.notes}</p>
+              <p><strong>Write-up:</strong></p>
+              <p class="reflect write-up">{selected.notes}</p>
             {:else if selected.ended_at && selected.writeup_skipped}
               <p class="muted small">Doesn't need a write-up. <button class="link" onclick={() => skipWriteup(false)}>Undo</button></p>
             {:else if selected.ended_at}
@@ -2294,7 +2295,7 @@
                     </div>
                   {:else}
                     <span class="dtime">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span>
-                    <span class="tl-note">{t.note}{t.intensity != null ? ` (${t.intensity}/10)` : ""}{t.mood ? ` · ${t.mood}` : ""}</span>
+                    <span class="tl-note">{#if t.mood}<strong>{t.mood}</strong>{t.note ? " · " : ""}{/if}<span class="reflect">{t.note}</span>{t.intensity != null ? ` (${t.intensity}/10)` : ""}</span>
                     <span class="row-actions">
                       <button class="icon-btn" title="Edit note" onclick={() => startEditTimeline(t)}>✎</button>
                       <button class="icon-btn" title="Delete" onclick={() => delTimeline(t.id)}>✕</button>
@@ -2435,7 +2436,7 @@
               {#if nePast}
                 <DateTimeField bind:value={neEnd} title="When it ended (optional)" />
               {/if}
-              <input placeholder={nePast ? "What was your intention? (optional)" : "What's your intention? (optional)"} bind:value={neIntention} />
+              <input placeholder={nePast ? "What was your intention? (optional)" : "What's your intention? (optional)"} class="reflect" bind:value={neIntention} />
               <input placeholder="Set & setting (optional)" bind:value={neSetting} />
               <button class="primary small-btn" onclick={submitNewExperience}>{nePast ? "Log it" : "Start"}</button>
             </div>
@@ -2449,7 +2450,7 @@
             <!-- A plain entry — not a session. Title, words, date. -->
             <div class="new-note">
               <input placeholder="Title (optional)" bind:value={nnTitle} />
-              <textarea rows="6" placeholder="Write anything." bind:value={nnBody}></textarea>
+              <textarea class="reflect" rows="6" placeholder="Write anything." bind:value={nnBody}></textarea>
               <div class="row-actions">
                 <DateTimeField bind:value={nnDate} title="Date" />
                 <button class="primary small-btn" onclick={submitNewNote}>Save note</button>
@@ -3650,7 +3651,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if selected.timeline.length}
             <ul class="live-events">
               {#each selected.timeline as t}
-                <li><span class="muted">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span> {#if t.mood}<strong>{t.mood}</strong>{t.note ? " · " : ""}{/if}{t.note}</li>
+                <li><span class="muted">{fmtTime(t.at)}{#if sessionT0}<span class="rel"> ({relTime(t.at, sessionT0)})</span>{/if}</span> {#if t.mood}<strong>{t.mood}</strong>{t.note ? " · " : ""}{/if}<span class="reflect">{t.note}</span></li>
               {/each}
             </ul>
           {/if}
@@ -3710,7 +3711,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--font-data, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   }
 
   .gate {
@@ -3786,7 +3787,11 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .new-note { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
   .new-note textarea { width: 100%; resize: vertical; }
   .note-pill { font-style: italic; }
-  .note-body { white-space: pre-wrap; margin-top: 0.6rem; line-height: 1.55; }
+  .note-body { white-space: pre-wrap; margin-top: 0.6rem; line-height: 1.6; font-family: var(--font-reflect); font-size: 1.06rem; max-width: 66ch; }
+  /* Reflection is set in Literata; everything read at a glance stays in Atkinson. */
+  .reflect { font-family: var(--font-reflect); }
+  textarea.reflect, input.reflect { font-family: var(--font-reflect); font-size: 1.02rem; line-height: 1.55; }
+  .write-up { white-space: pre-wrap; line-height: 1.6; font-size: 1.06rem; max-width: 66ch; margin-top: 0.2rem; }
   .dose-form input:first-child { flex: 1; min-width: 8rem; }
 
   .doses li, .timeline li { display: flex; gap: 0.7rem; padding: 0.4rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; align-items: baseline; }

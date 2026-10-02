@@ -911,7 +911,9 @@ using the model switch and reading the screens as a first-timer would.
    - Dim red night theme (true black, red text, keeps the screen awake).
    - App-wide discreet mode (today's "Hide substance names" covers Stats only).
 
-   **Phase 3: the sleeker look (M–L).** One shared token set for both pages (warm),
+   **Phase 3: the sleeker look (M–L).** *Fonts shipped early, in v0.16.0:* Atkinson
+   Hyperlegible for data and UI, Literata for reflection (`static/fonts`, OFL, Latin +
+   Latin Extended subsets, ~300 KB; `--font-data` / `--font-reflect`, class `reflect`). One shared token set for both pages (warm),
    the bundled fonts, flatter layout (no cards inside cards), calmer chips, a small
    line-icon set with labels, and a desktop sidebar with the phone's places: Today,
    Journal (Entries | Stats, absorbing Substance Log), Check (absorbing the
