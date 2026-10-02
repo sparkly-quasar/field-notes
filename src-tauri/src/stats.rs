@@ -273,12 +273,17 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         let mut routes: Vec<(String, usize)> = routes.into_iter().collect();
         routes.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
-        // Units: group case-insensitively, keep the first spelling seen.
+        // Units: one series per unit, however it was spelled ("ug", "UG", "mcg"
+        // and "µg" are one unit). Micrograms are labelled "µg"; any other unit
+        // keeps the first spelling seen. Amounts are never converted.
         let mut units: Vec<(String, Vec<&Row>)> = Vec::new();
         for r in &doses {
-            match units.iter_mut().find(|(u, _)| u.eq_ignore_ascii_case(&r.unit)) {
+            match units.iter_mut().find(|(u, _)| unit_eq(u, &r.unit)) {
                 Some((_, v)) => v.push(r),
-                None => units.push((r.unit.clone(), vec![r])),
+                None => {
+                    let label = if unit_eq(&r.unit, "µg") { "µg".to_string() } else { r.unit.clone() };
+                    units.push((label, vec![r]))
+                }
             }
         }
         units.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
@@ -437,6 +442,12 @@ mod tests {
         let s = usage_stats(&c, None).unwrap();
         assert_eq!(s.substances.len(), 1);
         assert_eq!(s.substances[0].series.len(), 1, "ug and UG are one unit");
+        assert_eq!(s.substances[0].series[0].unit, "µg");
+        let e3 = session(&c, "session", "2026-09-20T20:00:00Z");
+        dose(&c, e3, "LSD", Some(90.0), "µg", "2026-09-20T20:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        assert_eq!(s.substances[0].series.len(), 1, "ug and µg are one unit");
+        assert_eq!(s.substances[0].series[0].points.len(), 3);
     }
 
     #[test]

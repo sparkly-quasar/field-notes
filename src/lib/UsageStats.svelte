@@ -83,12 +83,25 @@
       s.series.map((u) => ({ id: `${s.key}|${u.unit}`, sub: s, series: u, split: s.series.length > 1 })),
     ),
   );
-  const current = $derived(choices.find((c) => c.id === pick) ?? choices[0] ?? null);
+  /** The picked series, or null for "All": then the page is an overview of every
+   *  substance, and picking one turns every card to that substance alone. */
+  const current = $derived(choices.find((c) => c.id === pick) ?? null);
+  const sub = $derived(current?.sub ?? null);
 
   // ---- time window ----
   const now = Date.now();
+  const sessions = $derived(
+    (data?.sessions ?? []).filter((s) => !sub || s.substances.includes(sub.key)),
+  );
   const sessionTimes = $derived(
-    (data?.sessions ?? []).map((s) => ts(s.started_at)).filter((t): t is number => t != null),
+    sessions.map((s) => ts(s.started_at)).filter((t): t is number => t != null),
+  );
+  /** Pairs taken together; with a substance picked, only the ones it's part of,
+   *  picked substance first. */
+  const pairs = $derived(
+    (data?.pairs ?? [])
+      .filter((p) => !sub || p.a === sub.key || p.b === sub.key)
+      .map((p) => (sub && p.b === sub.key ? { ...p, a: p.b, b: p.a } : p)),
   );
   const windowFrom = $derived.by(() => {
     const since = sinceFor(range);
@@ -139,12 +152,9 @@
   });
 
   // ---- spacing, for the picked substance ----
-  const sub = $derived(current?.sub ?? null);
   const lastT = $derived(sub ? ts(sub.last_used) : null);
   const subRatings = $derived(
-    sub
-      ? (data?.sessions ?? []).filter((s) => s.substances.includes(sub.key) && s.rating != null).map((s) => s.rating as number)
-      : [],
+    sub ? sessions.filter((s) => s.rating != null).map((s) => s.rating as number) : [],
   );
 
   // ---- frequency ----
@@ -198,7 +208,8 @@
 
   // ---- time of day ----
   const hours = $derived(
-    byHour((current?.series.points ?? sub?.series.flatMap((s) => s.points) ?? [])
+    byHour((sub ? sub.series : (data?.substances ?? []).flatMap((x) => x.series))
+      .flatMap((u) => u.points)
       .map((p) => ts(p.taken_at))
       .filter((t): t is number => t != null)),
   );
@@ -237,13 +248,8 @@
   {:else if !data.total_sessions}
     <p class="msg">No doses logged {range === "all" ? "yet" : "in this range"}.</p>
   {:else}
-    <div class="tiles">
-      <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "session" : "sessions"}</span></div>
-      <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
-      <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
-    </div>
-
     <div class="chips" role="group" aria-label="Substance">
+      <button class:on={!current} aria-pressed={!current} onclick={() => { pick = ""; selected = null; }}>All</button>
       {#each choices as c}
         <button class:on={current?.id === c.id} aria-pressed={current?.id === c.id} onclick={() => { pick = c.id; selected = null; }}>
           {label(c.sub.key)}{c.split ? ` · ${c.series.unit}` : ""}
@@ -251,8 +257,26 @@
       {/each}
     </div>
 
+    {#if sub}
+      <div class="tiles">
+        <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "session" : "sessions"}</span></div>
+        <div class="tile"><span class="big">{sub.doses}</span><span class="cap">{sub.doses === 1 ? "dose" : "doses"}</span></div>
+        {#if lastT != null}
+          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last use</span></div>
+        {/if}
+      </div>
+    {:else}
+      <div class="tiles">
+        <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "session" : "sessions"}</span></div>
+        <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
+        <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
+      </div>
+      <p class="note pickhint">Pick a substance to see its doses over time and the spacing between sessions.</p>
+    {/if}
+
     <div class="grid">
       <!-- dose over time -->
+      {#if current}
       <section class="card wide">
         <div class="head">
           <h3>Dose over time{current ? ` · ${label(current.sub.key)}` : ""}</h3>
@@ -316,19 +340,18 @@
           {/if}
         {/if}
       </section>
+      {/if}
 
       <!-- spacing -->
       {#if sub}
         <section class="card">
           <h3>Spacing · {label(sub.key)}</h3>
           <div class="facts">
-            {#if lastT != null}
-              <div><span class="big">{daysSince(lastT)}</span><span class="cap">days since last use</span></div>
-            {/if}
-            <div><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "session" : "sessions"} in range</span></div>
             {#if sub.gaps_days.length}
               <div><span class="big">{fmtNum(median(sub.gaps_days) ?? 0)}</span><span class="cap">median days between</span></div>
               <div><span class="big">{fmtNum(Math.min(...sub.gaps_days))}</span><span class="cap">shortest gap (days)</span></div>
+            {:else}
+              <p class="note">Only one session in this range, so there's no gap to measure yet.</p>
             {/if}
           </div>
           {#if subRatings.length}
@@ -347,7 +370,7 @@
 
       <!-- frequency -->
       <section class="card">
-        <h3>Sessions per {freq[0]?.unit ?? "week"}</h3>
+        <h3>Sessions per {freq[0]?.unit ?? "week"}{sub ? ` · ${label(sub.key)}` : ""}</h3>
         <div class="chart" bind:clientWidth={freqW}>
           <svg width={freqW} height={FH} role="img" aria-label="Number of sessions in each period">
             {#each [0, freqScale.max] as t}
@@ -375,7 +398,7 @@
       <!-- calendar -->
       <section class="card wide">
         <div class="head">
-          <h3>Calendar</h3>
+          <h3>Calendar{sub ? ` · ${label(sub.key)}` : ""}</h3>
           {#if heatPages > 1}
             <div class="pager">
               <button class="link" disabled={heatPage >= heatPages - 1} onclick={() => heatPage++} aria-label="Earlier">‹ Earlier</button>
@@ -409,10 +432,10 @@
 
       <!-- combinations -->
       <section class="card">
-        <h3>Taken together</h3>
-        {#if data.pairs.length}
+        <h3>Taken together{sub ? ` · ${label(sub.key)}` : ""}</h3>
+        {#if pairs.length}
           <ul class="pairs">
-            {#each data.pairs.slice(0, 8) as p}
+            {#each pairs.slice(0, 8) as p}
               <li>
                 <span>{label(p.a)} + {label(p.b)}</span>
                 <span class="n">{plural(p.sessions, "session")}</span>
@@ -423,13 +446,13 @@
             {/each}
           </ul>
         {:else}
-          <p class="note">No two substances in the same session in this range.</p>
+          <p class="note">{sub ? `${label(sub.key)} wasn't taken with anything else in this range.` : "No two substances in the same session in this range."}</p>
         {/if}
       </section>
 
       <!-- time of day -->
       <section class="card">
-        <h3>Time of day{current ? ` · ${label(current.sub.key)}` : ""}</h3>
+        <h3>Time of day{sub ? ` · ${label(sub.key)}` : ""}</h3>
         <div class="hours" role="img" aria-label="Doses by hour of day">
           {#each hours as n, h}
             <span class="hcol" title={`${h}:00: ${plural(n, "dose")}`}>
@@ -500,6 +523,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th, td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--st-line); }
   th { color: var(--st-muted); font-weight: 500; }
+  .pickhint { margin: -0.3rem 0 0.8rem; }
   .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.7rem; }
   .bars, .pairs { list-style: none; margin: 0; padding: 0; }
   .bars li { display: grid; grid-template-columns: 7rem 1fr 2rem; gap: 0.5rem; align-items: center; font-size: 0.9rem; padding: 0.2rem 0; }
