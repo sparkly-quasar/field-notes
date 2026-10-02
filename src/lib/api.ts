@@ -654,6 +654,10 @@ export interface TailscaleStatus {
   /** HTTPS port we're published on — not always 443, another service may hold it. */
   https_port: number | null;
   serve_command: string | null;
+  /** Tailscale is running and signed in on this computer. */
+  signed_in: boolean;
+  /** HTTPS certificates are enabled for the tailnet, which publishing needs. */
+  https_enabled: boolean;
 }
 export const portalStatus = () => invoke<PortalStatus>("portal_status");
 export const portalEnable = () => invoke<PortalStatus>("portal_enable");

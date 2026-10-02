@@ -1512,7 +1512,11 @@ pub struct TailscaleStatus {
     pub https_port: Option<u16>,
     /// The equivalent command, for anyone who would rather run it themselves or
     /// wants to see what the button does. `portal_serve` runs exactly this.
-    pub serve_command: Option<String>,
+    pub serve_command: Option<String>,    /// Tailscale is running and signed in (its `BackendState` is "Running").
+    pub signed_in: bool,
+    /// HTTPS certificates are enabled for the tailnet (the admin console's DNS
+    /// page), which publishing needs. Read from `CertDomains`.
+    pub https_enabled: bool,
 }
 
 /// Where Tailscale's CLI actually lives. The Mac App Store build hides it inside
@@ -1695,16 +1699,20 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
             url: None,
             https_port: None,
             serve_command: None,
+            signed_in: false,
+            https_enabled: false,
         };
     };
 
-    let host = tailscale_run(&bin, &["status", "--json"])
+    let st = tailscale_run(&bin, &["status", "--json"])
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| {
-            let dns = v["Self"]["DNSName"].as_str()?.trim_end_matches('.').to_string();
-            (!dns.is_empty()).then_some(dns)
-        });
+        .unwrap_or_default();
+    let (signed_in, https_enabled) = tailscale_readiness(&st);
+    let host = st["Self"]["DNSName"]
+        .as_str()
+        .map(|d| d.trim_end_matches('.').to_string())
+        .filter(|d| !d.is_empty());
 
     let port = portal.status().port;
 
@@ -1728,7 +1736,17 @@ pub fn portal_tailscale(portal: State<'_, Portal>) -> TailscaleStatus {
         serve_command: port
             .zip(next)
             .map(|(local, https)| format!("{bin} serve --bg --https={https} {local}")),
+        signed_in,
+        https_enabled,
     }
+}
+
+/// From `tailscale status --json`: is Tailscale signed in and running, and has the
+/// tailnet got HTTPS certificates turned on? The setup checklist's two middle steps.
+fn tailscale_readiness(status: &serde_json::Value) -> (bool, bool) {
+    let signed_in = status["BackendState"].as_str() == Some("Running");
+    let https = status["CertDomains"].as_array().is_some_and(|d| !d.is_empty());
+    (signed_in, https)
 }
 
 /// Publish the portal to the tailnet: Tailscale terminates HTTPS on the tailnet and
@@ -1992,6 +2010,18 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn reads_whether_tailscale_is_ready_to_publish() {
+        let v = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        assert_eq!(tailscale_readiness(&v(r#"{"BackendState":"NeedsLogin"}"#)), (false, false));
+        assert_eq!(tailscale_readiness(&v(r#"{"BackendState":"Running","CertDomains":null}"#)), (true, false));
+        assert_eq!(
+            tailscale_readiness(&v(r#"{"BackendState":"Running","CertDomains":["mac.tail1.ts.net"]}"#)),
+            (true, true)
+        );
+        assert_eq!(tailscale_readiness(&serde_json::Value::Null), (false, false));
     }
 
     #[test]

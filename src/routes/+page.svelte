@@ -155,6 +155,12 @@
   // at-rest encryption / unlock gate
   let db = $state<DbStatus>({ encrypted: false, unlocked: true });
   let openingSlow = $state(false);
+  const FIRST_STEPS_KEY = "fieldnotes.firstStepsDismissed";
+  let firstStepsDismissed = $state((() => { try { return localStorage.getItem(FIRST_STEPS_KEY) === "1"; } catch { return false; } })());
+  function dismissFirstSteps() {
+    firstStepsDismissed = true;
+    try { localStorage.setItem(FIRST_STEPS_KEY, "1"); } catch {}
+  }
   let statusLoaded = $state(false);
   let unlockPass = $state("");
   let unlockErr = $state<string | null>(null);
@@ -1659,6 +1665,40 @@
     return null;
   }
 
+  // ---- phone setup checklist ----
+  // Most people set this up alone, and every step that can go wrong is outside
+  // Field Notes (Tailscale, the tailnet's admin page). So: one list, ticked from
+  // what's actually true right now, with the fix for the first unticked step.
+  type SetupStep = { key: string; label: string; done: boolean };
+  const setupSteps = $derived<SetupStep[]>([
+    { key: "install", label: "Install Tailscale on this computer", done: !!ts?.installed },
+    { key: "signin", label: "Sign in to Tailscale", done: !!ts?.signed_in },
+    { key: "https", label: "Turn on HTTPS for your tailnet", done: !!ts?.https_enabled },
+    { key: "access", label: "Turn on device access", done: portal.running },
+    { key: "publish", label: "Publish to your tailnet", done: !!ts?.serving },
+    { key: "pair", label: "Pair your phone", done: devices.length > 0 },
+  ]);
+  const setupNext = $derived(setupSteps.find((st) => !st.done)?.key ?? null);
+  let setupOpen = $state(false);
+  let setupChecking = $state(false);
+  async function recheckSetup() {
+    setupChecking = true;
+    try { await loadPortal(); } finally { setupChecking = false; }
+  }
+  // Coming back from Tailscale or its admin page re-checks, so the list ticks
+  // itself rather than waiting for "Check again".
+  $effect(() => {
+    const onFocus = () => { if (tab === "data" && !remote.connected) loadPortal().catch(() => {}); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  });
+  let pairInput = $state<HTMLInputElement | null>(null);
+  function startPairFromChecklist() {
+    if (!pairName.trim()) pairName = "Phone";
+    pairInput?.scrollIntoView({ behavior: "smooth", block: "center" });
+    pairInput?.focus();
+  }
+
   async function togglePortal() {
     portalErr = null;
     try {
@@ -2637,7 +2677,40 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
               {/each}
             </ul>
           {:else}
-            <p class="muted">Nothing here yet. Start a session, or just write a note.</p>
+            {#if !firstStepsDismissed}
+              <!-- First steps, for someone setting this up alone. Gone once there's
+                   anything in the journal, or when dismissed. -->
+              <div class="first-steps">
+                <div class="setup-head">
+                  <h3>First steps</h3>
+                  <button class="link" onclick={dismissFirstSteps}>Dismiss</button>
+                </div>
+                <ul>
+                  <li>
+                    <strong>Log a dose</strong> with <strong>+ Dose</strong>, or start a <strong>session</strong> for a
+                    night you'll want to look back on: doses, moments as they happen, and a write-up after.
+                  </li>
+                  <li>
+                    <strong>Combinations are checked as you log.</strong> Log a second substance and Field Notes tells
+                    you about known risks between them. "Nothing flagged" isn't the same as "safe". You can also
+                    check a combination without logging, under <button class="link-inline" onclick={() => goTab("substances")}>Check</button>.
+                  </li>
+                  <li>
+                    <strong>Get help</strong> is always at the bottom left: emergency numbers and support lines,
+                    whether or not anything is logged.
+                  </li>
+                  {#if !remote.connected}
+                    <li>
+                      <strong>Want it on your phone?</strong> <button class="link-inline" onclick={() => goTab("data")}>Set up your phone</button>
+                      in Settings. It walks you through each step.
+                    </li>
+                  {/if}
+                  <li>Everything stays on this computer. There's no account, and nothing is sent anywhere.</li>
+                </ul>
+              </div>
+            {:else}
+              <p class="muted">Nothing here yet. Start a session, or just write a note.</p>
+            {/if}
           {/if}
         </section>
       {/if}
@@ -3184,25 +3257,57 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           still never reaches a third party.
         </p>
 
-        <div class="prereq" class:missing={ts != null && !ts.installed}>
-          <p class="small">
-            <strong>Before this is useful, you need <button class="link-inline" onclick={() => openUrl("https://tailscale.com/download")}>Tailscale</button></strong>
-            — a free app that privately links your own devices — installed and signed into the same
-            account on this computer <em>and</em> on each device you pair. It's what carries the connection.
-            Without it the portal still turns on, but only this machine can reach it.
-          </p>
-          {#if ts != null}
-            <p class="small prereq-status">
-              {#if !ts.installed}
-                Not detected on this computer yet — <button class="link-inline" onclick={() => openUrl("https://tailscale.com/download")}>install Tailscale</button>, then reopen this tab.
-              {:else if !tailscaleUrl && !ts.host}
-                Installed here, but not signed in yet — sign in, then reopen this tab.
+        {#if ts != null}
+          {@const allDone = setupNext === null}
+          <div class="setup" class:done={allDone}>
+            <div class="setup-head">
+              <h3>{allDone ? "Your phone is set up" : "Set up your phone"}</h3>
+              {#if allDone}
+                <button class="link" onclick={() => (setupOpen = !setupOpen)}>{setupOpen ? "Hide steps" : "Show steps"}</button>
               {:else}
-                ✓ Tailscale is ready on this computer. Set it up on your other devices too if you haven't.
+                <button class="ghost small-btn" disabled={setupChecking} onclick={recheckSetup}>{setupChecking ? "Checking…" : "Check again"}</button>
               {/if}
-            </p>
-          {/if}
-        </div>
+            </div>
+            {#if !allDone || setupOpen}
+              <ol class="setup-steps">
+                {#each setupSteps as st, n}
+                  <li class:done={st.done} class:next={st.key === setupNext}>
+                    <span class="setup-mark" aria-hidden="true">{st.done ? "✓" : n + 1}</span>
+                    <div>
+                      <span class="setup-label">{st.label}<span class="visually-hidden">{st.done ? " (done)" : st.key === setupNext ? " (next)" : ""}</span></span>
+                      {#if st.key === setupNext}
+                        <div class="setup-fix small">
+                          {#if st.key === "install"}
+                            <p>Tailscale is a free app that privately links your own devices. It's what carries the connection between this computer and your phone, encrypted.</p>
+                            <button class="primary small-btn" onclick={() => openUrl("https://tailscale.com/download")}>Download Tailscale</button>
+                          {:else if st.key === "signin"}
+                            <p>Open Tailscale and sign in{isMac ? " (its icon is at the top of the screen, next to the clock)" : ""}. Use the same account you'll use on your phone.</p>
+                          {:else if st.key === "https"}
+                            <p>Tailscale only lets this computer publish once HTTPS is on for your tailnet. It's off on a new tailnet, and it's a one-time switch.</p>
+                            <p>On the page this opens, find <strong>HTTPS Certificates</strong> and click <strong>Enable HTTPS</strong>. If it asks you to turn on MagicDNS first, do that too.</p>
+                            <button class="primary small-btn" onclick={() => openUrl("https://login.tailscale.com/admin/dns")}>Open Tailscale's DNS settings</button>
+                          {:else if st.key === "access"}
+                            <p>This lets your devices reach the journal while Field Notes is running here. It listens only on this computer until the next step.</p>
+                            <button class="primary small-btn" onclick={togglePortal}>Turn on device access</button>
+                          {:else if st.key === "publish"}
+                            <p>Makes this computer reachable from devices on your tailnet, and nowhere else. Nothing is opened to the internet or your home network.</p>
+                            <button class="primary small-btn" disabled={serving} onclick={toggleServe}>{serving ? "Publishing…" : "Publish to my tailnet"}</button>
+                          {:else if st.key === "pair"}
+                            <p>Install Tailscale on your phone and sign in with the same account. Then pair it below and scan the code with the phone's camera.</p>
+                            <button class="primary small-btn" onclick={startPairFromChecklist}>Pair a phone</button>
+                          {/if}
+                        </div>
+                      {/if}
+                    </div>
+                  </li>
+                {/each}
+              </ol>
+              {#if !allDone && ["install", "signin", "https"].includes(setupNext ?? "")}
+                <p class="muted small">Come back here when that's done; this list updates by itself.</p>
+              {/if}
+            {/if}
+          </div>
+        {/if}
 
         {#if portalErr}
           <!-- Tailscale's approval link (Serve or HTTPS not yet enabled for the
@@ -3264,7 +3369,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
               Give it a name you'll recognise later — you can un-pair each device separately.
             </p>
             <form class="remote-form" onsubmit={(e) => { e.preventDefault(); doPair(); }}>
-              <input placeholder="e.g. Phone, Laptop" maxlength="60" bind:value={pairName} />
+              <input placeholder="e.g. Phone, Laptop" maxlength="60" bind:value={pairName} bind:this={pairInput} />
               <button class="small-btn" type="submit">Pair</button>
             </form>
           {:else}
@@ -3923,6 +4028,26 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .exp-list li:last-child .exp-row { border-bottom: none; }
   .exp-row:hover { background: var(--surface-2); }
   .exp-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .first-steps { border: 1px solid var(--line); border-radius: 12px; padding: 0.9rem 1.1rem; margin-top: 0.6rem; }
+  .first-steps ul { margin: 0.6rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.55rem; }
+  .first-steps li { line-height: 1.5; color: var(--muted); }
+  .first-steps li strong { color: var(--ink); }
+  /* Phone setup checklist. */
+  .setup { border: 1px solid var(--line); border-radius: 12px; padding: 0.9rem 1rem; margin: 1rem 0; }
+  .setup.done { border-color: color-mix(in srgb, var(--note) 40%, var(--line)); }
+  .setup-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
+  .setup-head h3 { margin: 0; font-size: 1rem; }
+  .setup-steps { list-style: none; padding: 0; margin: 0.8rem 0 0; display: grid; gap: 0.55rem; }
+  .setup-steps li { display: grid; grid-template-columns: 1.7rem 1fr; gap: 0.6rem; align-items: start; color: var(--muted); }
+  .setup-steps li.next, .setup-steps li.done { color: var(--ink); }
+  .setup-mark { width: 1.6rem; height: 1.6rem; border-radius: 999px; display: grid; place-items: center; font-size: 0.85rem; font-weight: 700; border: 1px solid var(--line); }
+  .setup-steps li.done .setup-mark { background: color-mix(in srgb, var(--note) 22%, transparent); border-color: transparent; color: var(--note); }
+  .setup-steps li.next .setup-mark { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .setup-label { display: block; line-height: 1.6rem; font-weight: 600; }
+  .setup-steps li.done .setup-label { font-weight: 400; }
+  .setup-fix { margin-top: 0.3rem; }
+  .setup-fix p { margin: 0 0 0.55rem; color: var(--muted); line-height: 1.5; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .live-bar-actions { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   .combo-form { display: flex; gap: 0.5rem; margin: 0.6rem 0; }
   .combo-form input { flex: 1; min-width: 0; }
