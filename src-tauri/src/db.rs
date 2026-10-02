@@ -40,6 +40,15 @@ pub fn open(path: &Path, key: Option<&str>) -> rusqlite::Result<Connection> {
     if has_kind == 0 {
         conn.execute_batch("ALTER TABLE experiences ADD COLUMN kind TEXT NOT NULL DEFAULT 'session'")?;
     }
+    // Migration (v0.15): "doesn't need a write-up".
+    let has_skip: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('experiences') WHERE name = 'writeup_skipped'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_skip == 0 {
+        conn.execute_batch("ALTER TABLE experiences ADD COLUMN writeup_skipped INTEGER NOT NULL DEFAULT 0")?;
+    }
     // One-time cleanup (v0.13.3): "Sync journal to server" in v0.12–v0.13.2 could
     // copy an entry the server already had, leaving it in the journal twice. The
     // first open after updating removes exact copies; later syncs check first.
@@ -136,7 +145,11 @@ CREATE TABLE IF NOT EXISTS experiences (
     rating      INTEGER,
     started_at  TEXT NOT NULL,
     ended_at    TEXT,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    -- The person said this one doesn't need a write-up (owner's decision
+    -- 2026-10-02: a reflection is never owed). A preference, not content, so it
+    -- is left out of `fingerprint`.
+    writeup_skipped INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS doses (
@@ -226,6 +239,8 @@ pub struct Experience {
     pub started_at: String,
     pub ended_at: Option<String>,
     pub created_at: String,
+    /// Marked as not needing a write-up. It leaves "Waiting for a write-up".
+    pub writeup_skipped: bool,
 }
 
 /// An experience plus the substances used in it — for list views.
@@ -382,6 +397,7 @@ fn row_to_experience(r: &rusqlite::Row) -> rusqlite::Result<Experience> {
         started_at: r.get("started_at")?,
         ended_at: r.get("ended_at")?,
         created_at: r.get("created_at")?,
+        writeup_skipped: r.get::<_, i64>("writeup_skipped")? != 0,
     })
 }
 
@@ -663,6 +679,12 @@ pub struct DoseUpdate {
     pub taken_at: String,
     #[serde(default)]
     pub note: String,
+}
+
+/// Mark an entry as not needing a write-up, or undo that.
+pub fn set_writeup_skipped(conn: &Connection, id: i64, skipped: bool) -> rusqlite::Result<Experience> {
+    conn.execute("UPDATE experiences SET writeup_skipped = ?2 WHERE id = ?1", params![id, skipped as i64])?;
+    get_experience_row(conn, id)
 }
 
 pub fn update_experience(conn: &Connection, id: i64, u: &ExperienceUpdate) -> rusqlite::Result<Experience> {
@@ -1254,8 +1276,24 @@ mod tests {
         let c = open(&path, None).unwrap();
         let exp = get_experience_row(&c, 1).unwrap();
         assert_eq!(exp.kind, "session", "existing rows keep their meaning");
+        assert!(!exp.writeup_skipped, "and still wait for a write-up");
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_write_up_can_be_skipped_and_unskipped_without_changing_the_entry() {
+        let c = mem();
+        let e = create_experience(&c, &ExperienceInput {
+            kind: "session".into(), title: "Quick one".into(), intention: String::new(),
+            setting: String::new(), started_at: "2026-10-01T20:00:00Z".into(),
+        }).unwrap();
+        assert!(!e.writeup_skipped);
+        let before = fingerprint(&serde_json::to_value(get_experience(&c, e.id).unwrap()).unwrap());
+        assert!(set_writeup_skipped(&c, e.id, true).unwrap().writeup_skipped);
+        let after = fingerprint(&serde_json::to_value(get_experience(&c, e.id).unwrap()).unwrap());
+        assert_eq!(before, after, "a preference, not content: duplicates still match");
+        assert!(!set_writeup_skipped(&c, e.id, false).unwrap().writeup_skipped);
     }
 
     #[test]

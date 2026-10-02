@@ -33,6 +33,7 @@
     createExperience,
     endExperience,
     updateExperience,
+    setWriteupSkipped,
     updateDose,
     deleteDose,
     addTimelineEvent,
@@ -186,6 +187,7 @@
   let endAt = $state("");
   let endRating = $state("");
   let endNotes = $state("");
+  let endSkip = $state(false);
   let confirmDelete = $state(false);
 
   // deferred deletes, with Undo
@@ -903,6 +905,7 @@
     endAt = e.ended_at ? isoToLocalInput(lastAt(e)) : nowLocalInput();
     endRating = e.rating != null ? String(e.rating) : "";
     endNotes = e.notes;
+    endSkip = !!e.writeup_skipped;
     sheet = "end";
   }
 
@@ -914,6 +917,7 @@
       const rating = num(endRating, "rating");
       if (!open.ended_at) await endExperience(open.id, at, rating, endNotes);
       else await fullUpdate(open, { ended_at: at, rating, notes: endNotes });
+      if (endSkip !== !!open.writeup_skipped) await setWriteupSkipped(open.id, endSkip);
       building = false;
       closeSheet();
       await refresh();
@@ -998,7 +1002,21 @@
 
   // ---------- the journal list ----------
 
-  const needsWriteup = (e: ExperienceSummary) => e.kind === "session" && !!e.ended_at && !e.notes.trim();
+  /** A finished session with no write-up that nobody said was fine without one.
+   *  A reflection is never owed (owner's decision 2026-10-02): "No need" takes an
+   *  entry out of every "waiting" place, and can be undone. */
+  const needsWriteup = (e: ExperienceSummary) =>
+    e.kind === "session" && !!e.ended_at && !e.notes.trim() && !e.writeup_skipped;
+
+  let skipNote = $state<{ id: number; timer: number } | null>(null);
+  const skipWriteup = (id: number, skipped: boolean) =>
+    run("skip", async () => {
+      await setWriteupSkipped(id, skipped);
+      if (skipNote) clearTimeout(skipNote.timer);
+      skipNote = skipped ? { id, timer: window.setTimeout(() => (skipNote = null), UNDO_MS) } : null;
+      if (open?.id === id) open = await getExperience(id);
+      await refresh();
+    });
   const visible = $derived(recent.filter((e) => !hidden.includes(`e:${e.id}`)));
   const shown = $derived.by(() => {
     const q = search.trim().toLowerCase();
@@ -1173,7 +1191,7 @@
 {#snippet warnings(list: Warning[])}
   {#each list as w}
     <p class="banner {w.severity}" role={w.severity === "danger" ? "alert" : "status"}>
-      <strong>{w.severity === "danger" ? "⚠ Danger:" : w.severity === "caution" ? "Caution:" : "Note:"}</strong>
+      <strong>{w.severity === "danger" ? "Known dangerous:" : w.severity === "caution" ? "Use care:" : "Note:"}</strong>
       {w.message}
     </p>
   {/each}
@@ -1251,7 +1269,7 @@
       {#if e.notes.trim()}
         <span class="excerpt">{excerpt(e.notes)}</span>
       {:else if needsWriteup(e)}
-        <span class="excerpt pending">No write-up yet</span>
+        <span class="excerpt pending">Add a write-up when you're ready</span>
       {/if}
     </span>
     <span class="chev" aria-hidden="true">›</span>
@@ -1396,17 +1414,18 @@
 
       {#if toWriteUp.length}
         <section class="pane">
-          <h2>Waiting for a write-up</h2>
+          <h2>When you're ready to write up</h2>
           <ul class="entries">
             {#each toWriteUp as e (e.id)}
-              <li>
+              <li class="with-skip">
                 <button class="entry" onclick={async () => { await openEntry(e.id); startWriteup(open); }}>
                   <span class="body">
                     <span class="title">{e.title || "Untitled"}</span>
                     <span class="meta">{[fmtDay(e.started_at), e.substances.join(", ") === e.title ? "" : e.substances.join(", ")].filter(Boolean).join(" · ")}</span>
                   </span>
-                  <span class="chev" aria-hidden="true">Write ›</span>
+                  <span class="chev" aria-hidden="true">›</span>
                 </button>
+                <button class="ghost small skip" onclick={() => skipWriteup(e.id, true)} aria-label={`${e.title || "Untitled"} doesn't need a write-up`}>No need</button>
               </li>
             {/each}
           </ul>
@@ -1482,8 +1501,14 @@
           </div>
           {#if e.notes.trim()}
             <p class="prose">{e.notes}</p>
+          {:else if e.kind === "note"}
+            <p class="muted">Empty.</p>
+          {:else if e.writeup_skipped}
+            <p class="muted">Doesn't need a write-up. <button class="ghost small inline" onclick={() => skipWriteup(e.id, false)}>Undo</button></p>
           {:else}
-            <p class="muted">{e.kind === "note" ? "Empty." : "No write-up yet."}</p>
+            <p class="muted">No write-up yet.
+              {#if e.ended_at}<button class="ghost small inline" onclick={() => skipWriteup(e.id, true)}>Doesn't need one</button>{/if}
+            </p>
           {/if}
         </article>
 
@@ -1518,7 +1543,7 @@
           <label class="sr" for="search">Search the journal</label>
           <input id="search" type="search" placeholder="Search titles, write-ups, substances" bind:value={search} autocapitalize="none" enterkeyhint="search" />
           <div class="chips" role="group" aria-label="Show">
-            {#each [["all", "All"], ["sessions", "Sessions"], ["notes", "Journal notes"], ["writeup", "No write-up"]] as [k, label]}
+            {#each [["all", "All"], ["sessions", "Sessions"], ["notes", "Journal notes"], ["writeup", "To write up"]] as [k, label]}
               <button class="chip" class:on={filter === k} aria-pressed={filter === k} onclick={() => setFilter(k as typeof filter)}>{label}</button>
             {/each}
           </div>
@@ -1715,6 +1740,13 @@
         <div class="toast bad" role="alert">
           <span>{err}</span>
           <button class="ghost small" onclick={() => (err = null)}>OK</button>
+        </div>
+      {/if}
+      {#if skipNote}
+        {@const sid = skipNote.id}
+        <div class="toast" role="status">
+          <span>Won't ask for a write-up</span>
+          <button class="small" onclick={() => skipWriteup(sid, false)}>Undo</button>
         </div>
       {/if}
       {#if pendingDelete}
@@ -2003,8 +2035,11 @@
           <DateTimeField id="end-at" bind:value={endAt} variant="phone" />
           <p class="label">Rating (optional)</p>
           {@render scale(endRating, (v) => (endRating = v), "Rating 0 to 10")}
-          <label for="end-notes">Write-up (optional — you can do it later)</label>
-          <textarea id="end-notes" rows="5" bind:value={endNotes}></textarea>
+          <label for="end-notes">Write-up (optional, now or later)</label>
+          <textarea id="end-notes" rows="5" bind:value={endNotes} disabled={endSkip}></textarea>
+          {#if !endNotes.trim()}
+            <label class="check"><input type="checkbox" bind:checked={endSkip} /> This one doesn't need a write-up</label>
+          {/if}
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={saveEnd}>{busyKey === "end" ? "Saving…" : open.ended_at ? "Finish" : "End session"}</button>
           </div>
@@ -2074,6 +2109,10 @@
     --text-2: #a9b1bc;
     --accent: #6ea8fe;
     --on-accent: #0b0e14;
+    /* Help has its own colour: warm, filled, unmistakable, and not the red of
+       danger or Delete. Red means only "these two don't mix". */
+    --help-bg: #f2dcc4;
+    --help-ink: #1d140b;
     --danger: #ff6b6b;
     --danger-bg: #ff6b6b24;
     --caution: #ffb454;
@@ -2105,6 +2144,8 @@
       --text-2: #4f5763;
       --accent: #1f5fd1;
       --on-accent: #ffffff;
+      --help-bg: #5a3214;
+      --help-ink: #fff6ec;
       --danger: #b3261e;
       --danger-bg: #b3261e14;
       --caution: #8a5300;
@@ -2165,8 +2206,8 @@
   .pill.live { border-color: var(--ok); color: var(--ok); background: transparent; }
   .live-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--ok); margin-right: 0.4rem; vertical-align: 0.05em; }
   .help {
-    width: auto; margin: 0; min-height: var(--tap-min); padding: 0 0.9rem;
-    border: 2px solid var(--danger); color: var(--danger); background: transparent; border-radius: 999px;
+    width: auto; margin: 0; min-height: var(--tap-min); padding: 0 1rem;
+    border: 0; color: var(--help-ink); background: var(--help-bg); border-radius: 999px; font-weight: 700;
   }
   .help.wide { width: 100%; margin: 0.4rem 0; }
 
@@ -2200,7 +2241,8 @@
   button.ghost { background: transparent; border-color: transparent; color: var(--accent); }
   button.small { width: auto; min-height: var(--tap-min); padding: 0 0.7rem; margin: 0; font-size: var(--fs-sm); }
   button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-  button.danger-text { width: auto; margin: 0; background: transparent; border-color: transparent; color: var(--danger); min-height: var(--tap-min); }
+  /* Delete reads as an ordinary action until its confirm step, which is red. */
+  button.danger-text { width: auto; margin: 0; background: transparent; border-color: transparent; color: var(--text-2); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; min-height: var(--tap-min); }
   button.danger-text.wide { width: 100%; }
   button:disabled { background: var(--surface-2); color: var(--text-2); border-color: var(--divider); cursor: default; }
   .pair { display: flex; gap: 0.5rem; }
@@ -2252,7 +2294,14 @@
   .title { font-weight: 600; }
   .meta { color: var(--text-2); font-size: var(--fs-sm); }
   .excerpt { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .excerpt.pending { color: var(--caution); }
+  /* Muted, not amber: an unwritten reflection isn't a warning or overdue homework. */
+  .excerpt.pending { color: var(--text-2); font-style: italic; }
+  .with-skip { display: flex; align-items: center; gap: 0.3rem; }
+  .with-skip .entry { flex: 1; min-width: 0; }
+  .with-skip .skip { width: auto; flex: none; margin: 0; }
+  .inline { width: auto; display: inline; margin: 0 0 0 0.3rem; min-height: 0; padding: 0.2rem 0.3rem; }
+  label.check { display: flex; align-items: center; gap: 0.5rem; color: var(--text); font-size: var(--fs-body); min-height: var(--tap); margin: 0 0 0.6rem; }
+  label.check input { width: 1.3rem; height: 1.3rem; min-height: 0; margin: 0; }
   .tag { font-size: var(--fs-xs); font-weight: 500; border: 1px solid var(--divider); border-radius: 6px; padding: 0 0.35rem; margin-left: 0.35rem; color: var(--text-2); }
   .tag.live { border-color: var(--ok); color: var(--ok); }
   .month-label { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin-bottom: 0.2rem; }

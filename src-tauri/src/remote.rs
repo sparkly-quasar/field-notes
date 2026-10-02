@@ -54,6 +54,7 @@ pub const ROUTED: &[&str] = &[
     "add_timeline_event",
     "add_substance",
     "update_experience",
+    "set_writeup_skipped",
     "update_dose",
     "update_timeline_event",
     "delete_experience",
@@ -514,6 +515,11 @@ fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, 
             "title": e.title, "intention": e.intention, "setting": e.setting, "notes": e.notes,
             "rating": e.rating, "started_at": e.started_at, "ended_at": e.ended_at,
         }}))?;
+        // Best effort: a server older than v0.15 doesn't know this command, and
+        // that mustn't undo the copy of an entry that otherwise arrived whole.
+        if e.writeup_skipped {
+            let _ = send(base, token, "set_writeup_skipped", json!({ "id": sid, "skipped": true }));
+        }
         Ok::<(), String>(())
     })();
 

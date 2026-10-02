@@ -38,6 +38,7 @@ const ROUTED = new Set([
   "add_timeline_event",
   "add_substance",
   "update_experience",
+  "set_writeup_skipped",
   "update_dose",
   "update_timeline_event",
   "delete_experience",
@@ -88,6 +89,8 @@ export interface Experience {
   started_at: string;
   ended_at: string | null;
   created_at: string;
+  /** Marked as not needing a write-up. Absent from servers older than v0.15. */
+  writeup_skipped?: boolean;
 }
 
 export type ExperienceSummary = Experience & {
@@ -203,6 +206,9 @@ export interface DoseUpdate {
 
 export const updateExperience = (id: number, update: ExperienceUpdate) =>
   invoke<Experience>("update_experience", { id, update });
+/** "Doesn't need a write-up", or undo it. A reflection is never owed. */
+export const setWriteupSkipped = (id: number, skipped: boolean) =>
+  invoke<Experience>("set_writeup_skipped", { id, skipped });
 export const updateDose = (id: number, update: DoseUpdate) => invoke<Dose>("update_dose", { id, update });
 export const updateTimelineEvent = (id: number, update: TimelineUpdate) =>
   invoke<TimelineEvent>("update_timeline_event", { id, update });

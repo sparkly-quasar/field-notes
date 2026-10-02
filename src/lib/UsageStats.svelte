@@ -216,6 +216,12 @@
   const hourMax = $derived(Math.max(1, ...hours));
 
   const fmtDay = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  /** Axis dates carry the year whenever the window spans more than one, or
+   *  "Oct 2 … Oct 1" reads as a single day. */
+  const fmtTick = (t: number) =>
+    new Date(windowFrom).getFullYear() !== new Date(now).getFullYear()
+      ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit" })
+      : fmtDay(t);
   const fmtBucket = (t: number, unit: "week" | "month") =>
     unit === "month"
       ? new Date(t).toLocaleDateString(undefined, { month: "short", year: "numeric" })
@@ -262,7 +268,7 @@
         <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "session" : "sessions"}</span></div>
         <div class="tile"><span class="big">{sub.doses}</span><span class="cap">{sub.doses === 1 ? "dose" : "doses"}</span></div>
         {#if lastT != null}
-          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last use</span></div>
+          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last session</span></div>
         {/if}
       </div>
     {:else}
@@ -310,7 +316,7 @@
                   <text x={PAD.l - 6} y={y(t) + 4} text-anchor="end" class="axis">{fmtNum(t)}</text>
                 {/each}
                 {#each xTicks as t, i}
-                  <text x={x(t)} y={H - 8} text-anchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"} class="axis">{fmtDay(t)}</text>
+                  <text x={x(t)} y={H - 8} text-anchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"} class="axis">{fmtTick(t)}</text>
                 {/each}
                 {#each plotted as d (d.p.dose_id)}
                   <!-- the hit target is bigger than the dot, for a thumb -->
@@ -347,7 +353,11 @@
         <section class="card">
           <h3>Spacing · {label(sub.key)}</h3>
           <div class="facts">
-            {#if sub.gaps_days.length}
+            {#if sub.gaps_days.length === 1}
+              <!-- One gap is one number: showing it as both "median" and "shortest"
+                   reads like a bug. -->
+              <p class="note">One gap so far: {fmtNum(sub.gaps_days[0])} {sub.gaps_days[0] === 1 ? "day" : "days"}.</p>
+            {:else if sub.gaps_days.length}
               <div><span class="big">{fmtNum(median(sub.gaps_days) ?? 0)}</span><span class="cap">median days between</span></div>
               <div><span class="big">{fmtNum(Math.min(...sub.gaps_days))}</span><span class="cap">shortest gap (days)</span></div>
             {:else}
@@ -398,7 +408,7 @@
       <!-- calendar -->
       <section class="card wide">
         <div class="head">
-          <h3>Calendar{sub ? ` · ${label(sub.key)}` : ""}</h3>
+          <h3>Days with a session{sub ? ` · ${label(sub.key)}` : ""}</h3>
           {#if heatPages > 1}
             <div class="pager">
               <button class="link" disabled={heatPage >= heatPages - 1} onclick={() => heatPage++} aria-label="Earlier">‹ Earlier</button>
@@ -524,6 +534,7 @@
   th, td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--st-line); }
   th { color: var(--st-muted); font-weight: 500; }
   .pickhint { margin: -0.3rem 0 0.8rem; }
+  .facts .note { grid-column: 1 / -1; margin: 0; }
   .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.7rem; }
   .bars, .pairs { list-style: none; margin: 0; padding: 0; }
   .bars li { display: grid; grid-template-columns: 7rem 1fr 2rem; gap: 0.5rem; align-items: center; font-size: 0.9rem; padding: 0.2rem 0; }
