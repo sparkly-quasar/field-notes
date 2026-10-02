@@ -10,6 +10,9 @@
          *shell* only — offline capture is Phase 3b and needs a service worker. The
          desktop app ignores all of it. -->
     <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+    <!-- The Home Screen icon. iOS reads this, not the manifest; without it the
+         shortcut is a letter "F". Full-bleed square: iOS rounds the corners. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/apple-touch-icon.png" />
     <!-- Bundled fonts (Atkinson Hyperlegible for data, Literata for reflection). -->
     <link rel="stylesheet" href="%sveltekit.assets%/fonts/fonts.css" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

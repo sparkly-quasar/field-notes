@@ -24,6 +24,9 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 - **Writing on the phone keeps your intention in view.** With the keyboard up,
   the write-up box now shrinks to fit, so the heading and "You set out to: …"
   stay on screen above it instead of scrolling off the top.
+- **A real Home Screen icon.** Field Notes added to a phone's Home Screen now
+  shows the notebook icon instead of a letter "F". If you added it before, remove
+  it and add it again to pick up the icon.
 
 ## v0.16.1
 
