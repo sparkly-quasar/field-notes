@@ -162,6 +162,12 @@ street names that are ordinary words ("pot", "beans", "tabs") never match
 mid-sentence. `saveTripLog` (quicklog.ts) creates an ended session and runs the
 wider check per dose.
 
+v0.20.1: percent-encoding is decoded a word at a time (a log with one encoded
+paragraph pasted in); a date-only line before the first timed line
+(`Date: 02-28-2026 12:30pm`) dates the log, with day/month order from the locale
+when ambiguous; and the first line under a bare time (`12:30pm` on its own) is
+read as that line, so a dose there is a dose.
+
 **Dev harness:** `cargo test --lib portal::tests::dev_portal -- --ignored
 --nocapture` serves a real portal on a seeded throwaway journal (with the real dose
 reference) for driving the phone UI in a browser.
