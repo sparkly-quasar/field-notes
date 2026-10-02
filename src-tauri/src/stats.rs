@@ -251,8 +251,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         let name = doses.last().map(|r| r.name.clone()).unwrap_or_default();
         let last_used = doses
             .iter()
-            .filter(|r| r.at.is_some())
-            .last()
+            .rfind(|r| r.at.is_some())
             .or(doses.last())
             .map(|r| r.taken_at.clone())
             .unwrap_or_default();

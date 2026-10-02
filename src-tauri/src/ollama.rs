@@ -143,20 +143,20 @@ fn run_streamed<R: Runtime>(app: &AppHandle<R>, event: &str, mut cmd: Command) -
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("failed to start: {e}"))?;
     let mut handles = Vec::new();
-    for pipe in [child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
-                 child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)]
-    {
-        if let Some(p) = pipe {
-            let app = app.clone();
-            let event = event.to_string();
-            handles.push(std::thread::spawn(move || {
-                for line in BufReader::new(p).lines().map_while(Result::ok) {
-                    if !line.trim().is_empty() {
-                        let _ = app.emit(&event, line);
-                    }
+    let pipes = [
+        child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+        child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+    ];
+    for p in pipes.into_iter().flatten() {
+        let app = app.clone();
+        let event = event.to_string();
+        handles.push(std::thread::spawn(move || {
+            for line in BufReader::new(p).lines().map_while(Result::ok) {
+                if !line.trim().is_empty() {
+                    let _ = app.emit(&event, line);
                 }
-            }));
-        }
+            }
+        }));
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     for h in handles {

@@ -277,12 +277,16 @@ impl Index {
                 }),
             }
         }
-        out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        out.sort_by_key(|a| a.title.to_lowercase());
         out
     }
 
     pub fn len(&self) -> usize {
         self.chunks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.chunks.is_empty()
     }
 }
 
