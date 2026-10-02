@@ -468,6 +468,8 @@ pub const EXPOSED: &[&str] = &[
     "my_devices",
     "pair_own_device",
     "unpair_my_device",
+    "person_change_password",
+    "export_my_journal",
 ];
 
 /// Exposed to the owner's devices only. Installing an update restarts everyone's
@@ -476,7 +478,15 @@ pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install
 
 /// Exposed to other people's devices only. The owner's journal unlocks at the desk,
 /// as it always has, and the owner pairs devices there.
-pub const OTHERS_ONLY: &[&str] = &["person_unlock", "person_remember", "my_devices", "pair_own_device", "unpair_my_device"];
+pub const OTHERS_ONLY: &[&str] = &[
+    "person_unlock",
+    "person_remember",
+    "my_devices",
+    "pair_own_device",
+    "unpair_my_device",
+    "person_change_password",
+    "export_my_journal",
+];
 
 /// What another person's device may still do while their journal is locked:
 /// unlock it, and anything that holds no journal data. Help must never wait on a
@@ -685,6 +695,20 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
                 .set_remember(who.person, who.device, remember, password.as_deref())
                 .map_err(DispatchError::Failed)?;
             ok(people.status(who.person))
+        }
+        "person_change_password" => {
+            let people = app.state::<People>();
+            let current: String = arg(&args, "current")?;
+            let new: String = arg(&args, "new")?;
+            people.change_password(who.person, who.device, &current, &new).map_err(DispatchError::Failed)?;
+            ok(people.status(who.person))
+        }
+        // Their journal as a file, still encrypted with their password. Base64 so it
+        // rides in the same JSON as everything else; the phone saves it as a download.
+        "export_my_journal" => {
+            use base64::Engine;
+            let bytes = app.state::<People>().backup(who.person).map_err(DispatchError::Failed)?;
+            ok(json!({ "data": base64::engine::general_purpose::STANDARD.encode(bytes) }))
         }
         "my_devices" => ok(mine(app, who)),
         "pair_own_device" => {
@@ -969,6 +993,37 @@ mod tests {
         assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 401);
         assert_eq!(post(port, "list_experiences", Some(&token2), json!({})).0, 401);
         assert_eq!(post(port, "list_experiences", Some(&owner), json!({})).0, 200);
+    }
+
+    #[test]
+    fn a_person_changes_their_password_and_exports_their_journal_from_their_own_device() {
+        use base64::Engine;
+        let (_app, port, owner, sam) = serving_two();
+        // Neither works for the owner's phone, nor before Sam's journal is open.
+        assert_eq!(post(port, "export_my_journal", Some(&owner), json!({})).0, 403);
+        assert_eq!(post(port, "person_change_password", Some(&owner), json!({ "current": "x", "new": "y" })).0, 403);
+        assert_eq!(post(port, "export_my_journal", Some(&sam), json!({})).0, 503);
+
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+        assert_eq!(post(port, "create_experience", Some(&sam), new_session("SAMSECRET night")).0, 200);
+        let (status, body) = post(port, "export_my_journal", Some(&sam), json!({}));
+        assert_eq!(status, 200, "{body}");
+        let data = serde_json::from_str::<Value>(&body).unwrap()["data"].as_str().unwrap().to_string();
+        let bytes = base64::engine::general_purpose::STANDARD.decode(data).unwrap();
+        assert!(!bytes.windows(9).any(|w| w == b"SAMSECRET"), "the backup is encrypted");
+
+        let (status, body) =
+            post(port, "person_change_password", Some(&sam), json!({ "current": "wrong one", "new": "a brand new password" }));
+        assert_eq!(status, 400, "{body}");
+        let (status, body) = post(
+            port,
+            "person_change_password",
+            Some(&sam),
+            json!({ "current": "correct horse battery", "new": "a brand new password" }),
+        );
+        assert_eq!(status, 200, "{body}");
+        let (_, body) = post(port, "list_experiences", Some(&sam), json!({}));
+        assert!(body.contains("SAMSECRET"), "still open after the change: {body}");
     }
 
     #[test]

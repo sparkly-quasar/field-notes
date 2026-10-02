@@ -25,6 +25,10 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   phone. Otherwise a restart locks their journal until they type it again.
   Help and the combination checker still work while it's locked. A forgotten
   password can't be reset by anyone, so the phone says so when they choose it.
+- **Their own backups and password.** From their phone's settings they can
+  download a backup of their journal, still locked with their password, and
+  change that password. A week after choosing it, their phone reminds them
+  once that a backup is the only way back if they forget it.
 - **Their own devices.** From their phone's settings they can pair another
   device of theirs or un-pair one. You can also pair a replacement for them
   from the desk if they lose a phone, or remove them, which deletes their

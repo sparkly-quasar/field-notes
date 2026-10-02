@@ -309,6 +309,69 @@ impl People {
         self.save(&reg)
     }
 
+    /// Change this person's password, from their own device. Their journal is
+    /// re-encrypted under the new one. Needs the current password even though the
+    /// journal is open: an unlocked phone left on a table shouldn't be enough to
+    /// lock its owner out.
+    pub fn change_password(&self, id: u32, device: u64, current: &str, new: &str) -> Result<(), String> {
+        let db = self.db(id).ok_or("No such person.")?;
+        if let Some(w) = self.wait(device) {
+            return Err(format!("Too many wrong passwords. Try again in {} seconds.", w.as_secs().max(1)));
+        }
+        if new.chars().count() < MIN_PASSWORD {
+            return Err(format!("Choose a new password of at least {MIN_PASSWORD} characters."));
+        }
+        if new == current {
+            return Err("That's the password you already have.".into());
+        }
+        // Hold the connection's lock throughout, so another device of theirs waits
+        // for a moment rather than finding the journal closed and showing "locked".
+        let mut guard = db.conn.lock().unwrap();
+        if guard.is_none() {
+            return Err(Db::locked_err());
+        }
+        if db::open(&db.path, Some(current)).is_err() {
+            self.failed(device);
+            return Err("That isn't your current password.".into());
+        }
+        self.tries.lock().unwrap().remove(&device);
+        *guard = None; // release the file so it can be rewritten
+        if let Err(e) = db::convert(&db.path, Some(current), Some(new)) {
+            // Not changed: reopen with the old one so they aren't left locked out.
+            *guard = db::open(&db.path, Some(current)).ok();
+            return Err(format!("Couldn't change your password: {e}"));
+        }
+        *guard = Some(db::open(&db.path, Some(new)).map_err(|e| e.to_string())?);
+        drop(guard);
+        // Keep a remembered password in step, or the next restart can't open it.
+        // If the keychain won't take it, stop remembering rather than keep a stale one.
+        let mut reg = self.reg.lock().unwrap();
+        if let Some(p) = reg.people.iter_mut().find(|p| p.id == id && p.remembered) {
+            if keychain::set_person(id, new).is_err() {
+                let _ = keychain::forget_person(id);
+                p.remembered = false;
+                self.save(&reg)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A copy of this person's journal, for them to keep: still encrypted with
+    /// their password, so it's as private on their phone as it is here. It opens
+    /// in Field Notes on any computer (Settings, Restore a backup) with that password.
+    pub fn backup(&self, id: u32) -> Result<Vec<u8>, String> {
+        let db = self.db(id).ok_or("No such person.")?;
+        let mut name = [0u8; 8];
+        getrandom::getrandom(&mut name).map_err(|e| e.to_string())?;
+        let hex: String = name.iter().map(|b| format!("{b:02x}")).collect();
+        // Beside their journal, so it never sits anywhere less private than that.
+        let tmp = self.folder(id).join(format!("backup-{hex}.tmp"));
+        let made = db.with(|c| db::backup_to(c, &tmp));
+        let bytes = made.and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()));
+        let _ = std::fs::remove_file(&tmp);
+        bytes
+    }
+
     /// At launch: reopen every journal whose person chose to keep it unlocked here.
     /// Returns the ones that opened, for the dose reference to be loaded into.
     pub fn open_remembered(&self) -> Vec<Arc<Db>> {
@@ -379,6 +442,56 @@ mod tests {
         assert!(p.unlock(2, 1, "correct horse battery").err().unwrap().contains("Too many"));
         // Another device isn't held up by the first one's mistakes.
         p.unlock(2, 2, "correct horse battery").unwrap();
+    }
+
+    #[test]
+    fn changing_the_password_needs_the_old_one_and_only_the_new_one_opens_it_after() {
+        let p = people("change");
+        p.add("Sam").unwrap();
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        assert!(p.change_password(2, 1, "correct horse battery", "short").unwrap_err().contains("at least"));
+        assert!(p.change_password(2, 1, "not my password", "a brand new password").unwrap_err().contains("current"));
+        p.change_password(2, 1, "correct horse battery", "a brand new password").unwrap();
+        // Still open for them, with no gap.
+        assert!(p.db(2).unwrap().is_unlocked());
+        // After a restart, only the new one opens it.
+        *p.db(2).unwrap().conn.lock().unwrap() = None;
+        assert!(p.unlock(2, 1, "correct horse battery").is_err());
+        p.unlock(2, 1, "a brand new password").unwrap();
+    }
+
+    #[test]
+    fn a_wrong_current_password_counts_towards_the_wait() {
+        let p = people("change-tries");
+        p.add("Sam").unwrap();
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        for _ in 0..FREE_TRIES {
+            assert!(p.change_password(2, 1, "guess guess guess", "a brand new password").is_err());
+        }
+        assert!(p.change_password(2, 1, "correct horse battery", "a brand new password").unwrap_err().contains("Too many"));
+    }
+
+    #[test]
+    fn a_backup_is_their_journal_still_encrypted_with_their_password() {
+        let p = people("backup");
+        p.add("Sam").unwrap();
+        assert!(p.backup(2).is_err(), "nothing to copy before they've unlocked it");
+        let db = p.unlock(2, 1, "correct horse battery").unwrap();
+        db.with(|c| c.execute_batch("CREATE TABLE marker (x TEXT); INSERT INTO marker VALUES ('SAMSECRET')")).unwrap();
+        let bytes = p.backup(2).unwrap();
+        // No temporary copy left behind.
+        let left: Vec<_> = std::fs::read_dir(p.folder(2)).unwrap().filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
+        assert!(left.is_empty());
+        // The secret isn't readable in the bytes, and only their password opens them.
+        assert!(!bytes.windows(9).any(|w| w == b"SAMSECRET"));
+        let out = p.folder(2).join("restored.db");
+        std::fs::write(&out, &bytes).unwrap();
+        assert!(db::is_encrypted(&out));
+        assert!(db::open(&out, Some("wrong password!")).is_err());
+        let c = db::open(&out, Some("correct horse battery")).unwrap();
+        let x: String = c.query_row("SELECT x FROM marker", [], |r| r.get(0)).unwrap();
+        assert_eq!(x, "SAMSECRET");
     }
 
     #[test]
