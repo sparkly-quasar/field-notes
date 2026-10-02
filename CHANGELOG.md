@@ -21,6 +21,9 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 - **First steps** on an empty journal: how to log, that combinations are checked
   as you log, where Get help is, and how to get Field Notes on your phone.
   Dismiss it any time; it goes away by itself once you've logged something.
+- **Writing on the phone keeps your intention in view.** With the keyboard up,
+  the write-up box now shrinks to fit, so the heading and "You set out to: …"
+  stay on screen above it instead of scrolling off the top.
 
 ## v0.16.1
 
