@@ -536,13 +536,8 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
 
     name_after_first_dose(conn, input.experience_id, &input.substance_name)?;
 
-    // Gather every distinct substance in this experience and check interactions.
-    let mut stmt =
-        conn.prepare("SELECT DISTINCT substance_name FROM doses WHERE experience_id = ?1")?;
-    let names: Vec<String> =
-        stmt.query_map([input.experience_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
-
-    Ok((dose, combo_warnings(conn, &names)))
+    // Every substance in this experience that overlapped another, checked together.
+    Ok((dose, session_warnings(conn, input.experience_id)?))
 }
 
 /// Give an untitled session the name of the first substance logged into it.
@@ -579,6 +574,66 @@ fn name_after_first_dose(conn: &Connection, experience_id: i64, substance: &str)
 /// This is the *only* way warnings should be produced. Logging a dose and asking
 /// the combo checker "is this safe?" must answer identically — the checker is the
 /// one people consult *before* taking something, so it can't know less.
+/// Interaction warnings for one session, counting only pairs that were in the
+/// body at the same time. Each dose is active from when it was taken for the
+/// reference's total duration on that route (or its longest, if the route isn't
+/// listed; `UNKNOWN_DURATION_MIN` with no reference at all), plus
+/// `OVERLAP_MARGIN_MIN` for after-effects and loose timestamps. Logged live, every
+/// dose is "now" and this is the same as [`combo_warnings`]; for a past session,
+/// a stimulant at 6pm and a benzo at 3am a day later aren't a combination.
+pub fn session_warnings(conn: &Connection, experience_id: i64) -> rusqlite::Result<Vec<crate::interactions::Warning>> {
+    let mut stmt = conn.prepare("SELECT substance_name, route, taken_at FROM doses WHERE experience_id = ?1")?;
+    let doses: Vec<(String, String, String)> = stmt
+        .query_map([experience_id], |r| Ok((r.get(0)?, r.get::<_, Option<String>>(1)?.unwrap_or_default(), r.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut names: Vec<String> = doses.iter().map(|d| d.0.clone()).collect();
+    names.sort();
+    names.dedup();
+    let mut warnings = combo_warnings(conn, &names);
+
+    // Each dose's active window, in minutes since the epoch.
+    let windows: Vec<(String, f64, f64)> = doses
+        .iter()
+        .filter_map(|(name, route, at)| {
+            let t = chrono::DateTime::parse_from_rfc3339(at).ok()?.timestamp() as f64 / 60.0;
+            let info = pw_lookup(conn, name).ok().flatten();
+            let dur = info.as_ref().and_then(|i| active_minutes(i, route)).unwrap_or(UNKNOWN_DURATION_MIN);
+            Some((name.to_lowercase(), t, t + dur + OVERLAP_MARGIN_MIN))
+        })
+        .collect();
+    let overlap = |a: &str, b: &str| {
+        let (a, b) = (a.to_lowercase(), b.to_lowercase());
+        let wa: Vec<_> = windows.iter().filter(|w| w.0 == a).collect();
+        let wb: Vec<_> = windows.iter().filter(|w| w.0 == b).collect();
+        // A dose with no usable time can't be ruled out.
+        wa.is_empty() || wb.is_empty() || wa.iter().any(|x| wb.iter().any(|y| x.1 <= y.2 && y.1 <= x.2))
+    };
+    warnings.retain(|w| overlap(&w.a, &w.b));
+    Ok(warnings)
+}
+
+/// Unknown substances are assumed to last this long: long enough not to miss a
+/// combination with most things, short enough that a whole night isn't one dose.
+const UNKNOWN_DURATION_MIN: f64 = 8.0 * 60.0;
+const OVERLAP_MARGIN_MIN: f64 = 60.0;
+
+/// How long a dose of this lasts by the reference's "total" for the route, longest
+/// end of the range. IM is read as IV, the nearest route DoseWiki lists.
+fn active_minutes(info: &PwInfo, route: &str) -> Option<f64> {
+    let want = match route.to_lowercase().as_str() {
+        "im" | "iv" => "intravenous".to_string(),
+        "vaporized" => "vaporized".to_string(),
+        r => r.to_string(),
+    };
+    let parse = |s: &str| -> Option<f64> {
+        let max = s.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter_map(|n| n.parse::<f64>().ok()).last()?;
+        let unit = s.to_lowercase();
+        Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
+    };
+    let on_route = info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(&want)).and_then(|r| r.total.as_deref()).and_then(parse);
+    on_route.or_else(|| info.roas.iter().filter_map(|r| r.total.as_deref().and_then(parse)).reduce(f64::max))
+}
+
 pub fn combo_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interactions::Warning> {
     let with_classes: Vec<(String, Vec<String>)> =
         names.iter().map(|n| (n.clone(), classes_for(conn, n))).collect();
@@ -907,15 +962,48 @@ pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
 /// Does a DoseWiki interaction entry (a substance name or a class like
 /// "Stimulants"/"MAOIs") refer to `other`? Matches `other`'s name, aliases, and
 /// psychoactive/chemical classes, with light singular/substring tolerance.
-/// Active metabolites sold or taken in their own right, and the parent drug whose
-/// interaction warnings apply to them. Whole-word matching can't see that
-/// "O-Desmethyltramadol" is tramadol's active form, and its reference entry lists no
-/// drug classes, so without this no warning naming tramadol would ever reach it.
-/// (metabolite, parent), both lowercase.
-const ACTIVE_METABOLITES: &[(&str, &str)] = &[("o-desmethyltramadol", "tramadol")];
+/// Active metabolites sold or taken in their own right, and prodrugs, with the drug
+/// whose interaction warnings apply to them. Whole-word matching can't see that
+/// "O-Desmethyltramadol" is tramadol's active form, or that 1,4-butanediol becomes
+/// GHB in the body, and neither reference entry lists anything to match on, so
+/// without this no warning naming tramadol or GHB (etizolam: "GHB/GBL", dangerous)
+/// would ever reach them. (metabolite or prodrug, the drug it acts as), lowercase.
+const ACTIVE_METABOLITES: &[(&str, &str)] = &[("o-desmethyltramadol", "tramadol"), ("1,4-butanediol", "ghb")];
+
+/// A DoseWiki family name with wildcards, like "5-MeO-xxT" or "2C-x": an `x`
+/// segment stands for any one segment, and `xx` inside one for one to four
+/// characters. Does `id` (a name or alias) belong to the family?
+fn family_match(pattern: &str, id: &str) -> bool {
+    let (ps, is): (Vec<&str>, Vec<&str>) = (pattern.split('-').collect(), id.split('-').collect());
+    ps.len() == is.len()
+        && ps.iter().zip(&is).all(|(p, i)| {
+            if *p == "x" {
+                !i.is_empty() && i.chars().all(char::is_alphanumeric)
+            } else if let Some((pre, post)) = p.split_once("xx") {
+                let mid = i.len() as isize - pre.len() as isize - post.len() as isize;
+                i.starts_with(pre) && i.ends_with(post) && (1..=4).contains(&mid)
+            } else {
+                p == i
+            }
+        })
+}
+
+/// The wildcard family a DoseWiki entry names, if any ("5-MeO-xxT tryptamines" →
+/// "5-meo-xxt"). Such an entry means that family, not every member of the class
+/// word after it: "5-MeO-xxT tryptamines" is not about DMT.
+fn family_of(interaction: &str) -> Option<&str> {
+    interaction
+        .split_whitespace()
+        .find(|t| t.contains('-') && t.split('-').any(|seg| seg == "x" || seg.contains("xx")))
+}
 
 fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
     let i = interaction.to_lowercase();
+    if let Some(fam) = family_of(&i) {
+        // By name or alias only, or a class that *is* the family ("2C-X").
+        let ids = std::iter::once(&other.name).chain(&other.common_names).chain(&other.chemical);
+        return ids.map(|s| s.to_lowercase()).any(|id| id == fam || family_match(fam, &id));
+    }
     let i_sing = i.trim_end_matches('s');
     let mut ids: Vec<String> = vec![other.name.to_lowercase()];
     ids.extend(
@@ -1400,4 +1488,67 @@ mod tests {
         pairs.dedup();
         assert_eq!(before, pairs.len(), "a pair was warned about twice: {w:?}");
     }
+    fn bundled() -> Connection {
+        let mut c = mem();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        pw_replace_all(&mut c, &all).unwrap();
+        c
+    }
+
+    fn dose(c: &Connection, exp: i64, name: &str, route: &str, at: &str) -> Vec<crate::interactions::Warning> {
+        log_dose(c, &DoseInput {
+            experience_id: exp, substance_name: name.into(), amount: None, unit: "mg".into(),
+            route: route.into(), taken_at: at.into(), note: String::new(),
+        }).unwrap().1
+    }
+
+    fn session(c: &Connection) -> i64 {
+        create_experience(c, &ExperienceInput {
+            kind: "session".into(), title: "t".into(), intention: String::new(), setting: String::new(),
+            started_at: "2025-12-31T17:30:00Z".into(),
+        }).unwrap().id
+    }
+
+    #[test]
+    fn wildcard_families_match_their_members_only() {
+        assert!(family_match("5-meo-xxt", "5-meo-dmt"));
+        assert!(family_match("5-meo-xxt", "5-meo-mipt"));
+        assert!(!family_match("5-meo-xxt", "dmt"));
+        assert!(family_match("2c-x", "2c-d"));
+        assert!(family_match("2c-t-x", "2c-t-2"));
+        assert!(!family_match("2c-t-x", "2c-d"));
+        let c = bundled();
+        let dmt = pw_lookup(&c, "DMT").unwrap().unwrap();
+        assert!(!matches_interaction("5-MeO-xxT tryptamines", &dmt), "DMT is not a 5-MeO tryptamine");
+        let fivemeo = pw_lookup(&c, "5-MeO-DMT").unwrap().unwrap();
+        assert!(matches_interaction("5-MeO-xxT tryptamines", &fivemeo));
+        let twocd = pw_lookup(&c, "2C-D").unwrap().unwrap();
+        assert!(matches_interaction("2C-x compounds", &twocd));
+    }
+
+    #[test]
+    fn butanediol_gets_ghb_warnings_and_rilmazafone_is_a_benzo() {
+        let c = bundled();
+        let w = combo_warnings(&c, &["1,4-Butanediol".into(), "Etizolam".into()]);
+        assert!(w.iter().any(|x| x.severity == "danger"), "{w:?}");
+        let w = combo_warnings(&c, &["1,4-Butanediol".into(), "Rilmazafone".into()]);
+        assert!(!w.is_empty(), "GHB-class + benzo must warn: {w:?}");
+    }
+
+    #[test]
+    fn only_overlapping_doses_combine() {
+        let c = bundled();
+        let exp = session(&c);
+        // DMT lasts well under an hour; MDMA six. Hours apart, they never meet.
+        dose(&c, exp, "DMT", "vaporized", "2025-12-31T18:00:00Z");
+        let w = dose(&c, exp, "MDMA", "oral", "2025-12-31T23:00:00Z");
+        assert!(w.is_empty(), "{w:?}");
+        // A benzo inside the 1,4-B window does.
+        dose(&c, exp, "1,4-Butanediol", "oral", "2026-01-01T02:12:00Z");
+        let w = dose(&c, exp, "Etizolam", "oral", "2026-01-01T03:00:00Z");
+        assert!(w.iter().any(|x| x.severity == "danger" && [&x.a, &x.b].iter().any(|n| n.as_str() == "Etizolam")), "{w:?}");
+        // MDMA at 23:00 is still active at 02:12 (6h + margin), so that pair stays too.
+        assert!(w.iter().any(|x| [&x.a, &x.b].iter().any(|n| n.as_str() == "MDMA")), "{w:?}");
+    }
+
 }

@@ -56,10 +56,11 @@ const RULES: &[(&str, &str, &str, &str)] = &[
         "Opioid + depressant (alcohol/GHB/etc.) — additive respiratory depression, a leading overdose cause."),
     ("opioid", "benzodiazepine", "danger",
         "Opioid + benzodiazepine — additive respiratory depression. Frequently fatal in overdose."),
-    ("depressant", "benzodiazepine", "caution",
-        "Depressant + benzodiazepine — additive sedation and blackout/respiratory risk."),
+    // Two benzos first: of two rules equally severe, the first that fits is shown.
     ("benzodiazepine", "benzodiazepine", "caution",
         "Multiple depressants stack unpredictably — heightened sedation and memory loss."),
+    ("depressant", "benzodiazepine", "caution",
+        "Depressant + benzodiazepine — additive sedation and blackout/respiratory risk."),
     ("ssri", "serotonin_releaser", "caution",
         "SSRI + serotonin releaser (e.g. MDMA) — serotonin-syndrome risk, and SSRIs also blunt the effect."),
     ("serotonin_releaser", "serotonin_releaser", "caution",
@@ -184,14 +185,15 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     }
     // depressants
     if n.contains("alcohol") || n.contains("ethanol") || n.contains("ghb") || n.contains("gbl")
-        || n.contains("barbiturate") || n.contains("phenibut")
+        || n.contains("butanediol") || n == "1,4-b" || n == "14b" || n.contains("barbiturate") || n.contains("phenibut")
     {
         add("depressant", &mut c);
     }
     // benzodiazepines
     if n.contains("benzo") || n.contains("alprazolam") || n.contains("xanax")
         || n.contains("diazepam") || n.contains("valium") || n.contains("clonazepam")
-        || n.contains("etizolam") || n.contains("lorazepam")
+        || n.contains("etizolam") || n.contains("lorazepam") || n.contains("zolam") || n.contains("zepam")
+        || n.contains("rilmazafone")
     {
         add("benzodiazepine", &mut c);
         add("depressant", &mut c);
