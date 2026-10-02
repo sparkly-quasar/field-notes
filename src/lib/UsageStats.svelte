@@ -11,7 +11,7 @@
   import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
-    niceScale, fmtNum, startOfDay, startOfWeek, dayKey,
+    niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
   } from "$lib/stats";
 
   let {
@@ -432,6 +432,10 @@
               <p class="note">Only one session in this range, so there's no gap to measure yet.</p>
             {/if}
           </div>
+          <!-- The guidance names substances, so it would give a stand-in away. -->
+          {#each hiding() ? [] : spacingNotes(sub.families ?? []) as n}
+            <p class="note guide">{n}</p>
+          {/each}
           {#if subRatings.length}
             <p class="note">Average rating of these sessions: {fmtNum(subRatings.reduce((a, b) => a + b, 0) / subRatings.length)} ({plural(subRatings.length, "rated session")}).</p>
           {/if}
@@ -461,6 +465,7 @@
             {/if}
           </div>
           <p class="note">Counted across every session with anything in this family, whichever substance it was.</p>
+          {#if SPACING_NOTE[family] && !hiding()}<p class="note guide">{SPACING_NOTE[family]}</p>{/if}
           <h4>In this family (sessions)</h4>
           <ul class="bars">
             {#each famSubs as s}
@@ -625,6 +630,7 @@
   th, td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--st-line); }
   th { color: var(--st-muted); font-weight: 500; }
   .pickhint { margin: -0.3rem 0 0.8rem; }
+  .guide { border-left: 2px solid var(--st-line); padding-left: 0.6rem; margin-top: 0.6rem; }
   .facts .note { grid-column: 1 / -1; margin: 0; }
   .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.7rem; }
   .bars, .pairs { list-style: none; margin: 0; padding: 0; }
