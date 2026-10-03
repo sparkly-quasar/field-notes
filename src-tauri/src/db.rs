@@ -250,6 +250,10 @@ pub struct ExperienceSummary {
     pub experience: Experience,
     pub substances: Vec<String>,
     pub dose_count: i64,
+    /// Whether, once ended, it asks for a write-up by default: it has something in
+    /// it from [`crate::stats::ASKS_FOR_WRITEUP`], or no doses at all. "No need"
+    /// (`writeup_skipped`) still wins, and anything can be written up.
+    pub writeup_expected: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -438,6 +442,7 @@ pub fn list_experiences(conn: &Connection) -> rusqlite::Result<Vec<ExperienceSum
     let exps: Vec<Experience> = stmt.query_map([], row_to_experience)?.collect::<Result<_, _>>()?;
 
     let mut out = Vec::with_capacity(exps.len());
+    let mut asks: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
     for e in exps {
         let mut s = conn.prepare(
             "SELECT DISTINCT substance_name FROM doses WHERE experience_id = ?1 ORDER BY substance_name",
@@ -446,7 +451,15 @@ pub fn list_experiences(conn: &Connection) -> rusqlite::Result<Vec<ExperienceSum
             s.query_map([e.id], |r| r.get(0))?.collect::<Result<_, _>>()?;
         let dose_count: i64 =
             conn.query_row("SELECT COUNT(*) FROM doses WHERE experience_id = ?1", [e.id], |r| r.get(0))?;
-        out.push(ExperienceSummary { experience: e, substances, dose_count });
+        let writeup_expected = substances.is_empty()
+            || substances.iter().any(|n| {
+                *asks.entry(n.trim().to_lowercase()).or_insert_with(|| {
+                    crate::stats::families_of(conn, n)
+                        .iter()
+                        .any(|f| crate::stats::ASKS_FOR_WRITEUP.contains(&f.as_str()))
+                })
+            });
+        out.push(ExperienceSummary { experience: e, substances, dose_count, writeup_expected });
     }
     Ok(out)
 }
@@ -1331,6 +1344,37 @@ mod tests {
         let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
         pw_replace_all(&mut c, &all).unwrap();
         c
+    }
+
+    #[test]
+    fn only_some_experiences_ask_for_a_write_up() {
+        let c = bundled();
+        let entry = |names: &[&str]| {
+            let e = create_experience(&c, &ExperienceInput { kind: "session".into(), title: names.join("+"), intention: String::new(), setting: String::new(), started_at: "2026-10-01T20:00:00Z".into() }).unwrap();
+            for n in names {
+                dose(&c, e.id, n, "oral", "2026-10-01T20:00:00Z");
+            }
+            e.id
+        };
+        let cases: &[(&[&str], bool)] = &[
+            (&["Alcohol"], false),
+            (&["dexamp"], false),
+            (&["1,4-Butanediol"], false),
+            (&["Alcohol", "dexamp", "14b"], false),
+            (&["Cannabis"], false),
+            (&["LSD"], true),
+            (&["MDMA"], true),
+            (&["Ketamine"], true),
+            (&["Alcohol", "acid"], true),
+            (&["my own blend"], true),
+            (&[], true),
+        ];
+        let ids: Vec<(i64, bool, String)> = cases.iter().map(|(n, want)| (entry(n), *want, n.join("+"))).collect();
+        let list = list_experiences(&c).unwrap();
+        for (id, want, what) in ids {
+            let got = list.iter().find(|e| e.experience.id == id).unwrap().writeup_expected;
+            assert_eq!(got, want, "{what}");
+        }
     }
 
     /// The phone's offline checker answers from `MemReference`, the desktop from

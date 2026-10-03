@@ -2572,6 +2572,8 @@
               <p class="reflect write-up">{selected.notes}</p>
             {:else if selected.ended_at && selected.writeup_skipped}
               <p class="muted small">Doesn't need a write-up. <button class="link" onclick={() => skipWriteup(false)}>Undo</button></p>
+            {:else if selected.ended_at && experiences.find((x) => x.id === selected?.id)?.writeup_expected === false}
+              <p class="muted small">No write-up. <button class="link" onclick={startEditExp}>Write one</button> any time if you'd like.</p>
             {:else if selected.ended_at}
               <p class="muted small">No write-up yet. <button class="link" onclick={startEditExp}>Write one</button> · <button class="link" onclick={() => skipWriteup(true)}>Doesn't need one</button></p>
             {/if}
@@ -2909,7 +2911,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                              unless it's been marked as not needing one. -->
                         {#if !e.ended_at}
                           <span class="muted small">ongoing</span>
-                        {:else if !(e.notes.trim() || e.writeup_skipped)}
+                        {:else if !(e.notes.trim() || e.writeup_skipped) && e.writeup_expected !== false}
                           <span class="muted small">no write-up yet</span>
                         {/if}
                       </div>
