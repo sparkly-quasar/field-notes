@@ -816,6 +816,8 @@ export const remoteFlush = () => invoke<RemoteStatus>("remote_flush");
 export const remoteUploadLocal = () => invoke<UploadResult>("remote_upload_local");
 export const saveMarkdownFile = (dest: string, markdown: string) =>
   invoke<void>("save_markdown_file", { dest, markdown });
+/** Desktop only: write a PDF (from `pdf.ts`) to a path picked in a save dialog. */
+export const savePdfFile = (dest: string, data: Uint8Array) => invoke<void>("save_pdf_file", { dest, data: Array.from(data) });
 
 // ---- erase all data / uninstall ----
 export const dataDir = () => invoke<string>("data_dir");
