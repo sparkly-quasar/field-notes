@@ -11,6 +11,28 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.22.1
+
+- **Settings on your phone.** The gear next to Help now appears on the owner's
+  phone too, not just for other people on the server. In it:
+  - **Pair and un-pair your devices from the phone.** It asks for your
+    journal's password first, or, if your journal isn't encrypted, a phone PIN
+    you set in Settings on your computer (Devices & server). After 5 wrong
+    tries it waits 15 minutes. Someone holding your phone can see your devices
+    but can't add or remove one without it.
+  - **Discreet mode** for this phone.
+  - **What the phone keeps** for when your computer is away, with a button to
+    clear it. Entries still waiting to be sent are never cleared.
+  - **Updates:** which version your computer is on, and installing a new one.
+  - **The Home Screen link**, to pair the Home Screen app.
+- **Street names are saved as the substance.** Logging "acid" saves LSD, and
+  "dexamp" saves Dextroamphetamine, with a note under the field and a tap to
+  keep your own wording. Only whole names count, never one- or two-letter ones
+  like "L" or "K", and your own substances always come first.
+- **Stats counts both spellings as one.** Doses you logged before under a
+  street name now join the same history, Trends included. Nothing in your
+  journal is renamed.
+
 ## v0.22.0
 
 - **The phone works when your computer can't be reached.** If the computer is
