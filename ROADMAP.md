@@ -1241,9 +1241,9 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.22.0** (2026-10-03): the phone works offline (Phase 3b, below).
+**Current release: v0.22.1** (2026-10-03): phone settings for the owner, and street names saved as the substance. v0.22.0 made the phone work offline (Phase 3b, below).
 
-### Phone settings for the owner — after v0.22.0 (owner's request, 2026-10-03)
+### Phone settings for the owner — v0.22.1 (owner's request, 2026-10-03)
 
 The gear next to Help used to appear only for other people on the server; the
 owner's phone now has one too, with:
@@ -1263,7 +1263,7 @@ owner's phone now has one too, with:
   Home Screen pairing link. The owner also gets **Updates** (status, and the
   existing install flow).
 
-### Street names resolve to the substance — after v0.22.0 (owner's request, 2026-10-03)
+### Street names resolve to the substance — v0.22.1 (owner's request, 2026-10-03)
 
 `field_notes_core::names::NameIndex`: a typed name means a substance only on a
 whole-name match, the person's own catalogue first, then the reference's names,
