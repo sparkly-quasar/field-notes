@@ -105,6 +105,10 @@ show you how to get past it.
   out of reach, the phone still opens, Check and Look up answer on the phone
   (the same checker, compiled for it, over a saved copy of the reference), and
   new doses, moments and entries wait on the phone until the computer is back.
+  The gear next to Help holds the phone's settings: discreet mode, what it keeps
+  for offline use, updating the computer, the Home Screen link, and pairing or
+  un-pairing your devices, which asks for your journal's password (or, if the
+  journal isn't encrypted, a phone PIN set at the computer).
   Private by design: see [Architecture](#architecture) for how.
 - **Paste a trip log** — copy a log from your notes app (`8:43am - 35mg mesc`,
   `T+1:30 peak`…) and it becomes a timed experience, doses recognised by name or

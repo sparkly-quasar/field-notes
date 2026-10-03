@@ -101,6 +101,9 @@
     serverPrefs,
     setServerPrefs,
     setPhoneCanUpdate,
+    phonePinStatus,
+    setPhonePin,
+    type PhonePinStatus,
     setMenuBar,
     discreetAvailable,
     setDiscreetAvailable,
@@ -1693,6 +1696,7 @@
     devices = await portalDevices();
     people = await peopleList().catch(() => []);
     sprefs = await serverPrefs();
+    pinStatus = await phonePinStatus().catch(() => null);
     kc = await keychainStatus();
     loginStart = await autostartIsEnabled().catch(() => false);
     await loadRemote();
@@ -2027,6 +2031,25 @@
       discreet.available = sprefs.discreet_available;
     } catch (e) {
       discreetErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // The owner's phone pairing and un-pairing devices (owner_auth.rs): it asks for
+  // the journal's password, or, with no password, this PIN.
+  let pinStatus = $state<PhonePinStatus | null>(null);
+  let pinNew = $state("");
+  let pinNew2 = $state("");
+  let pinMsg = $state<string | null>(null);
+  async function savePhonePin(clear = false) {
+    portalErr = null;
+    pinMsg = null;
+    try {
+      if (!clear && pinNew !== pinNew2) throw new Error("The PIN and the repeat don't match.");
+      pinStatus = await setPhonePin(clear ? null : pinNew);
+      pinMsg = clear ? "Phone PIN removed." : "Phone PIN set.";
+      pinNew = pinNew2 = "";
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -3717,6 +3740,33 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                   <button class="link-inline" onclick={() => switchTailscale(false)}>Use Field Notes' built-in Tailscale instead</button>
                   (paired phones will need a new code scanned, since the address changes).
                 </p>
+              {/if}
+            </div>
+          {/if}
+
+          {#if pinStatus}
+            <div class="sec-block">
+              <h3>Pairing from your phone</h3>
+              {#if pinStatus.method === "password"}
+                <p class="muted small">
+                  Your phone can pair and un-pair your devices (the gear next to Help). It asks for your journal's
+                  password first, so someone holding your phone can't give themselves a key.
+                </p>
+              {:else}
+                <p class="muted small">
+                  Your phone can pair and un-pair your devices (the gear next to Help) once you set a PIN here. It asks
+                  for the PIN first, so someone holding your phone can't give themselves a key. Your journal isn't
+                  encrypted, so there's no password to ask for instead. After 5 wrong tries it waits 15 minutes.
+                </p>
+                <form class="remote-form" onsubmit={(e) => { e.preventDefault(); savePhonePin(); }}>
+                  <input type="password" placeholder={pinStatus.has_pin ? "New PIN" : "PIN (at least 6)"} autocomplete="new-password" bind:value={pinNew} />
+                  <input type="password" placeholder="The same again" autocomplete="new-password" bind:value={pinNew2} />
+                  <button class="ghost small-btn" type="submit" disabled={pinNew.length < 6}>{pinStatus.has_pin ? "Change PIN" : "Set PIN"}</button>
+                </form>
+                {#if pinStatus.has_pin}
+                  <button class="ghost small-btn" onclick={() => savePhonePin(true)}>Remove PIN (turns pairing from the phone off)</button>
+                {/if}
+                {#if pinMsg}<p class="muted small" role="status">{pinMsg}</p>{/if}
               {/if}
             </div>
           {/if}
