@@ -1241,7 +1241,7 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.21.7** (2026-10-02).
+**Current release: v0.22.0** (2026-10-03): the phone works offline (Phase 3b, below).
 
 ### Shipped in v0.21.7 — the 2026-10-02 to-do list
 

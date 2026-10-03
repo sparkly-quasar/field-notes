@@ -11,6 +11,26 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.22.0
+
+- **The phone works when your computer can't be reached.** If the computer is
+  asleep, off, or out of reach, the phone page still opens, and:
+  - **Check and Look up answer on the phone**, using the same combination
+    checker your computer runs, over a copy of the dose reference the phone
+    saves while it's connected. Anything it can't check (a substance you added
+    yourself, or one not in the reference) is named, never passed over quietly.
+  - **New doses, moments and entries save on the phone** and are sent to your
+    computer, in order, as soon as it's back. A dose logged offline is still
+    checked against what else you've taken. A note at the top says how many are
+    waiting; anything your computer turns down stays there to send again or
+    discard.
+  - Editing, Stats and Talk wait for the computer, and say so.
+- **What the phone keeps:** entries waiting to be sent (deleted as your
+  computer confirms each one), the experience in progress, and the last day's
+  entries by substance and time, for the offline check. Your own substance
+  catalogue stays on your computer.
+- Opening the server's address without `/m` now goes to the phone page.
+
 ## v0.21.7
 
 - **"Experience", not "session".** The app now talks about experiences
