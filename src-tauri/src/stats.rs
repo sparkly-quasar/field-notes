@@ -270,6 +270,9 @@ fn families_of(conn: &Connection, name: &str) -> Vec<String> {
 /// Patterns across every dose taken at or after `since` (all time when `None`).
 pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<UsageStats> {
     let since = since.and_then(parse_ts);
+    // "acid" and "LSD" are one history: doses group under the substance their
+    // name means, whatever was typed when they were logged (names.rs).
+    let names = db::name_index(conn)?;
     let mut stmt = conn.prepare(
         "SELECT d.id, d.experience_id, e.title, e.started_at, e.rating,
                 s.name, d.substance_name, d.amount, d.unit, d.route, d.taken_at
@@ -282,7 +285,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         .query_map([], |r| {
             let catalogue: Option<String> = r.get(5)?;
             let logged: String = r.get(6)?;
-            let name = catalogue.unwrap_or(logged).trim().to_string();
+            let name = catalogue.unwrap_or_else(|| names.canonical(&logged).unwrap_or(logged)).trim().to_string();
             let taken_at: String = r.get(10)?;
             Ok(Row {
                 dose_id: r.get(0)?,
@@ -568,6 +571,22 @@ mod tests {
         let s = usage_stats(&c, None).unwrap();
         assert_eq!(s.substances[0].series.len(), 1, "ug and µg are one unit");
         assert_eq!(s.substances[0].series[0].points.len(), 3);
+    }
+
+    #[test]
+    fn street_names_count_as_the_substance_they_mean() {
+        let mut c = journal();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        db::pw_replace_all(&mut c, &all).unwrap();
+        let e = session(&c, "session", "2026-09-01T20:00:00Z");
+        dose(&c, e, "acid", Some(100.0), "µg", "2026-09-01T20:00:00Z");
+        let e2 = session(&c, "session", "2026-09-10T20:00:00Z");
+        dose(&c, e2, "LSD", Some(80.0), "µg", "2026-09-10T20:00:00Z");
+        dose(&c, e2, "my own blend", Some(1.0), "g", "2026-09-10T20:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        let lsd = s.substances.iter().find(|x| x.name == "LSD").expect("one LSD history");
+        assert_eq!(lsd.sessions, 2);
+        assert_eq!(s.substances.len(), 2, "an unknown name stays as written");
     }
 
     #[test]

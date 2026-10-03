@@ -279,6 +279,7 @@ pub fn run() {
             commands::pw_status,
             commands::pw_lookup,
             commands::pw_names,
+            commands::canonical_name,
             commands::db_status,
             commands::unlock_db,
             commands::enable_encryption,

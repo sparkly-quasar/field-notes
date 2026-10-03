@@ -466,6 +466,8 @@ pub const EXPOSED: &[&str] = &[
     "pw_lookup",
     // Names and street names from the (public) dose reference, for pasted logs.
     "pw_names",
+    // Which substance a typed name means ("acid" → LSD), for saving a dose.
+    "canonical_name",
     "knowledge_search",
     "knowledge_status",
     // The bundled reference files as shipped (public CC0 data, no journal), for a
@@ -635,6 +637,7 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "pw_status" => done(commands::pw_status_in(db)),
         "pw_lookup" => done(commands::pw_lookup_in(db, arg(&args, "name")?)),
         "pw_names" => done(commands::pw_names_in(db)),
+        "canonical_name" => done(commands::canonical_name_in(db, arg(&args, "name")?)),
         "knowledge_search" => ok(commands::knowledge_search(
             app.state(),
             arg(&args, "query")?,

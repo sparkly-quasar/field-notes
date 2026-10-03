@@ -62,6 +62,7 @@ pub const ROUTED: &[&str] = &[
     "delete_timeline_event",
     "delete_substance",
     "check_combo",
+    "canonical_name",
     "crisis_scan",
     "companion_chat",
     "companion_warm",
@@ -895,6 +896,11 @@ fn offline<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: Value, why: &str) ->
             }
         }
         c if QUEUEABLE.contains(&c) => db.with_mut(|conn| queue(conn, cmd, &args)).and_then(|v| v),
+        "canonical_name" => {
+            // From this computer's own copy of the reference and catalogue.
+            let name = args["name"].as_str().unwrap_or_default().to_string();
+            serde_json::to_value(commands::canonical_name_in(db.inner(), name)?).map_err(|e| e.to_string())
+        }
         "check_combo" => {
             let names: Vec<String> = serde_json::from_value(args["names"].clone()).unwrap_or_default();
             serde_json::to_value(commands::check_combo(db, names)).map_err(|e| e.to_string())

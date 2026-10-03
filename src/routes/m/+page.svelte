@@ -108,6 +108,7 @@
   import { dev } from "$app/environment";
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
+  import NameHint from "$lib/NameHint.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
   import { discreet, hiding, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
@@ -163,6 +164,8 @@
   let busyKey = $state<string | null>(null);
   const busy = $derived(busyKey !== null);
   let err = $state<string | null>(null);
+  /** The dose being logged, as it will be saved ("acid" → LSD; NameHint). */
+  let dSubAs = $state("");
   /** Whether the computer is reachable, and what's waiting to be sent to it. */
   let net = $state<OfflineStatus>({ offline: false, pending: 0, failed: [], ready: false, kept: { open: 0, recent: 0 } });
   /** Names the last offline check couldn't check (not in the phone's reference). */
@@ -960,7 +963,7 @@
     run("dose", async () => {
       if (!dSub.trim()) return;
       const at = localInputToIso(dWhen);
-      const substance = dSub.trim();
+      const substance = dSubAs || dSub.trim();
       const amount = num(dAmt, "amount");
       // quickLog for every dose, not just new entries: it widens the interaction
       // check to anything else taken within 12 hours, and stretches an entry whose
@@ -2380,6 +2383,7 @@
           {/if}
           <label for="d-sub">Substance</label>
           <input id="d-sub" bind:value={dSub} onblur={applyRemembered} autocapitalize="none" autocomplete="off" enterkeyhint="next" />
+          <NameHint name={dSub} bind:saveAs={dSubAs} />
           <div class="grid3">
             <div>
               <label for="d-amt">Amount</label>
