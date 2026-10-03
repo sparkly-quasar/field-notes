@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "field_notes"
-version = "0.22.1"
+version = "0.22.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",

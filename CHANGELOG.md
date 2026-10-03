@@ -11,6 +11,17 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.22.2
+
+- **Save or share an experience as a PDF.** To send a trip report to someone:
+  on your phone, open the entry, tap ⋯ and choose **Share as PDF** (straight
+  to Messages, Mail or AirDrop where your phone offers it, or download it); on
+  the computer, **Save as PDF…** on the entry. The title, times and doses are
+  always in it, and you choose whether to include intention and setting,
+  moments, the write-up and the rating. The timeline shows each dose and
+  moment with its time and T+ from the first dose. It uses real names, even in
+  discreet mode, and it works on the phone without a connection too.
+
 ## v0.22.1
 
 - **Settings on your phone.** The gear next to Help now appears on the owner's

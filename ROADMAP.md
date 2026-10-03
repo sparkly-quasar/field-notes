@@ -1241,7 +1241,7 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.22.1** (2026-10-03): phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
+**Current release: v0.22.2** (2026-10-03): share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
 
 ### Phone settings for the owner — v0.22.1 (owner's request, 2026-10-03)
 
@@ -1263,7 +1263,7 @@ owner's phone now has one too, with:
   Home Screen pairing link. The owner also gets **Updates** (status, and the
   existing install flow).
 
-### Share an entry as a PDF — after v0.22.1 (owner's request, 2026-10-03)
+### Share an entry as a PDF — v0.22.2 (owner's request, 2026-10-03)
 
 `src/lib/pdf.ts` writes the PDF itself (no dependency): Helvetica and
 Helvetica-Bold, the PDF standard fonts, so nothing is embedded; WinAnsi text,
