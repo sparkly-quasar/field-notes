@@ -747,9 +747,19 @@ export const personRemember = (remember: boolean, password: string | null = null
 export const myDevices = () => invoke<MyDevice[]>("my_devices");
 /** Pair another device of yours. `origin` is where this phone reached the server,
  *  so the returned QR code points at the same place. */
-export const pairOwnDevice = (name: string, origin: string) =>
-  invoke<PairResult & { qr: string | null }>("pair_own_device", { name, origin });
-export const unpairMyDevice = (id: number) => invoke<MyDevice[]>("unpair_my_device", { id });
+export const pairOwnDevice = (name: string, origin: string, password: string | null = null) =>
+  invoke<PairResult & { qr: string | null }>("pair_own_device", { name, origin, password });
+export const unpairMyDevice = (id: number, password: string | null = null) =>
+  invoke<MyDevice[]>("unpair_my_device", { id, password });
+/** On the owner's phone: what pairing or un-pairing asks for (owner_auth.rs). */
+export const ownerDeviceAuth = () => invoke<"password" | "pin" | "off">("owner_device_auth");
+export interface PhonePinStatus {
+  method: "password" | "pin" | "off";
+  has_pin: boolean;
+}
+/** At the computer: how the owner's phone proves it's them, and the PIN behind it. */
+export const phonePinStatus = () => invoke<PhonePinStatus>("phone_pin_status");
+export const setPhonePin = (pin: string | null) => invoke<PhonePinStatus>("set_phone_pin", { pin });
 /** Re-encrypt your journal under a new password. Needs the current one. */
 export const personChangePassword = (current: string, newPassword: string) =>
   invoke<DbStatus>("person_change_password", { current, new: newPassword });

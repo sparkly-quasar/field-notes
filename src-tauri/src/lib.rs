@@ -16,6 +16,7 @@ pub(crate) use field_notes_core::interactions;
 mod keychain;
 pub mod knowledge;
 mod obsidian;
+mod owner_auth;
 mod people;
 pub mod ollama;
 mod portal;
@@ -204,6 +205,7 @@ pub fn run() {
             app.manage(devices::Devices::load(dir.join("devices.json")));
             app.manage(people::People::load(&dir));
             app.manage(prefs::Prefs::load(dir.join("server.json")));
+            app.manage(owner_auth::OwnerAuth::new(dir.join("phone_pin.json")));
             // The built-in Tailscale: idle until the user connects this computer.
             app.manage(tailnet::Tailnet::new(&dir));
             app.manage(server_update::ServerUpdate::default());
@@ -247,6 +249,8 @@ pub fn run() {
             commands::server_update_status,
             commands::server_update_install,
             commands::set_phone_can_update,
+            commands::phone_pin_status,
+            commands::set_phone_pin,
             commands::set_menu_bar,
             commands::update_experience,
             commands::update_dose,

@@ -2248,6 +2248,31 @@ pub fn set_phone_can_update(prefs: State<'_, Prefs>, allowed: bool) -> Result<Se
     prefs.update(|p| p.phone_can_update = allowed)
 }
 
+/// How a phone proves it's the owner before pairing or un-pairing a device
+/// (`owner_auth.rs`), for Settings on the computer.
+#[derive(Serialize)]
+pub struct PhonePinStatus {
+    /// "password" (the journal is encrypted), "pin", or "off".
+    pub method: crate::owner_auth::Method,
+    pub has_pin: bool,
+}
+
+#[tauri::command]
+pub fn phone_pin_status(db: State<'_, Db>, auth: State<'_, crate::owner_auth::OwnerAuth>) -> PhonePinStatus {
+    PhonePinStatus { method: auth.method(&db.path), has_pin: auth.has_pin() }
+}
+
+/// Set or remove the phone PIN. Desktop only: never on the portal allowlist.
+#[tauri::command]
+pub fn set_phone_pin(
+    db: State<'_, Db>,
+    auth: State<'_, crate::owner_auth::OwnerAuth>,
+    pin: Option<String>,
+) -> Result<PhonePinStatus, String> {
+    auth.set_pin(pin.as_deref())?;
+    Ok(phone_pin_status(db, auth))
+}
+
 #[derive(Serialize)]
 pub struct KeychainStatus {
     /// The journal is encrypted, so there is a passphrase to remember at all.

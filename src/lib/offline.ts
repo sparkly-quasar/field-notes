@@ -45,6 +45,8 @@ export interface OfflineStatus {
   failed: { seq: number; what: string; why: string }[];
   /** The phone has the dose reference, so checks and lookups work offline. */
   ready: boolean;
+  /** Journal entries kept for offline checks: in progress, and from the last day. */
+  kept: { open: number; recent: number };
 }
 
 let offline = false;
@@ -58,6 +60,7 @@ export function offlineStatus(): OfflineStatus {
     pending: ob.pending(s).length,
     failed: ob.failed(s).map((i) => ({ seq: i.seq, what: ob.describe(i), why: i.failed ?? "" })),
     ready,
+    kept: { open: Object.keys(s.details).length, recent: (s.list ?? []).length },
   };
 }
 
@@ -112,6 +115,28 @@ export function retryFailed(seq: number) {
   });
   notify();
   void flush();
+}
+
+/**
+ * Forget what this phone keeps for offline use: the entries kept for checks and
+ * the saved reference. Entries still waiting to be sent stay (clearing them would
+ * lose them); discard those one by one if they were refused. While connected, the
+ * phone saves fresh copies again as it's used.
+ */
+export async function clearKept() {
+  update((s) => {
+    s.list = null;
+    s.details = {};
+  });
+  try {
+    if (typeof caches !== "undefined") await caches.delete(FILES_CACHE);
+  } catch {
+    // Nothing saved, or storage blocked: nothing to clear.
+  }
+  ready = false;
+  enginePromise = null;
+  fetching = null;
+  notify();
 }
 
 // ---------- is the computer there? ----------
