@@ -292,6 +292,7 @@ pub fn run() {
             commands::export_experience_markdown,
             commands::export_experience_file,
             commands::save_markdown_file,
+            commands::save_pdf_file,
             commands::contribution_candidates,
             commands::contribution_draft,
             commands::contribution_save,

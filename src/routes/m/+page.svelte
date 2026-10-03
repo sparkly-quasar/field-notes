@@ -109,6 +109,7 @@
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
   import NameHint from "$lib/NameHint.svelte";
+  import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
   import { discreet, hiding, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
@@ -145,6 +146,7 @@
     | "end"
     | "more"
     | "paste"
+    | "pdf"
     | "me";
 
   const ROUTES = ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"];
@@ -1350,6 +1352,53 @@
       closeSheet();
     });
 
+  // ---------- share as PDF (pdf.ts) ----------
+
+  let pdfParts = $state<PdfParts>({ ...ALL_PARTS });
+  const pdfFile = (e: ExperienceDetail) =>
+    new File([experiencePdf(e, pdfParts) as BlobPart], pdfFilename(e), { type: "application/pdf" });
+  /** The phone's own share sheet (Messages, Mail, AirDrop…), where it has one. */
+  const canShareFiles = $derived.by(() => {
+    if (typeof navigator === "undefined" || !navigator.canShare || !open) return false;
+    try {
+      return navigator.canShare({ files: [new File([""], "x.pdf", { type: "application/pdf" })] });
+    } catch {
+      return false;
+    }
+  });
+
+  function startPdf() {
+    pdfParts = { ...ALL_PARTS };
+    sheet = "pdf";
+  }
+
+  const sharePdf = () =>
+    run("pdf", async () => {
+      if (!open) return;
+      try {
+        await navigator.share({ files: [pdfFile(open)], title: open.title || "Experience" });
+        closeSheet();
+      } catch (e) {
+        // Closing the share sheet isn't a failure.
+        if (!(e instanceof DOMException && e.name === "AbortError")) throw e;
+      }
+    });
+
+  const downloadPdf = () =>
+    run("pdf", async () => {
+      if (!open) return;
+      const url = URL.createObjectURL(pdfFile(open));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = pdfFilename(open);
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      closeSheet();
+    });
+
   // ---------- the journal list ----------
 
   /** A finished session with no write-up that nobody said was fine without one.
@@ -1606,6 +1655,22 @@
       own Home Screen app.
     </p>
     <button class="small" onclick={copyHomeLink}>{homeLinkCopied ? "Link copied ✓" : "Copy link for the Home Screen app"}</button>
+  {/if}
+{/snippet}
+
+<!-- What else goes in a shared PDF; only what this entry actually has. -->
+{#snippet pdfChoices(e: ExperienceDetail)}
+  {#if e.intention.trim() || e.setting.trim()}
+    <label class="check"><input type="checkbox" bind:checked={pdfParts.intention} /> Intention and setting</label>
+  {/if}
+  {#if e.timeline.length}
+    <label class="check"><input type="checkbox" bind:checked={pdfParts.moments} /> Moments ({e.timeline.length})</label>
+  {/if}
+  {#if e.notes.trim()}
+    <label class="check"><input type="checkbox" bind:checked={pdfParts.writeup} /> {e.kind === "note" ? "The note" : "Write-up"}</label>
+  {/if}
+  {#if e.rating != null}
+    <label class="check"><input type="checkbox" bind:checked={pdfParts.rating} /> Rating ({e.rating}/10)</label>
   {/if}
 {/snippet}
 
@@ -2628,6 +2693,25 @@
             <button class="primary" disabled={busy} onclick={saveEnd}>{busyKey === "end" ? "Saving…" : open.ended_at ? "Finish" : "End trip report"}</button>
           </div>
 
+        {:else if sheet === "pdf" && open}
+          <div class="sheet-head">
+            <h2 id="sheet-title">Share as PDF</h2>
+            <button class="ghost small" onclick={closeSheet}>Close</button>
+          </div>
+          <p class="muted small">
+            The title, times and doses are always in it. Choose what else to include. It uses real names, even in discreet
+            mode, and once it's shared it's out of Field Notes' hands.
+          </p>
+          {@render pdfChoices(open)}
+          <div class="sheet-actions">
+            {#if canShareFiles}
+              <button class="primary" disabled={busy} onclick={sharePdf}>{busyKey === "pdf" ? "Preparing…" : "Share…"}</button>
+              <button disabled={busy} onclick={downloadPdf}>Download</button>
+            {:else}
+              <button class="primary" disabled={busy} onclick={downloadPdf}>{busyKey === "pdf" ? "Preparing…" : "Download"}</button>
+            {/if}
+          </div>
+
         {:else if sheet === "more" && open}
           <div class="sheet-head">
             <h2 id="sheet-title">{open.title || "This entry"}</h2>
@@ -2636,6 +2720,7 @@
           <ul class="menu">
             <li><button onclick={startDetails}><strong>Edit details</strong><span class="muted">Title, times{open.kind === "session" ? ", rating, intention, setting" : ""}</span></button></li>
             <li><button onclick={() => startWriteup(open)}><strong>{open.kind === "note" ? "Edit the note" : "Edit the write-up"}</strong></button></li>
+            <li><button onclick={startPdf}><strong>Share as PDF</strong><span class="muted">A tidy report to send to someone, with what you choose in it</span></button></li>
             <li><button onclick={exportOpen}><strong>Export as Markdown</strong><span class="muted">Downloads to this phone</span></button></li>
           </ul>
           <!-- Apart from everything else, and two deliberate taps. -->

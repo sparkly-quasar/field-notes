@@ -1572,6 +1572,21 @@ pub fn save_markdown_file(dest: String, markdown: String) -> Result<(), String> 
     std::fs::write(path, markdown).map_err(err)
 }
 
+/// Save an entry's PDF (built in the frontend, `src/lib/pdf.ts`) to a path the
+/// user picked in a save dialog. Desktop-only: it writes to the desktop's disk, so
+/// `portal.rs` must never allowlist it. PDF only.
+#[tauri::command]
+pub fn save_pdf_file(dest: String, data: Vec<u8>) -> Result<(), String> {
+    let path = Path::new(&dest);
+    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+        return Err("Entries are saved as PDF (.pdf) files here.".into());
+    }
+    if !data.starts_with(b"%PDF-") {
+        return Err("That isn't a PDF.".into());
+    }
+    std::fs::write(path, data).map_err(err)
+}
+
 // ---------- the phone portal (optional; off by default) ----------
 //
 // These are desktop-only by construction: `portal.rs` does not put them on its
