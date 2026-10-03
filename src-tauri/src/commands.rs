@@ -298,6 +298,18 @@ pub(crate) fn refresh_dose_reference<R: tauri::Runtime>(app: &AppHandle<R>, db: 
 }
 
 /// Names and street names from the dose reference, for matching pasted logs.
+/// The substance a typed name clearly means ("acid" → LSD), if any, so a dose
+/// is saved under it. `None`: keep it as written.
+#[tauri::command]
+pub fn canonical_name(db: State<'_, Db>, name: String) -> Result<Option<String>, String> {
+    canonical_name_in(&db, name)
+}
+
+/// [`canonical_name`] against any person's journal (the portal picks it by device).
+pub fn canonical_name_in(db: &Db, name: String) -> Result<Option<String>, String> {
+    db.with(|c| Ok(db::name_index(c)?.canonical(&name)))
+}
+
 #[tauri::command]
 pub fn pw_names(db: State<'_, Db>) -> Result<Vec<db::PwName>, String> {
     pw_names_in(&db)

@@ -49,6 +49,7 @@ const ROUTED = new Set([
   "delete_timeline_event",
   "delete_substance",
   "check_combo",
+  "canonical_name",
   "crisis_scan",
   "companion_chat",
   "companion_warm",
@@ -268,6 +269,8 @@ export const pwUpdate = () => invoke<number>("pw_update");
 export const pwStatus = () => invoke<PwStatus>("pw_status");
 export const pwLookup = (name: string) => invoke<PwInfo | null>("pw_lookup", { name });
 /** Every dose-reference substance with its street names — for matching pasted logs. */
+/** The substance a typed name clearly means ("acid" → LSD), or null to keep it as written. */
+export const canonicalName = (name: string) => invoke<string | null>("canonical_name", { name });
 export const pwNames = () => invoke<{ name: string; aliases: string[] }[]>("pw_names");
 
 // ---- Knowledge corpus (DoseWiki prose, searched offline with BM25) ----
