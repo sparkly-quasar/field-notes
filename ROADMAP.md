@@ -255,8 +255,8 @@ a sync engine.
 - **Settings naming:** "Use another computer as your server" (client) and
   "Server Mode" (serve on launch / open at login / keychain) — owner's wording.
 
-**Not built, on purpose:** queued edits (see above);
-the phone's own offline outbox (still Phase 3b).
+**Not built, on purpose:** queued edits (see above). The phone's own offline
+outbox shipped later, as Phase 3b.
 
 ## Shipped in v0.11.5
 
@@ -739,6 +739,38 @@ using the model switch and reading the screens as a first-timer would.
    decision is made at the desk.
 
    ### Phase 3b — offline capture. Lets you log while the Mac is asleep or off-tailnet.
+   **✅ Shipped (2026-10-03, owner's request).** What was built, against the plan below:
+   - **One checker.** `interactions.rs`, `pw.rs`, `knowledge.rs` and the combo logic
+     from `db.rs` (now `check.rs`, behind a `Reference` trait) moved to
+     `src-tauri/core`; `src-tauri/wasm` compiles it to a 360 KB module with a
+     JSON-in/JSON-out C ABI (no wasm-bindgen), built by `scripts/build-wasm.mjs`
+     before every frontend build. `MemReference` answers lookups exactly as the
+     cache table's `LIKE` does, pinned by a parity test over every name, alias,
+     class and route in the reference.
+   - **Reference files** come from two exposed, journal-free commands
+     (`offline_reference`, `offline_corpus`, sent raw) and are kept in the Cache
+     API once per app version.
+   - **Outbox** (`outbox.ts`, wired in `offline.ts`): the laptop client's rules
+     (`remote.rs`) in TypeScript. Only `create_experience`, `log_dose`,
+     `add_timeline_event`, `end_experience` queue; negative temp IDs; 502/504,
+     no answer, and the owner's locked journal mean "answer here"; a timeout
+     doesn't (a write may have landed). Refused or timed-out entries stay
+     visible with **Send again** and **Discard**. Widening an entry's times to
+     cover a dose is queued as `stretch_to_cover` and worked out against the
+     computer's copy when sent, so it can't overwrite an edit made there.
+   - **Storage — owner's decision (2026-10-03):** plain browser storage, cleared
+     as the computer confirms each entry, relying on the phone's own encryption.
+     No PIN. The phone also keeps the experiences in progress and the last day's
+     entries (substances and times) for the offline check.
+   - **Reference only — owner's decision (2026-10-03):** the phone keeps no copy
+     of the person's own catalogue. Offline checks use DoseWiki and the built-in
+     classes, and name anything they couldn't check.
+   - **Crisis scan:** not ported, because since v0.21.6 it only reads what's
+     written to the Companion, and Talk greys out offline ("Talk runs on your
+     computer"). Help's resources were already cached on the phone.
+   - **`/` → `/m`** for browsers, and a service worker (`src/service-worker.ts`,
+     registered from `/m` only) keeps the page and its files on the phone.
+
    The journal is **append-only** in practice (a dose/note is a new row), so an outbox
    that queues *only new entries* sidesteps real bidirectional sync entirely — **keep it
    that way**; queuing edits/deletes re-opens conflict resolution and is not worth it.
@@ -1346,6 +1378,9 @@ be possible to write a plain text entry, in the same journal, alongside the sess
   to jot something at 3am without pretending it's a session.
 - **Downstream, mostly free:** Obsidian export writes them as ordinary Markdown notes;
   the Companion can read them for context; the substance log ignores them by definition.
+
+**Phase 3b shipped (2026-10-03, owner's request), as recorded under Phase 3b above.**
+The rest of this paragraph is the reasoning it was held on.
 
 **Phase 3b stays on hold until 3a has been used enough to know.** Since v0.12 a
 *laptop* client queues offline under SQLCipher with the safety checks intact, so the

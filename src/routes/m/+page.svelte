@@ -94,6 +94,16 @@
     LockedError,
     pairingLink,
   } from "$lib/portal";
+  import {
+    discardFailed,
+    onOfflineStatus,
+    retryFailed,
+    flush as sendWaiting,
+    startOffline,
+    uncheckedOffline,
+    type OfflineStatus,
+  } from "$lib/offline";
+  import { dev } from "$app/environment";
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
@@ -151,6 +161,11 @@
   let busyKey = $state<string | null>(null);
   const busy = $derived(busyKey !== null);
   let err = $state<string | null>(null);
+  /** Whether the computer is reachable, and what's waiting to be sent to it. */
+  let net = $state<OfflineStatus>({ offline: false, pending: 0, failed: [], ready: false });
+  /** Names the last offline check couldn't check (not in the phone's reference). */
+  let comboUnchecked = $state<string[]>([]);
+  let comboOffline = $state(false);
 
   let recent = $state<ExperienceSummary[]>([]);
   // False until the journal has loaded once, so the empty-journal card doesn't
@@ -293,6 +308,7 @@
     pairText = "";
     pairErr = null;
     paired = true;
+    startOffline();
     refresh();
     loadAi();
     loadResources();
@@ -383,6 +399,20 @@
     vv?.addEventListener("resize", onVv);
     vv?.addEventListener("scroll", onVv);
     window.addEventListener(LOCKED_EVENT, onLocked);
+    let stopNet = () => {};
+    if (!inTauri()) {
+      // Keep this page on the phone so it opens offline (src/service-worker.ts).
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/service-worker.js", { type: dev ? "module" : "classic" }).catch(() => {});
+      }
+      stopNet = onOfflineStatus((s) => {
+        const back = net.offline && !s.offline;
+        net = s;
+        // Back in touch: show the computer's copy, with everything sent.
+        if (back && paired && !locked) refresh();
+      });
+      if (paired) startOffline();
+    }
     if (paired) {
       // Help first and regardless: it needs no journal.
       loadResources();
@@ -391,6 +421,7 @@
       });
     }
     return () => {
+      stopNet();
       window.removeEventListener(LOCKED_EVENT, onLocked);
       clearInterval(clock);
       document.removeEventListener("visibilitychange", onVisible);
@@ -1361,6 +1392,9 @@
       const names = comboText.split(/[,+\n]/).map((s) => s.trim()).filter(Boolean);
       if (names.length < 2) throw new Error("Name at least two, separated by commas.");
       comboWarnings = await checkCombo(names);
+      // Answered on the phone: say so, and name anything it couldn't check.
+      comboOffline = net.offline;
+      comboUnchecked = net.offline ? await uncheckedOffline(names) : [];
     });
 
   const lookUp = () =>
@@ -1487,6 +1521,19 @@
 
 {#snippet warnings(list: Warning[])}
   <RiskNotes warnings={list} />
+{/snippet}
+
+<!-- Under an answer from the phone's own checker: say so, and what it couldn't check. -->
+{#snippet offlineCheckNote()}
+  {#if comboOffline}
+    <p class="muted small">
+      Checked on this phone, by the same checker your computer runs, against the dose reference.
+      {#if comboUnchecked.length}
+        <strong>Not checked: {comboUnchecked.join(", ")}.</strong> {comboUnchecked.length === 1 ? "It isn't" : "They aren't"} in
+        the reference, and substances you added yourself are only known to your computer.
+      {/if}
+    </p>
+  {/if}
 {/snippet}
 
 {#snippet resourceList(list: CrisisResource[])}
@@ -1620,6 +1667,39 @@
       </span>
     </header>
 
+    {#if net.offline || net.pending || net.failed.length}
+      <!-- ================= without the computer ================= -->
+      <section class="pane offline" role="status">
+        {#if net.offline}
+          <p>
+            <strong>Your computer can't be reached.</strong>
+            {#if net.ready}
+              Check, Look up and Help work on this phone. New doses, moments and entries save here and are sent when it's
+              back. Editing, Stats and Talk wait for it.
+            {:else}
+              Help works on this phone. Check and Look up will too, once this phone has been connected long enough to save
+              the dose reference. New entries still save here and are sent when it's back.
+            {/if}
+          </p>
+        {/if}
+        {#if net.pending}
+          <p class="small">
+            {net.pending === 1 ? "1 entry is" : `${net.pending} entries are`} waiting on this phone to be sent.
+            {#if !net.offline}<button class="ghost small" onclick={() => sendWaiting()}>Send now</button>{/if}
+          </p>
+        {/if}
+        {#each net.failed as f (f.seq)}
+          <div class="failed">
+            <p class="small"><strong>Not sent: {f.what}.</strong> {f.why}</p>
+            <div class="pair">
+              <button class="small" onclick={() => retryFailed(f.seq)}>Send again</button>
+              <button class="ghost small" onclick={() => discardFailed(f.seq)}>Discard</button>
+            </div>
+          </div>
+        {/each}
+      </section>
+    {/if}
+
     {#if locked && me}
       <!-- ================= LOCKED: another person's journal ================= -->
       <section class="pane bare lock">
@@ -1665,6 +1745,7 @@
           {:else}
             {@render warnings(comboWarnings)}
           {/if}
+          {@render offlineCheckNote()}
         {/if}
       </section>
     {:else}
@@ -1974,12 +2055,16 @@
             {:else}
               {@render warnings(comboWarnings)}
             {/if}
+            {@render offlineCheckNote()}
           {/if}
         {:else}
           <label for="ref">Substance</label>
           <input id="ref" placeholder="e.g. ketamine" bind:value={refQuery} autocapitalize="none" enterkeyhint="search" onkeydown={(ev) => ev.key === "Enter" && lookUp()} />
           <button class="primary" disabled={busy || !refQuery.trim()} onclick={lookUp}>{busyKey === "lookup" ? "Looking…" : "Look up"}</button>
 
+          {#if searched && net.offline}
+            <p class="muted small">From the copy of the reference saved on this phone.</p>
+          {/if}
           {#if pw}
             <h2 class="sec">{pw.name} — doses</h2>
             {#each pw.roas as roa}
@@ -2047,6 +2132,12 @@
         <h1>Companion</h1>
         {#if companionEnabled === false}
           <p class="muted">The Companion isn't turned on. It's optional: turn it on in Settings on your server if you want it. Everything else works either way.</p>
+        {:else if net.offline}
+          <p class="muted">
+            Talk runs on your computer's local model, so it's unavailable until your computer can be reached. Help, Check and
+            Look up still work on this phone.
+          </p>
+          <button disabled={busy} onclick={loadAi}>Try again</button>
         {:else if !ai}
           <p class="muted">Couldn't ask the server about its local model.</p>
           <button disabled={busy} onclick={loadAi}>Try again</button>
@@ -2933,6 +3024,10 @@
   .flag { font-size: var(--fs-xs); border: 1px solid var(--caution); color: var(--caution); border-radius: 6px; padding: 0 0.35rem; margin-left: 0.35rem; }
 
   /* ---------- banners ---------- */
+  /* Without the computer: calm, not alarming, and always visible while it applies. */
+  .pane.offline { border: 1px solid var(--divider); border-radius: 12px; padding: 0.7rem 0.8rem; margin: 0.5rem 0; }
+  .pane.offline p { margin: 0.2rem 0; }
+  .pane.offline .failed { border-top: 1px solid var(--divider); padding-top: 0.4rem; margin-top: 0.4rem; }
   .banner { border-radius: 10px; padding: 0.7rem 0.8rem; margin: 0.5rem 0; border: 1px solid; font-size: var(--fs-sm); }
   .banner.danger { border-color: var(--danger); background: var(--danger-bg); }
   .banner.caution { border-color: var(--caution); background: var(--caution-bg); }

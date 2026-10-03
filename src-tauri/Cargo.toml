@@ -8,6 +8,12 @@ license-file = "../LICENSE"
 publish = false
 edition = "2021"
 
+[workspace]
+members = [".", "core", "wasm"]
+# `cargo test` covers the shared core too; the wasm crate is built by
+# scripts/build-wasm.mjs for its own target.
+default-members = [".", "core"]
+
 [lib]
 # The `_lib` suffix keeps the lib name distinct from the bin name (Windows).
 name = "field_notes_lib"
@@ -28,6 +34,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The reference, checker and corpus search, shared with the phone (core/, wasm/).
+field_notes_core = { path = "core" }
 # SQLCipher (vendored, with vendored OpenSSL) so the journal can be encrypted at
 # rest with a passphrase. Without a key set it reads/writes plaintext DBs, so
 # existing unencrypted journals keep working (encryption is opt-in).
@@ -56,3 +64,9 @@ tauri-plugin-autostart = "2"
 # the model extracted, drop what doesn't parse, rebase a T+ report onto its start.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+
+# The phone downloads this once per version: keep it small.
+[profile.release.package.field_notes_wasm]
+opt-level = "s"
+strip = true
+codegen-units = 1

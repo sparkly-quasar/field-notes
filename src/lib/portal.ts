@@ -72,6 +72,20 @@ export class LockedError extends Error {
   readonly locked = true;
 }
 
+/**
+ * The computer couldn't be reached at all (or its journal is locked at the
+ * desk), so nothing was sent: safe to answer on the phone or queue instead. A
+ * request that *timed out* is not this — it may have landed.
+ */
+export class UnreachableError extends Error {
+  readonly unreachable = true;
+}
+
+/** No answer in time. Unlike [`UnreachableError`], a write may still have landed. */
+export class TimeoutError extends Error {
+  readonly timedOut = true;
+}
+
 export function hasToken(): boolean {
   return typeof localStorage !== "undefined" && !!localStorage.getItem(TOKEN_KEY);
 }
@@ -84,7 +98,11 @@ export function forgetToken(): void {
  * The phone's transport. Same command names, same argument shapes, same errors as
  * `invoke` — so `api.ts` above it doesn't know which one it's talking to.
  */
-export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function portalInvoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  opts: { timeoutMs?: number; raw?: boolean } = {},
+): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) throw new Error("This phone isn't paired. On your server, open Settings → Devices & server → Pair a device.");
 
@@ -93,7 +111,7 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
   // button saying "Saving…" forever. Give up after a while — and say honestly that
   // a write may still have landed, so nobody re-logs a dose that's already there.
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs ?? REQUEST_TIMEOUT_MS);
   try {
     res = await fetch(`/api/${cmd}`, {
       method: "POST",
@@ -103,12 +121,12 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
     });
   } catch {
     if (ctl.signal.aborted) {
-      throw new Error("That took too long to answer. It may or may not have saved — check the entry before trying again.");
+      throw new TimeoutError("That took too long to answer. It may or may not have saved — check the entry before trying again.");
     }
     // Nothing answered at all, so the phone isn't on the tailnet (or the computer
     // isn't). Say which things to check, in the order they usually go wrong — a
     // silent failure while someone is logging a dose is the worst outcome here.
-    throw new Error(
+    throw new UnreachableError(
       "Can't reach your computer. Check that Tailscale is switched on on this phone and signed in " +
         "with the same account as your computer (another VPN app can switch it off), and that your " +
         "computer is on.",
@@ -121,9 +139,9 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
     forgetToken();
     throw new Error("This phone is no longer paired. Pair it again on your server: Settings → Devices & server.");
   }
-  if (res.status === 502) {
+  if (res.status === 502 || res.status === 504) {
     // Tailscale reached the computer, but Field Notes isn't running there.
-    throw new Error("Your computer isn't answering. Is it awake, with Field Notes open?");
+    throw new UnreachableError("Your computer isn't answering. Is it awake, with Field Notes open?");
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -133,7 +151,11 @@ export async function portalInvoke<T>(cmd: string, args?: Record<string, unknown
       window.dispatchEvent(new CustomEvent(LOCKED_EVENT));
       throw new LockedError(body.error ?? "Your journal is locked.");
     }
+    if (res.status === 503) {
+      // The owner's journal is locked at the desk: nothing was read or written.
+      throw new UnreachableError(body.error ?? "The journal is locked on your computer.");
+    }
     throw new Error(body.error ?? `Request failed (${res.status}).`);
   }
-  return (await res.json()) as T;
+  return (opts.raw ? await res.text() : await res.json()) as T;
 }

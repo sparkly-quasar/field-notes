@@ -11,3 +11,6 @@ vite.config.ts.timestamp-*
 
 # Built by scripts/build-tailnet.sh before any Rust build
 /src-tauri/binaries
+
+# Built by scripts/build-wasm.mjs before every frontend build
+/static/offline

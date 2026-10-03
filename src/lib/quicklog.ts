@@ -31,6 +31,7 @@ import {
   type ExperienceSummary,
   type Warning,
 } from "./api";
+import { deferStretch, NeedsComputerError } from "./offline";
 
 export interface QuickLogInput {
   substance: string;
@@ -97,7 +98,9 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
   return {
     id,
     title: entry.title,
-    warnings: await allWarnings(substance, input.at, logged.warnings, id),
+    // The dose is saved whatever happens here; if the wider check can't run, the
+    // entry's own check still stands.
+    warnings: await allWarnings(substance, input.at, logged.warnings, id).catch(() => logged.warnings),
     doseId: logged.dose.id,
     fresh,
   };
@@ -113,7 +116,7 @@ export async function stretchToCover(id: number, at: string) {
   const before = new Date(at) < new Date(e.started_at);
   const after = e.ended_at != null && new Date(at) > new Date(e.ended_at);
   if (!before && !after) return;
-  await updateExperience(id, {
+  const update = {
     title: e.title,
     intention: e.intention,
     setting: e.setting,
@@ -121,7 +124,15 @@ export async function stretchToCover(id: number, at: string) {
     rating: e.rating,
     started_at: before ? at : e.started_at,
     ended_at: after ? at : e.ended_at,
-  });
+  };
+  try {
+    await updateExperience(id, update);
+  } catch (err) {
+    // A phone without its computer can't edit, but this edit is safe to make
+    // later: it's worked out again against the computer's copy when it's sent.
+    if (err instanceof NeedsComputerError) deferStretch(id, at);
+    else throw err;
+  }
 }
 
 /**
