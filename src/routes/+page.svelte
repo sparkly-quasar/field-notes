@@ -122,6 +122,7 @@
     type RemoteStatus,
     type RemoteFailed,
   } from "$lib/api";
+  import { inTauri } from "$lib/portal";
   import {
     enable as autostartEnable,
     disable as autostartDisable,
@@ -519,6 +520,12 @@
   const localInputToIso = (local: string) => (local ? new Date(local).toISOString() : nowIso());
 
   onMount(() => {
+    // A phone browsing to the server's root gets the desktop page, which needs
+    // Tauri; its page is /m (and that's what works offline).
+    if (!inTauri()) {
+      location.replace(`/m${location.hash}`);
+      return;
+    }
     interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
     updateTimer = setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);

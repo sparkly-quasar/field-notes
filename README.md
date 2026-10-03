@@ -101,8 +101,11 @@ show you how to get past it.
   substance, amount, and when — as a one-shot entry, for any day you're catching
   up on. Past entries are editable from the phone too: tap any dose or note to
   correct it, add one you forgot, or open the entry to change its title, times,
-  rating and write-up. Private by design: see
-  [Architecture](#architecture) for how.
+  rating and write-up. **Works without the computer, too:** if it's asleep or
+  out of reach, the phone still opens, Check and Look up answer on the phone
+  (the same checker, compiled for it, over a saved copy of the reference), and
+  new doses, moments and entries wait on the phone until the computer is back.
+  Private by design: see [Architecture](#architecture) for how.
 - **Paste a trip log** — copy a log from your notes app (`8:43am - 35mg mesc`,
   `T+1:30 peak`…) and it becomes a timed experience, doses recognised by name or
   street name. Lists of doses, other people's doses and the write-up after the
@@ -236,6 +239,9 @@ passing Field Notes along to a harm reduction group help too.
   (crisis signals in Companion chat + graded resources; journal prose is never
   scanned — owner's decision, recorded in `ROADMAP.md`), `pw.rs` (the dose
   reference; snapshot + slimming pipeline in [`data/dosewiki/`](./data/dosewiki/)).
+  The checker, the reference and the corpus search live in the small
+  `src-tauri/core` crate, which `src-tauri/wasm` compiles to WebAssembly for the
+  phone's offline mode: one checker, not a second copy to drift.
 - `knowledge.rs` — BM25 over the bundled DoseWiki prose corpus (7,800+ passages,
   575 substances), in-process, no embeddings.
 - `portal.rs` — the optional device server. Binds **127.0.0.1 only** and is fronted
@@ -255,7 +261,12 @@ passing Field Notes along to a harm reduction group help too.
 - `remote.rs` — the client half: a desktop that uses another computer as its
   journal. Journal commands go over that computer's portal; new entries queue in
   the local (encrypted) journal while it's unreachable, with the interaction
-  checker and crisis scan still running locally. `keychain.rs` is the opt-in
+  checker and crisis scan still running locally. The phone's equivalent is
+  `src/lib/offline.ts` + `outbox.ts` (same rules: only new entries wait, edits
+  and deletes don't) and a service worker that keeps `/m` on the phone. It keeps
+  as little as it can in browser storage: what's waiting to be sent, the
+  experiences in progress, and the last day's entries by substance and time, for
+  the offline check. `keychain.rs` is the opt-in
   "remember the password" for a server that must unlock itself after a reboot.
 - `contribute.rs` — upstream draft exports, with no HTTP client in the file at all.
 - The AI features (Companion, text import) talk only to a local
@@ -286,10 +297,6 @@ its keep on your machine, turn it off in Settings; everything else is unaffected
 
 - **Companion register** — prompt restructuring and worked examples, so it stays
   brief and non-directive. Measured against the eval harness.
-- **Offline capture on the phone** — log while the desktop is asleep or you're off
-  the tailnet, with an outbox that syncs when it's reachable again. Gated on
-  porting the deterministic safety checks to run phone-side: an offline phone
-  whose interaction checker has gone dark is worse than no phone at all.
 
 See [`ROADMAP.md`](./ROADMAP.md) for the full picture and design history.
 

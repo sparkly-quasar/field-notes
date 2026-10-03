@@ -25,6 +25,9 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # The phone's offline checker (scripts/build-wasm.mjs).
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2

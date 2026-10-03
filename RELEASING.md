@@ -7,11 +7,16 @@ does the verifying, the version bump, and the release notes.
 ## 1. Verify
 
 ```bash
+rustup target add wasm32-unknown-unknown  # once: the phone's offline checker
 scripts/build-tailnet.sh            # the bundled Tailscale helper (CI builds its own)
-cd src-tauri && cargo test          # all suites green
+cd src-tauri && cargo test          # all suites green (the app and src-tauri/core)
 cd .. && npm run check              # svelte-check: 0 errors
-npm run build                       # frontend builds
+npm run build                       # frontend builds (and the offline checker, first)
+npm test                            # the phone's outbox and offline checker (Node 22.18+)
 ```
+
+The version lives in the app's files only: `src-tauri/core` and `src-tauri/wasm`
+keep their own (0.1.0) and aren't bumped.
 
 - If the release touches `tailnet/` or `tailnet.rs`, test phone access by hand on a
   real computer and phone before tagging a plain release: Connect, sign in, scan,

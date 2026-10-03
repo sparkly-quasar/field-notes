@@ -1,0 +1,11 @@
+[package]
+name = "field_notes_core"
+version = "0.1.0"
+description = "Field Notes' dose reference, combination checker and corpus search, shared by the app and the phone's offline copy"
+license-file = "../../LICENSE"
+publish = false
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

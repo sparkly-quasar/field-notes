@@ -6,11 +6,12 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
+    "dev": "node scripts/build-wasm.mjs && vite dev",
+    "build": "node scripts/build-wasm.mjs && vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "node --test \"src/lib/*.test.mjs\"",
     "tauri": "tauri"
   },
   "dependencies": {
