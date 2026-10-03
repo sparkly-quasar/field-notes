@@ -352,6 +352,18 @@ fn assets<R: Runtime>(app: &AppHandle<R>, path: &str, req: Request) {
     }
 }
 
+fn owner_auth<R: Runtime>(app: &AppHandle<R>) -> Result<tauri::State<'_, crate::owner_auth::OwnerAuth>, DispatchError> {
+    app.try_state::<crate::owner_auth::OwnerAuth>()
+        .ok_or_else(|| DispatchError::Failed("Pairing from a phone isn't available on this server.".into()))
+}
+
+/// The owner's phone pairing or un-pairing: only with the journal's password or
+/// the phone PIN (`owner_auth.rs`). Other people's devices don't come here.
+fn owner_check<R: Runtime>(app: &AppHandle<R>, journal: &std::path::Path, args: &Value) -> Result<(), DispatchError> {
+    let given: String = arg::<Option<String>>(args, "password")?.unwrap_or_default();
+    owner_auth(app)?.verify(journal, &given).map_err(DispatchError::Failed)
+}
+
 pub enum DispatchError {
     /// The command exists but is deliberately not reachable from a phone.
     NotExposed,
@@ -483,20 +495,22 @@ pub const EXPOSED: &[&str] = &[
     "unpair_my_device",
     "person_change_password",
     "export_my_journal",
+    // The owner's phone, managing the owner's own devices: listing is free, but
+    // pairing or un-pairing asks for the journal's password or the phone PIN
+    // (owner_auth.rs, owner's request 2026-10-03). This says which to ask for.
+    "owner_device_auth",
 ];
 
 /// Exposed to the owner's devices only. Installing an update restarts everyone's
 /// server, so only the owner may do it from a phone.
-pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install"];
+pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install", "owner_device_auth"];
 
 /// Exposed to other people's devices only. The owner's journal unlocks at the desk,
-/// as it always has, and the owner pairs devices there.
+/// as it always has. (The owner may pair from a phone, but only with the journal's
+/// password or the phone PIN: see `owner_auth.rs`.)
 pub const OTHERS_ONLY: &[&str] = &[
     "person_unlock",
     "person_remember",
-    "my_devices",
-    "pair_own_device",
-    "unpair_my_device",
     "person_change_password",
     "export_my_journal",
 ];
@@ -729,7 +743,11 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             ok(json!({ "data": base64::engine::general_purpose::STANDARD.encode(bytes) }))
         }
         "my_devices" => ok(mine(app, who)),
+        "owner_device_auth" => ok(owner_auth(app)?.method(&owner_db.path)),
         "pair_own_device" => {
+            if is_owner {
+                owner_check(app, &owner_db.path, &args)?;
+            }
             let name: String = arg(&args, "name")?;
             // The phone says where it reached us (its own address bar), so the new
             // device's link and code point at the same place. Only drawn into the
@@ -743,6 +761,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             ok(json!({ "device": device, "token": token, "qr": qr }))
         }
         "unpair_my_device" => {
+            if is_owner {
+                owner_check(app, &owner_db.path, &args)?;
+            }
             app.state::<Devices>().revoke_own(who.person, arg(&args, "id")?).map_err(DispatchError::Failed)?;
             ok(mine(app, who))
         }
@@ -868,6 +889,8 @@ mod tests {
         let devices = Devices::load(path.with_extension("devices.json"));
         let (_, token) = devices.pair("Test phone").unwrap();
         app.manage(devices);
+        let _ = std::fs::remove_file(path.with_extension("pin.json"));
+        app.manage(crate::owner_auth::OwnerAuth::new(path.with_extension("pin.json")));
 
         let handle = app.handle().clone();
         let status = start(&handle).expect("portal starts");
@@ -905,6 +928,7 @@ mod tests {
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
         app.manage(crate::prefs::Prefs::load(dir.join("server.json")));
+        app.manage(crate::owner_auth::OwnerAuth::new(dir.join("phone_pin.json")));
         let people = People::load(&dir);
         let sam = people.add("Sam").unwrap();
         app.manage(people);
@@ -977,13 +1001,43 @@ mod tests {
     }
 
     #[test]
+    fn the_owner_pairs_and_unpairs_from_a_phone_only_with_the_pin() {
+        let (app, port, owner, _sam) = serving_two();
+        let (_, how) = post(port, "owner_device_auth", Some(&owner), json!({}));
+        assert_eq!(how, "\"off\"");
+        app.state::<crate::owner_auth::OwnerAuth>().set_pin(Some("482913")).unwrap();
+        let (_, how) = post(port, "owner_device_auth", Some(&owner), json!({}));
+        assert_eq!(how, "\"pin\"");
+
+        let (code, _) = post(port, "pair_own_device", Some(&owner), json!({ "name": "Tablet", "password": "000000" }));
+        assert_eq!(code, 400, "a wrong PIN pairs nothing");
+        let (code, body) = post(port, "pair_own_device", Some(&owner), json!({ "name": "Tablet", "password": "482913" }));
+        assert_eq!(code, 200, "{body}");
+        let tablet = app.state::<Devices>().list().into_iter().find(|d| d.name == "Tablet").unwrap();
+        assert_eq!(tablet.person, OWNER);
+
+        // Listing needs no PIN, and shows only the owner's devices.
+        let (_, list) = post(port, "my_devices", Some(&owner), json!({}));
+        assert!(list.contains("Tablet") && !list.contains("Sam phone"), "{list}");
+
+        assert_eq!(post(port, "unpair_my_device", Some(&owner), json!({ "id": tablet.id })).0, 400);
+        assert_eq!(post(port, "unpair_my_device", Some(&owner), json!({ "id": tablet.id, "password": "482913" })).0, 200);
+        assert!(app.state::<Devices>().list().iter().all(|d| d.name != "Tablet"));
+    }
+
+    #[test]
     fn people_reach_only_their_own_commands_and_their_own_devices() {
         let (app, port, owner, sam) = serving_two();
         // Only the owner may install an update; only others unlock from a phone.
         assert_eq!(post(port, "server_update_install", Some(&sam), json!({})).0, 403);
         assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
         assert_eq!(post(port, "person_unlock", Some(&owner), json!({ "password": "correct horse battery" })).0, 403);
-        assert_eq!(post(port, "pair_own_device", Some(&owner), json!({ "name": "x" })).0, 403);
+        // The owner may pair from a phone, but only with the journal's password or
+        // the phone PIN (owner_auth.rs); none is set here, so it's refused.
+        let (code, body) = post(port, "pair_own_device", Some(&owner), json!({ "name": "x" }));
+        assert_eq!(code, 400, "{body}");
+        assert!(app.state::<Devices>().list().iter().all(|d| d.name != "x"));
+        assert_eq!(post(port, "owner_device_auth", Some(&sam), json!({})).0, 403);
 
         assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
         let (_, body) = post(port, "my_devices", Some(&sam), json!({}));

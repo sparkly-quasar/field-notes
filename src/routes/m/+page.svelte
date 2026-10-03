@@ -34,6 +34,7 @@
     myDevices,
     pairOwnDevice,
     unpairMyDevice,
+    ownerDeviceAuth,
     personChangePassword,
     exportMyJournal,
     type DbStatus,
@@ -98,6 +99,7 @@
     discardFailed,
     onOfflineStatus,
     retryFailed,
+    clearKept,
     flush as sendWaiting,
     startOffline,
     uncheckedOffline,
@@ -108,7 +110,7 @@
   import RiskNotes from "$lib/RiskNotes.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
-  import { discreet, hiding, shown as nameShown } from "$lib/discreet.svelte";
+  import { discreet, hiding, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import Icon from "$lib/Icon.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
@@ -162,7 +164,7 @@
   const busy = $derived(busyKey !== null);
   let err = $state<string | null>(null);
   /** Whether the computer is reachable, and what's waiting to be sent to it. */
-  let net = $state<OfflineStatus>({ offline: false, pending: 0, failed: [], ready: false });
+  let net = $state<OfflineStatus>({ offline: false, pending: 0, failed: [], ready: false, kept: { open: 0, recent: 0 } });
   /** Names the last offline check couldn't check (not in the phone's reference). */
   let comboUnchecked = $state<string[]>([]);
   let comboOffline = $state(false);
@@ -532,8 +534,21 @@
   let rememberPw = $state("");
   let rememberAsk = $state(false);
 
+  /** On the owner's phone: what pairing or un-pairing asks for (owner_auth.rs). */
+  let ownerAuth = $state<"password" | "pin" | "off" | null>(null);
+  /** The journal's password or the phone PIN, typed for one pair or un-pair. */
+  let ownerPw = $state("");
+  let keptCleared = $state(false);
+  const ownerPwLabel = $derived(ownerAuth === "pin" ? "Your phone PIN" : "Your journal password");
+
   function openMe() {
     sheet = "me";
+    ownerPw = "";
+    keptCleared = false;
+    if (!isOther) {
+      ownerDeviceAuth().then((m) => (ownerAuth = m)).catch(() => (ownerAuth = null));
+      loadServerUpdate();
+    }
     pairedNew = null;
     unpairAsk = null;
     rememberAsk = false;
@@ -547,7 +562,9 @@
   const pairAnother = () =>
     run("pairown", async () => {
       const name = newDevice.trim() || "My other device";
-      const r = await pairOwnDevice(name, location.origin);
+      if (!isOther && !ownerPw) throw new Error(`Type ${ownerPwLabel.toLowerCase()} first.`);
+      const r = await pairOwnDevice(name, location.origin, isOther ? null : ownerPw);
+      ownerPw = "";
       pairedNew = { name: r.device.name, link: `${location.origin}/m#t=${r.token}`, qr: r.qr };
       newDevice = "";
       linkCopied = false;
@@ -566,7 +583,9 @@
 
   const unpair = (d: MyDevice) =>
     run("unpair", async () => {
-      mine = await unpairMyDevice(d.id);
+      if (!isOther && !ownerPw) throw new Error(`Type ${ownerPwLabel.toLowerCase()} first.`);
+      mine = await unpairMyDevice(d.id, isOther ? null : ownerPw);
+      ownerPw = "";
       unpairAsk = null;
       if (d.this) {
         forgetToken();
@@ -1523,6 +1542,67 @@
   <RiskNotes warnings={list} />
 {/snippet}
 
+<!-- Settings that belong to this phone, for the owner and for anyone else alike. -->
+{#snippet thisPhone()}
+  {#if !isOther}
+    <h3 class="sec">Updates</h3>
+    {#if srvUpd?.available}
+      <p>
+        <strong>Field Notes v{srvUpd.available.version}</strong> is ready to install on your computer (it's on
+        v{srvUpd.current}).
+      </p>
+      <button onclick={() => { srvUpdHidden = false; srvUpdStage = "confirm"; closeSheet(); goTo("today"); }}>Install on the computer…</button>
+    {:else if srvUpd}
+      <p class="muted small">
+        Your computer is on v{srvUpd.current}{srvUpd.checking ? ", checking for a newer one…" : srvUpd.error ? `. ${srvUpd.error}` : ", the newest version."}
+      </p>
+      <button class="small" onclick={() => loadServerUpdate()}>Check again</button>
+    {:else}
+      <p class="muted small">Couldn't ask your computer about updates right now.</p>
+    {/if}
+  {/if}
+
+  <h3 class="sec">Discreet mode</h3>
+  {#if discreet.available}
+    <p class="muted small">Shows stand-ins like "Substance K7" instead of names and titles, on this phone only.</p>
+    <button aria-pressed={discreet.on} onclick={() => setDiscreet(!discreet.on)}>{discreet.on ? "Turn off on this phone" : "Turn on on this phone"}</button>
+  {:else}
+    <p class="muted small">
+      Hides substance names and titles behind stand-ins, for using the app where others can see. {isOther
+        ? "The person who runs the server can offer it, in Settings on their computer."
+        : "Offer it in Settings on your computer, and then turn it on here."}
+    </p>
+  {/if}
+
+  <h3 class="sec">Without your computer</h3>
+  <p class="muted small">
+    {#if net.ready}The dose reference is saved on this phone, so Check and Look up work offline.{:else}The dose reference isn't saved on this phone yet; it saves itself while you're connected.{/if}
+    {#if net.kept.open || net.kept.recent}
+      For checks offline, it also keeps {net.kept.recent} {net.kept.recent === 1 ? "entry" : "entries"} from the last day{net.kept.open ? `, including ${net.kept.open} in progress` : ""}.
+    {/if}
+    {#if net.pending}{net.pending === 1 ? "1 entry is" : `${net.pending} entries are`} waiting to be sent.{/if}
+  </p>
+  <button class="small" onclick={async () => { await clearKept(); keptCleared = true; }}>Clear what this phone keeps</button>
+  {#if keptCleared}
+    <p class="muted small" role="status">
+      Cleared.{net.pending ? " Entries waiting to be sent are kept, so nothing you logged is lost." : ""} The reference saves
+      itself again next time you're connected.
+    </p>
+  {/if}
+
+  <h3 class="sec">Home Screen app</h3>
+  {#if standalone}
+    <p class="muted small">You're using the Home Screen app. It keeps its own pairing, separate from the browser's.</p>
+  {:else}
+    <p class="muted small">
+      Added to your Home Screen, Field Notes opens full screen. The Home Screen app can't see this browser's pairing, so
+      copy this link first and paste it there when it asks. The link is a key to your journal: paste it only into your
+      own Home Screen app.
+    </p>
+    <button class="small" onclick={copyHomeLink}>{homeLinkCopied ? "Link copied ✓" : "Copy link for the Home Screen app"}</button>
+  {/if}
+{/snippet}
+
 <!-- Under an answer from the phone's own checker: say so, and what it couldn't check. -->
 {#snippet offlineCheckNote()}
   {#if comboOffline}
@@ -1659,8 +1739,8 @@
             <span class="live-dot" aria-hidden="true"></span>{hiding() ? "Live" : session.title || "Live trip report"}
           </button>
         {/if}
-        {#if isOther && !locked}
-          <button class="pill me" onclick={openMe} aria-label="Your journal and devices"><Icon name="settings" size={18} /></button>
+        {#if !locked && (isOther || !inTauri())}
+          <button class="pill me" onclick={openMe} aria-label={isOther ? "Your journal and devices" : "Settings"}><Icon name="settings" size={18} /></button>
         {/if}
         <DiscreetToggle />
         <button class="help" onclick={openHelp}>Help</button>
@@ -2572,18 +2652,37 @@
           </div>
           <TripImport oncancel={closeSheet} onsaved={pasted} />
 
-        {:else if sheet === "me" && me}
+        {:else if sheet === "me"}
           <div class="sheet-head">
-            <h2 id="sheet-title">Your journal</h2>
+            <h2 id="sheet-title">{isOther ? "Your journal" : "Settings"}</h2>
             <button class="ghost small" onclick={closeSheet}>Close</button>
           </div>
           {#if err && !changingPw && !rememberAsk}<p class="err" role="alert">{err}</p>{/if}
-          <p>
-            <strong>Your journal is yours.</strong> Nobody else who uses this server can see it, and the person who runs
-            the server can't read it without your password.
-          </p>
+          {#if isOther}
+            <p>
+              <strong>Your journal is yours.</strong> Nobody else who uses this server can see it, and the person who runs
+              the server can't read it without your password.
+            </p>
+          {/if}
 
           <h3 class="sec">Your devices</h3>
+          {#if !isOther}
+            {#if ownerAuth === "off"}
+              <p class="muted small">
+                To pair or un-pair devices from this phone, set a phone PIN in Settings on your computer (Devices &amp;
+                server). Your journal isn't encrypted, so there's no password to ask for instead.
+              </p>
+            {:else if ownerAuth}
+              <p class="muted small">
+                Pairing gives a device its own key to your journal, so this asks for
+                {ownerAuth === "pin" ? "your phone PIN" : "your journal's password"} first. Someone holding this phone
+                can't add a device of their own without it.
+              </p>
+              <label for="owner-pw">{ownerPwLabel}</label>
+              <input id="owner-pw" type="password" bind:value={ownerPw} autocomplete={ownerAuth === "pin" ? "off" : "current-password"}
+                inputmode={ownerAuth === "pin" ? "numeric" : undefined} autocapitalize="off" spellcheck="false" />
+            {/if}
+          {/if}
           {#if mine.length}
             <ul class="plain devices">
               {#each mine as d (d.id)}
@@ -2592,7 +2691,7 @@
                     <span class="muted small">{seen(d.last_seen)}</span></span>
                   {#if unpairAsk === d.id}
                     <span class="pair">
-                      <button class="small danger" disabled={busy} onclick={() => unpair(d)}>Un-pair</button>
+                      <button class="small danger" disabled={busy || (!isOther && (ownerAuth === "off" || !ownerPw))} onclick={() => unpair(d)}>Un-pair</button>
                       <button class="small" onclick={() => (unpairAsk = null)}>Keep</button>
                     </span>
                   {:else}
@@ -2624,12 +2723,15 @@
               </p>
               <button class="ghost small" onclick={() => (pairedNew = null)}>Done</button>
             </div>
-          {:else}
+          {:else if isOther || (ownerAuth && ownerAuth !== "off")}
             <label for="new-device">Pair another device of yours</label>
             <input id="new-device" bind:value={newDevice} placeholder="e.g. Laptop" autocomplete="off" />
-            <button disabled={busy} onclick={pairAnother}>{busyKey === "pairown" ? "Making a code…" : "Show a pairing code"}</button>
+            <button disabled={busy || (!isOther && !ownerPw)} onclick={pairAnother}>{busyKey === "pairown" ? "Making a code…" : "Show a pairing code"}</button>
           {/if}
 
+          {@render thisPhone()}
+
+          {#if isOther && me}
           <h3 class="sec">Back up your journal</h3>
           <p>
             Download a copy to this device. It stays locked with your password and opens only with that. To open it,
@@ -2697,6 +2799,7 @@
             computer and the skill to inspect a running program could reach it. This protects you from other people who
             share the server, not from a determined person who controls the machine.
           </p>
+          {/if}
         {:else if sheet === "help"}
           <div class="sheet-head">
             <h2 id="sheet-title">Help</h2>
@@ -2848,7 +2951,7 @@
     margin: 0 -0.8rem 0.4rem; padding: calc(0.5rem + var(--sa-t)) 0.8rem 0.4rem;
     background: var(--bg);
   }
-  .brand { font-weight: 700; }
+  .brand { font-weight: 700; white-space: nowrap; flex-shrink: 0; }
   .top-right { display: flex; gap: 0.4rem; align-items: center; min-width: 0; }
   .back {
     width: auto; min-height: var(--tap); margin: 0; padding: 0 0.6rem 0 0;

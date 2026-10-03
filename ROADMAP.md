@@ -1243,6 +1243,26 @@ emotional presence.
 
 **Current release: v0.22.0** (2026-10-03): the phone works offline (Phase 3b, below).
 
+### Phone settings for the owner — after v0.22.0 (owner's request, 2026-10-03)
+
+The gear next to Help used to appear only for other people on the server; the
+owner's phone now has one too, with:
+
+- **Pairing and un-pairing the owner's own devices from the phone.** Before,
+  this was desk-only, on the reasoning that a phone is the device you lose. Now
+  it's allowed **with a second factor** (`owner_auth.rs`): the journal's password
+  when it's encrypted (checked by opening the file afresh, never stored), or else
+  a **phone PIN** set in Settings on the computer (salted, stretched SHA-256 in
+  `phone_pin.json`); with neither, it stays off. 5 wrong tries lock it for 15
+  minutes, counted on the computer. Listing devices needs nothing. Owner's
+  decision: password if encrypted, else PIN. `my_devices`, `pair_own_device`,
+  `unpair_my_device` moved out of `OTHERS_ONLY`; `owner_device_auth` is new and
+  owner-only; `set_phone_pin` is desktop-only.
+- **This phone** (for everyone): discreet mode, what's kept for offline use with
+  **Clear what this phone keeps** (queued entries are never cleared), and the
+  Home Screen pairing link. The owner also gets **Updates** (status, and the
+  existing install flow).
+
 ### Shipped in v0.21.7 — the 2026-10-02 to-do list
 
 All six items below shipped, with these notes:
