@@ -32,6 +32,13 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 - **Stats counts both spellings as one.** Doses you logged before under a
   street name now join the same history, Trends included. Nothing in your
   journal is renamed.
+- **Only the experiences you'd reflect on ask for a write-up.** An ended
+  experience asks when it has a psychedelic, an empathogen like MDMA, a
+  dissociative like ketamine, or something the app can't place. An entry with
+  only alcohol, a stimulant like dexamp, or a sedative like 14b no longer
+  shows up under "To write up", unless it's part of a trip that also has a
+  psychedelic. You can still write up anything, and "Doesn't need one" still
+  works everywhere. This applies to entries you've already logged.
 
 ## v0.22.0
 

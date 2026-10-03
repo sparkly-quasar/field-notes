@@ -254,7 +254,13 @@ pub fn families_for(name: &str, catalogue_classes: &[String], dosewiki_labels: &
     out
 }
 
-fn families_of(conn: &Connection, name: &str) -> Vec<String> {
+/// Kinds of experience that ask for a write-up once they've ended (owner's
+/// decision, 2026-10-03): the ones people usually reflect on, plus anything the
+/// app can't place, to be safe. An entry with only alcohol, a stimulant or a
+/// sedative in it doesn't ask; one that also has any of these does.
+pub const ASKS_FOR_WRITEUP: &[&str] = &["psychedelics", "entactogens", "dissociatives", "other"];
+
+pub(crate) fn families_of(conn: &Connection, name: &str) -> Vec<String> {
     use rusqlite::OptionalExtension;
     let catalogue: Vec<String> = conn
         .query_row("SELECT classes FROM substances WHERE name = ?1 COLLATE NOCASE", [name], |r| r.get::<_, String>(0))
