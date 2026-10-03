@@ -100,6 +100,10 @@ export interface Experience {
 export type ExperienceSummary = Experience & {
   substances: string[];
   dose_count: number;
+  /** Once ended, asks for a write-up by default: it has a psychedelic, empathogen,
+   *  dissociative or unknown substance in it (or no doses). Absent from older
+   *  servers and from entries waiting on a phone: treat as true. */
+  writeup_expected?: boolean;
 };
 
 export interface Dose {

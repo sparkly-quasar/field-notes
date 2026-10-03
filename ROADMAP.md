@@ -1241,7 +1241,7 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.22.1** (2026-10-03): phone settings for the owner, and street names saved as the substance. v0.22.0 made the phone work offline (Phase 3b, below).
+**Current release: v0.22.1** (2026-10-03): phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
 
 ### Phone settings for the owner — v0.22.1 (owner's request, 2026-10-03)
 
@@ -1262,6 +1262,15 @@ owner's phone now has one too, with:
   **Clear what this phone keeps** (queued entries are never cleared), and the
   Home Screen pairing link. The owner also gets **Updates** (status, and the
   existing install flow).
+
+### Write-ups asked for by kind — v0.22.1 (owner's decision, 2026-10-03)
+
+`ExperienceSummary.writeup_expected` (computed in `db::list_experiences`, never
+stored): an ended entry asks for a write-up when any substance in it falls in
+`stats::ASKS_FOR_WRITEUP` (psychedelics, entactogens, dissociatives, "other",
+i.e. anything unplaced), or it has no doses. Stimulants, depressants, opioids and
+cannabinoids alone don't. `writeup_skipped` still wins; entries waiting on a
+phone, and older servers, count as asking.
 
 ### Street names resolve to the substance — v0.22.1 (owner's request, 2026-10-03)
 

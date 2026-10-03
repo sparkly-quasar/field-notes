@@ -1356,7 +1356,10 @@
    *  A reflection is never owed (owner's decision 2026-10-02): "No need" takes an
    *  entry out of every "waiting" place, and can be undone. */
   const needsWriteup = (e: ExperienceSummary) =>
-    e.kind === "session" && !!e.ended_at && !e.notes.trim() && !e.writeup_skipped;
+    e.kind === "session" && !!e.ended_at && !e.notes.trim() && !e.writeup_skipped && e.writeup_expected !== false;
+  /** Whether an entry asks for a write-up by default (only alcohol or a stimulant
+   *  in it doesn't). From the journal list, which knows. */
+  const expectsWriteup = (id: number) => recent.find((r) => r.id === id)?.writeup_expected !== false;
 
   let skipNote = $state<{ id: number; timer: number } | null>(null);
   const skipWriteup = (id: number, skipped: boolean) =>
@@ -2029,6 +2032,8 @@
             <p class="muted">Empty.</p>
           {:else if e.writeup_skipped}
             <p class="muted">Doesn't need a write-up. <button class="ghost small inline" onclick={() => skipWriteup(e.id, false)}>Undo</button></p>
+          {:else if e.ended_at && !expectsWriteup(e.id)}
+            <p class="muted">No write-up. Add one any time if you'd like.</p>
           {:else}
             <p class="muted">No write-up yet.
               {#if e.ended_at}<button class="ghost small inline" onclick={() => skipWriteup(e.id, true)}>Doesn't need one</button>{/if}
