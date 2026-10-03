@@ -1263,6 +1263,18 @@ owner's phone now has one too, with:
   Home Screen pairing link. The owner also gets **Updates** (status, and the
   existing install flow).
 
+### Street names resolve to the substance — after v0.22.0 (owner's request, 2026-10-03)
+
+`field_notes_core::names::NameIndex`: a typed name means a substance only on a
+whole-name match, the person's own catalogue first, then the reference's names,
+then its street names of 3+ characters that mean exactly one substance ("L",
+"E", "X", "K" stay as written). Used by `canonical_name` (exposed; answered
+locally by a disconnected laptop; a phone offline keeps the wording) for the
+dose forms (`NameHint.svelte`: "“acid” is LSD, so it's saved as LSD · Keep
+“acid”") and by `stats::usage_stats`, which groups existing doses by meaning
+without changing anything stored. The paste importer keeps its own, looser
+rule (prefixes too), since its preview is reviewed before saving.
+
 ### Shipped in v0.21.7 — the 2026-10-02 to-do list
 
 All six items below shipped, with these notes:

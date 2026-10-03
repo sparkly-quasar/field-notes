@@ -908,6 +908,14 @@ pub fn pw_names(conn: &Connection) -> rusqlite::Result<Vec<PwName>> {
     Ok(out)
 }
 
+/// Which substance typed names mean (`field_notes_core::names`): the person's own
+/// catalogue first, then the dose reference's names and street names.
+pub fn name_index(conn: &Connection) -> rusqlite::Result<field_notes_core::names::NameIndex> {
+    let own: Vec<(String, Vec<String>)> = list_substances(conn)?.into_iter().map(|s| (s.name, s.aliases)).collect();
+    let reference: Vec<(String, Vec<String>)> = pw_names(conn)?.into_iter().map(|n| (n.name, n.aliases)).collect();
+    Ok(field_notes_core::names::NameIndex::new(&own, &reference))
+}
+
 #[derive(Debug, Serialize)]
 pub struct PwName {
     pub name: String,

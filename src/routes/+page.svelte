@@ -126,6 +126,7 @@
     type RemoteFailed,
   } from "$lib/api";
   import { inTauri } from "$lib/portal";
+  import NameHint from "$lib/NameHint.svelte";
   import {
     enable as autostartEnable,
     disable as autostartDisable,
@@ -1017,11 +1018,15 @@
     if (showQuickLog && !qlWhen) qlWhen = nowLocalInput();
   }
 
+  /** The names as they'll be saved ("acid" → LSD; NameHint). */
+  let qlSubAs = $state("");
+  let dSubstanceAs = $state("");
+
   async function submitQuickLog() {
     if (!qlSub.trim()) return;
     const at = localInputToIso(qlWhen);
     const res = await quickLog({
-      substance: qlSub.trim(),
+      substance: qlSubAs || qlSub.trim(),
       amount: qlAmt ? parseFloat(qlAmt) : null,
       unit: qlUnit,
       route: qlRoute,
@@ -1106,7 +1111,7 @@
     if (!selected || !dSubstance.trim()) return;
     const res = await logDose({
       experience_id: selected.id,
-      substance_name: dSubstance.trim(),
+      substance_name: dSubstanceAs || dSubstance.trim(),
       amount: dAmount ? parseFloat(dAmount) : null,
       unit: dUnit,
       route: dRoute,
@@ -2614,6 +2619,7 @@
             <DateTimeField bind:value={dTime} title="Time taken" />
             <button class="primary small-btn" onclick={submitDose}>Log dose</button>
           </div>
+          <NameHint name={dSubstance} bind:saveAs={dSubstanceAs} />
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
@@ -2730,6 +2736,7 @@
                   {#each ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"] as r}<option>{r}</option>{/each}
                 </select>
               </div>
+              <NameHint name={qlSub} bind:saveAs={qlSubAs} />
               {#if qlUnit === "drink"}
                 <p class="muted small">{STANDARD_DRINK}</p>
               {:else if qlUnit === "hit"}
