@@ -117,6 +117,7 @@
     remoteFlush,
     remoteUploadLocal,
     saveMarkdownFile,
+    savePdfFile,
     setRemoteMode,
     type DeviceInfo,
     type PairResult,
@@ -127,6 +128,7 @@
   } from "$lib/api";
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
+  import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
     enable as autostartEnable,
     disable as autostartDisable,
@@ -1171,6 +1173,28 @@
       if (remote.connected) await saveMarkdownFile(path, note.markdown);
       else await exportExperienceFile(selected.id, path);
       exportMsg = "Entry exported as Markdown.";
+    } catch (e) {
+      exportErr = typeof e === "string" ? e : String(e);
+    }
+  }
+
+  // single-entry PDF (pdf.ts), to share with someone
+  let pdfOpen = $state(false);
+  let pdfParts = $state<PdfParts>({ ...ALL_PARTS });
+
+  async function exportPdf() {
+    if (!selected) return;
+    exportErr = exportMsg = null;
+    try {
+      const path = await save({
+        title: "Save this entry as a PDF",
+        defaultPath: pdfFilename(selected),
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (!path) return;
+      await savePdfFile(path.toLowerCase().endsWith(".pdf") ? path : `${path}.pdf`, experiencePdf(selected, pdfParts));
+      exportMsg = "Saved as a PDF.";
+      pdfOpen = false;
     } catch (e) {
       exportErr = typeof e === "string" ? e : String(e);
     }
@@ -2684,6 +2708,31 @@
             <button class="ghost" onclick={finishExperience}>End trip report</button>
           {/if}
           <button class="ghost" onclick={exportEntry}>Export this entry</button>
+          <button class="ghost" onclick={() => { pdfOpen = !pdfOpen; pdfParts = { ...ALL_PARTS }; }}>Save as PDF…</button>
+          {#if pdfOpen}
+            <div class="pdf-choices">
+              <p class="muted small">
+                A tidy report to send to someone. The title, times and doses are always in it; choose what else. It uses
+                real names, even in discreet mode.
+              </p>
+              {#if selected.intention.trim() || selected.setting.trim()}
+                <label><input type="checkbox" bind:checked={pdfParts.intention} /> Intention and setting</label>
+              {/if}
+              {#if selected.timeline.length}
+                <label><input type="checkbox" bind:checked={pdfParts.moments} /> Moments ({selected.timeline.length})</label>
+              {/if}
+              {#if selected.notes.trim()}
+                <label><input type="checkbox" bind:checked={pdfParts.writeup} /> {selected.kind === "note" ? "The note" : "Write-up"}</label>
+              {/if}
+              {#if selected.rating != null}
+                <label><input type="checkbox" bind:checked={pdfParts.rating} /> Rating ({selected.rating}/10)</label>
+              {/if}
+              <div class="row-actions">
+                <button class="primary small-btn" onclick={exportPdf}>Save PDF…</button>
+                <button class="ghost small-btn" onclick={() => (pdfOpen = false)}>Cancel</button>
+              </div>
+            </div>
+          {/if}
           {#if exportErr}<p class="notice bad-notice">{exportErr}</p>{/if}
           {#if exportMsg}<p class="notice good-notice">{exportMsg}</p>{/if}
         </section>
@@ -4805,4 +4854,6 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .quick-log { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   .quick-log input { flex: 1; min-width: 6rem; padding: 0.55rem 0.7rem; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 1rem; }
   .live-chat { min-height: 200px; max-height: 42vh; }
+  .pdf-choices { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.4rem 0 0.8rem; }
+  .pdf-choices label { display: flex; gap: 0.5rem; align-items: center; }
 </style>

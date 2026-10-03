@@ -1263,6 +1263,19 @@ owner's phone now has one too, with:
   Home Screen pairing link. The owner also gets **Updates** (status, and the
   existing install flow).
 
+### Share an entry as a PDF — after v0.22.1 (owner's request, 2026-10-03)
+
+`src/lib/pdf.ts` writes the PDF itself (no dependency): Helvetica and
+Helvetica-Bold, the PDF standard fonts, so nothing is embedded; WinAnsi text,
+other scripts as "?", emoji dropped; US Letter; title, times, rating, set and
+setting, a timeline of doses and moments with clock time and T+ from the first
+dose (a line per day for trips past midnight), and the write-up. The title,
+times and doses are always in; the rest is chosen per export. Built in the
+frontend so it works the same on the desktop (`save_pdf_file`, desktop-only),
+a connected laptop, and a phone, online or not (Share sheet via
+`navigator.share` with a file where the phone has it, else a download).
+Real names even in discreet mode, said on the screen.
+
 ### Write-ups asked for by kind — v0.22.1 (owner's decision, 2026-10-03)
 
 `ExperienceSummary.writeup_expected` (computed in `db::list_experiences`, never

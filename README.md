@@ -34,7 +34,9 @@ show you how to get past it.
 - **Journal** — log experiences with intention, set & setting, doses, and a
   running timeline of how you feel. A street name is saved as the substance it
   means ("acid" as LSD, unless you choose to keep your wording), and Stats counts
-  both spellings as one. Alcohol logs in standard drinks (beer, wine
+  both spellings as one. Any entry can be saved or shared as a tidy **PDF**
+  (from the phone's share sheet too), choosing whether it includes intention and
+  setting, moments, the write-up and the rating. Alcohol logs in standard drinks (beer, wine
   and shot quick picks) and smoked cannabis in hits. Edit, delete, or backdate anything. Logging
   something that already happened is a first-class option — tick "this already
   happened" on a new experience and it's saved as a finished trip, with doses
