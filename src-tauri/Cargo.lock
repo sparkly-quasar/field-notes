@@ -1127,6 +1127,7 @@ version = "0.21.7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "field_notes_core",
  "getrandom 0.2.17",
  "keyring",
  "qrcode",
@@ -1144,6 +1145,23 @@ dependencies = [
  "tauri-plugin-updater",
  "tiny_http",
  "ureq",
+]
+
+[[package]]
+name = "field_notes_core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "field_notes_wasm"
+version = "0.1.0"
+dependencies = [
+ "field_notes_core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

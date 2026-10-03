@@ -2,7 +2,8 @@
 // Typed wrappers around the Tauri command surface (see src-tauri/src/commands.rs).
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { inTauri, portalInvoke } from "./portal";
+import { inTauri } from "./portal";
+import { phoneInvoke } from "./offline";
 
 /**
  * The one seam between this app and its backend.
@@ -13,7 +14,9 @@ import { inTauri, portalInvoke } from "./portal";
  * which. Keep it that way: this is the only file that may import `invoke`.
  */
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!inTauri()) return portalInvoke<T>(cmd, args);
+  // A phone: through the portal, or answered on the phone when the computer is
+  // out of reach (offline.ts).
+  if (!inTauri()) return phoneInvoke<T>(cmd, args);
   // A desktop whose journal lives on another computer: journal commands go to the
   // backend's `remote_call`, which sends them to the server — or, if it's out of
   // reach, queues new entries and answers from what this computer knows.

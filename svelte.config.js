@@ -12,6 +12,10 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    // The service worker keeps the phone page usable offline. It's registered
+    // from /m in a browser only (src/routes/m/+page.svelte), never in the
+    // desktop app's webview.
+    serviceWorker: { register: false },
   },
 };
 

@@ -306,6 +306,10 @@ fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut r
     };
 
     let resp = match dispatch_as(app, who, command, args) {
+        Ok(Value::String(raw)) if RAW_FILES.contains(&command) => {
+            let hdr = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+            Response::from_string(raw).with_header(hdr)
+        }
         Ok(v) => json_response(200, v),
         // 403, not 404: the command may well exist — it just isn't reachable from a
         // phone, and saying so plainly beats letting someone think it's a typo.
@@ -452,6 +456,10 @@ pub const EXPOSED: &[&str] = &[
     "pw_names",
     "knowledge_search",
     "knowledge_status",
+    // The bundled reference files as shipped (public CC0 data, no journal), for a
+    // phone to keep so its combination checker and lookup work offline.
+    "offline_reference",
+    "offline_corpus",
     "companion_chat",
     "companion_chat_start",
     "companion_chat_poll",
@@ -504,9 +512,15 @@ pub const LOCKED_OK: &[&str] = &[
     "emergency_resources",
     "knowledge_search",
     "knowledge_status",
+    "offline_reference",
+    "offline_corpus",
     "discreet_available",
     "companion_enabled",
 ];
+
+/// Commands whose answer is a whole bundled file, sent as it is rather than
+/// wrapped in JSON again.
+const RAW_FILES: &[&str] = &["offline_reference", "offline_corpus"];
 
 /// Who is asking: whose journal, from which device. Built from the device record
 /// in [`api`]; never from anything in the request.
@@ -555,6 +569,8 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         }
         "usage_by_substance" => done(commands::usage_by_substance_in(db)),
         "usage_stats" => done(commands::usage_stats_in(db, arg(&args, "since")?)),
+        "offline_reference" => crate::pw::read_bundled(app).map(Value::String).map_err(DispatchError::Failed),
+        "offline_corpus" => crate::knowledge::read_bundled(app).map(Value::String).map_err(DispatchError::Failed),
         "server_update_status" => ok(crate::server_update::status(app)),
         "server_update_install" => {
             done(crate::server_update::install(app, arg::<Option<bool>>(&args, "anyway")?.unwrap_or(false)))

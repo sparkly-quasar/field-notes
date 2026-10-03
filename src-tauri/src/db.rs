@@ -567,94 +567,41 @@ fn name_after_first_dose(conn: &Connection, experience_id: i64, substance: &str)
     Ok(())
 }
 
-/// Every warning we know about for a set of substances taken together, from both
-/// sources: the class-rule backstop in `interactions.rs` and DoseWiki's graded
-/// interaction lists. The most severe warning per pair survives.
-///
-/// This is the *only* way warnings should be produced. Logging a dose and asking
-/// the combo checker "is this safe?" must answer identically — the checker is the
-/// one people consult *before* taking something, so it can't know less.
+/// Reference data and classes as this journal knows them: the cached DoseWiki
+/// reference, and the person's own catalogue ahead of the built-in classes.
+struct DbRef<'a>(&'a Connection);
+
+impl field_notes_core::check::Reference for DbRef<'_> {
+    fn lookup(&self, name: &str) -> Option<PwInfo> {
+        pw_lookup(self.0, name).ok().flatten()
+    }
+    fn classes(&self, name: &str) -> Vec<String> {
+        classes_for(self.0, name)
+    }
+}
+
 /// Interaction warnings for one session, counting only pairs that were in the
-/// body at the same time. Each dose is active from when it was taken for the
-/// reference's total duration on that route (or its longest, if the route isn't
-/// listed; `UNKNOWN_DURATION_MIN` with no reference at all), plus
-/// `OVERLAP_MARGIN_MIN` for after-effects and loose timestamps. Logged live, every
-/// dose is "now" and this is the same as [`combo_warnings`]; for a past session,
-/// a stimulant at 6pm and a benzo at 3am a day later aren't a combination.
+/// body at the same time (see [`field_notes_core::check::session_warnings`]).
 pub fn session_warnings(conn: &Connection, experience_id: i64) -> rusqlite::Result<Vec<crate::interactions::Warning>> {
     let mut stmt = conn.prepare("SELECT substance_name, route, taken_at FROM doses WHERE experience_id = ?1")?;
-    let doses: Vec<(String, String, String)> = stmt
-        .query_map([experience_id], |r| Ok((r.get(0)?, r.get::<_, Option<String>>(1)?.unwrap_or_default(), r.get(2)?)))?
+    let doses: Vec<field_notes_core::check::TimedDose> = stmt
+        .query_map([experience_id], |r| {
+            let at: String = r.get(2)?;
+            Ok(field_notes_core::check::TimedDose {
+                name: r.get(0)?,
+                route: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                at_min: chrono::DateTime::parse_from_rfc3339(&at).ok().map(|t| t.timestamp() as f64 / 60.0),
+            })
+        })?
         .collect::<Result<_, _>>()?;
-    let mut names: Vec<String> = doses.iter().map(|d| d.0.clone()).collect();
-    names.sort();
-    names.dedup();
-    let mut warnings = combo_warnings(conn, &names);
-
-    // Each dose's active window, in minutes since the epoch.
-    let windows: Vec<(String, f64, f64)> = doses
-        .iter()
-        .filter_map(|(name, route, at)| {
-            let t = chrono::DateTime::parse_from_rfc3339(at).ok()?.timestamp() as f64 / 60.0;
-            let info = pw_lookup(conn, name).ok().flatten();
-            let dur = info.as_ref().and_then(|i| active_minutes(i, route)).unwrap_or(UNKNOWN_DURATION_MIN);
-            Some((name.to_lowercase(), t, t + dur + OVERLAP_MARGIN_MIN))
-        })
-        .collect();
-    let overlap = |a: &str, b: &str| {
-        let (a, b) = (a.to_lowercase(), b.to_lowercase());
-        let wa: Vec<_> = windows.iter().filter(|w| w.0 == a).collect();
-        let wb: Vec<_> = windows.iter().filter(|w| w.0 == b).collect();
-        // A dose with no usable time can't be ruled out.
-        wa.is_empty() || wb.is_empty() || wa.iter().any(|x| wb.iter().any(|y| x.1 <= y.2 && y.1 <= x.2))
-    };
-    warnings.retain(|w| overlap(&w.a, &w.b));
-    Ok(warnings)
+    Ok(field_notes_core::check::session_warnings(&DbRef(conn), &doses))
 }
 
-/// Unknown substances are assumed to last this long: long enough not to miss a
-/// combination with most things, short enough that a whole night isn't one dose.
-const UNKNOWN_DURATION_MIN: f64 = 8.0 * 60.0;
-const OVERLAP_MARGIN_MIN: f64 = 60.0;
-
-/// How long a dose of this lasts by the reference's "total" for the route, longest
-/// end of the range. IM is read as IV, the nearest route DoseWiki lists.
-fn active_minutes(info: &PwInfo, route: &str) -> Option<f64> {
-    let want = match route.to_lowercase().as_str() {
-        "im" | "iv" => "intravenous".to_string(),
-        "vaporized" => "vaporized".to_string(),
-        r => r.to_string(),
-    };
-    let parse = |s: &str| -> Option<f64> {
-        let max = s.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter_map(|n| n.parse::<f64>().ok()).last()?;
-        let unit = s.to_lowercase();
-        Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
-    };
-    let on_route = info
-        .roas
-        .iter()
-        .find(|r| r.name.eq_ignore_ascii_case(route))
-        .or_else(|| info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(&want)))
-        .and_then(|r| r.total.as_deref())
-        .and_then(parse);
-    on_route.or_else(|| info.roas.iter().filter_map(|r| r.total.as_deref().and_then(parse)).reduce(f64::max))
-}
-
+/// Every warning we know about for a set of substances taken together (see
+/// [`field_notes_core::check::combo_warnings`]). This is the *only* way warnings
+/// should be produced: logging a dose and asking the combo checker must agree.
 pub fn combo_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interactions::Warning> {
-    let with_classes: Vec<(String, Vec<String>)> =
-        names.iter().map(|n| (n.clone(), classes_for(conn, n))).collect();
-    let mut warnings = crate::interactions::check(&with_classes);
-    warnings.extend(pw_interaction_warnings(conn, names));
-    let mut warnings = crate::interactions::dedup_pairs(warnings);
-    for w in &mut warnings {
-        let (a, b) = (w.a.to_lowercase(), w.b.to_lowercase());
-        if let Some(o) = crate::interactions::SEVERITY_OVERRIDES.iter().find(|o| (o.0 == a && o.1 == b) || (o.0 == b && o.1 == a)) {
-            w.severity = o.2;
-            w.message = o.3.to_string();
-        }
-        w.advice = crate::interactions::advice_for(&classes_for(conn, &w.a), &classes_for(conn, &w.b));
-    }
-    warnings
+    field_notes_core::check::combo_warnings(&DbRef(conn), names)
 }
 
 pub fn add_timeline_event(conn: &Connection, input: &TimelineInput) -> rusqlite::Result<TimelineEvent> {
@@ -974,150 +921,16 @@ pub fn pw_status(conn: &Connection) -> rusqlite::Result<(i64, Option<String>)> {
     Ok((count, last))
 }
 
-/// Does a DoseWiki interaction entry (a substance name or a class like
-/// "Stimulants"/"MAOIs") refer to `other`? Matches `other`'s name, aliases, and
-/// psychoactive/chemical classes, with light singular/substring tolerance.
-/// Active metabolites sold or taken in their own right, and prodrugs, with the drug
-/// whose interaction warnings apply to them. Whole-word matching can't see that
-/// "O-Desmethyltramadol" is tramadol's active form, or that 1,4-butanediol becomes
-/// GHB in the body, and neither reference entry lists anything to match on, so
-/// without this no warning naming tramadol or GHB (etizolam: "GHB/GBL", dangerous)
-/// would ever reach them. (metabolite or prodrug, the drug it acts as), lowercase.
-const ACTIVE_METABOLITES: &[(&str, &str)] = &[("o-desmethyltramadol", "tramadol"), ("1,4-butanediol", "ghb")];
-
-/// A DoseWiki family name with wildcards, like "5-MeO-xxT" or "2C-x": an `x`
-/// segment stands for any one segment, and `xx` inside one for one to four
-/// characters. Does `id` (a name or alias) belong to the family?
-fn family_match(pattern: &str, id: &str) -> bool {
-    let (ps, is): (Vec<&str>, Vec<&str>) = (pattern.split('-').collect(), id.split('-').collect());
-    ps.len() == is.len()
-        && ps.iter().zip(&is).all(|(p, i)| {
-            if *p == "x" {
-                !i.is_empty() && i.chars().all(char::is_alphanumeric)
-            } else if let Some((pre, post)) = p.split_once("xx") {
-                let mid = i.len() as isize - pre.len() as isize - post.len() as isize;
-                i.starts_with(pre) && i.ends_with(post) && (1..=4).contains(&mid)
-            } else {
-                p == i
-            }
-        })
-}
-
-/// The wildcard family a DoseWiki entry names, if any ("5-MeO-xxT tryptamines" →
-/// "5-meo-xxt"). Such an entry means that family, not every member of the class
-/// word after it: "5-MeO-xxT tryptamines" is not about DMT.
-fn family_of(interaction: &str) -> Option<&str> {
-    interaction
-        .split_whitespace()
-        .find(|t| t.contains('-') && t.split('-').any(|seg| seg == "x" || seg.contains("xx")))
-}
-
-fn matches_interaction(interaction: &str, other: &PwInfo) -> bool {
-    let i = interaction.to_lowercase();
-    if let Some(fam) = family_of(&i) {
-        // By name or alias only, or a class that *is* the family ("2C-X").
-        let ids = std::iter::once(&other.name).chain(&other.common_names).chain(&other.chemical);
-        return ids.map(|s| s.to_lowercase()).any(|id| id == fam || family_match(fam, &id));
-    }
-    let i_sing = i.trim_end_matches('s');
-    let mut ids: Vec<String> = vec![other.name.to_lowercase()];
-    ids.extend(
-        ACTIVE_METABOLITES
-            .iter()
-            .filter(|(m, _)| other.name.eq_ignore_ascii_case(m))
-            .map(|(_, parent)| parent.to_string()),
-    );
-    ids.extend(other.common_names.iter().map(|s| s.to_lowercase()));
-    ids.extend(other.psychoactive.iter().map(|s| s.to_lowercase()));
-    ids.extend(other.chemical.iter().map(|s| s.to_lowercase()));
-    ids.iter().any(|id| {
-        let id_sing = id.trim_end_matches('s');
-        // Partial matches are whole words only, and never on a one- or two-letter
-        // street name: LSD is also "L", MDMA "E" and "X", ketamine "K", and a plain
-        // substring test made "Lithium", "Tramadol" and "Alcohol" all match LSD.
-        id == &i
-            || id_sing == i_sing
-            || (id.len() >= 3 && has_word(&i, id))
-            || (i.len() >= 4 && has_word(id, &i))
-            || (i_sing.len() >= 4 && has_word(id, i_sing))
-    })
-}
-
-/// `needle` appears in `hay` as a whole word (a plural "s" after it is allowed):
-/// no letter or digit directly on either side.
-fn has_word(hay: &str, needle: &str) -> bool {
-    if needle.is_empty() {
-        return false;
-    }
-    hay.match_indices(needle).any(|(at, _)| {
-        let before = hay[..at].chars().next_back();
-        let rest = &hay[at + needle.len()..];
-        let rest = rest.strip_prefix('s').filter(|r| !r.starts_with(char::is_alphanumeric)).unwrap_or(rest);
-        !before.is_some_and(char::is_alphanumeric) && !rest.starts_with(char::is_alphanumeric)
-    })
-}
-
-/// Rank a DoseWiki-derived severity for picking the most severe match per pair.
-fn sev_rank(sev: &str) -> u8 {
-    match sev {
-        "danger" => 3,
-        "caution" => 2,
-        _ => 1,
-    }
-}
-
-/// Map a stored severity string back to the static set the `Warning` type uses.
-fn static_sev(sev: &str) -> &'static str {
-    match sev {
-        "danger" => "danger",
-        "caution" => "caution",
-        _ => "note",
-    }
-}
-
 /// Graded warnings from DoseWiki's interaction lists for every pair of the given
-/// substances that has cached reference data. Keeps the most severe match per
-/// pair and carries DoseWiki's reason text.
+/// substances that has cached reference data.
 pub fn pw_interaction_warnings(conn: &Connection, names: &[String]) -> Vec<crate::interactions::Warning> {
-    use crate::interactions::{dosewiki_message, Warning};
-    let infos: Vec<(String, PwInfo)> = names
-        .iter()
-        .filter_map(|n| pw_lookup(conn, n).ok().flatten().map(|info| (n.clone(), info)))
-        .collect();
-    let mut out = Vec::new();
-    for a in 0..infos.len() {
-        for b in (a + 1)..infos.len() {
-            let (na, ia) = &infos[a];
-            let (nb, ib) = &infos[b];
-            // Consider graded matches in both directions; keep the most severe.
-            let matches = ia
-                .interactions
-                .iter()
-                .filter(|x| matches_interaction(&x.name, ib))
-                .chain(ib.interactions.iter().filter(|x| matches_interaction(&x.name, ia)));
-            let mut best: Option<&crate::pw::PwInteraction> = None;
-            for x in matches {
-                if best.map_or(0, |b| sev_rank(&b.severity)) < sev_rank(&x.severity) {
-                    best = Some(x);
-                }
-            }
-            if let Some(x) = best {
-                out.push(Warning {
-                    severity: static_sev(&x.severity),
-                    a: na.clone(),
-                    b: nb.clone(),
-                    message: dosewiki_message(&x.severity, x.reason.as_deref()),
-                    advice: Vec::new(),
-                });
-            }
-        }
-    }
-    out
+    field_notes_core::check::pw_interaction_warnings(&DbRef(conn), names)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use field_notes_core::check::{family_match, matches_interaction};
 
     fn info(name: &str, common: &[&str], psy: &[&str], chem: &[&str]) -> PwInfo {
         let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
@@ -1510,6 +1323,45 @@ mod tests {
         let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
         pw_replace_all(&mut c, &all).unwrap();
         c
+    }
+
+    /// The phone's offline checker answers from `MemReference`, the desktop from
+    /// this database. Every name, street name, class and route in the reference,
+    /// plus a few awkward strings, must find the same entry both ways, and the
+    /// same pairs must warn the same way.
+    #[test]
+    fn the_phones_offline_reference_answers_exactly_as_the_journal_does() {
+        use field_notes_core::check::{MemReference, Reference};
+        let c = bundled();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        let mem = MemReference::new(all.clone());
+        let mut probes: Vec<String> = vec!["molly".into(), "LSD".into(), "k".into(), "x".into(), "nothing at all".into(), "5-meo".into()];
+        for s in &all {
+            probes.push(s.name.clone());
+            probes.push(s.name.to_uppercase());
+            probes.extend(s.common_names.iter().cloned());
+            probes.extend(s.psychoactive.iter().cloned());
+            probes.extend(s.chemical.iter().cloned());
+            probes.extend(s.roas.iter().map(|r| r.name.clone()));
+        }
+        // Case can't matter to either side, so one spelling of each is enough.
+        let mut seen = std::collections::HashSet::new();
+        probes.retain(|p| seen.insert(p.to_lowercase()));
+        for p in &probes {
+            let db = pw_lookup(&c, p).unwrap().map(|i| i.name);
+            assert_eq!(db, mem.lookup(p).map(|i| i.name), "lookup of {p:?}");
+        }
+        let names: Vec<String> = ["MDMA", "LSD", "Tramadol", "Alcohol", "Ketamine", "Cocaine", "Etizolam", "1,4-Butanediol", "Lithium", "Mephedrone", "5-MeO-DMT", "DMT"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let render = |w: Vec<crate::interactions::Warning>| serde_json::to_string(&w).unwrap();
+        for a in &names {
+            for b in &names {
+                let pair = vec![a.clone(), b.clone()];
+                assert_eq!(render(combo_warnings(&c, &pair)), render(field_notes_core::check::combo_warnings(&mem, &pair)), "{a} + {b}");
+            }
+        }
     }
 
     fn dose(c: &Connection, exp: i64, name: &str, route: &str, at: &str) -> Vec<crate::interactions::Warning> {

@@ -12,7 +12,7 @@ mod contribute;
 pub mod crisis;
 pub mod db;
 mod devices;
-mod interactions;
+pub(crate) use field_notes_core::interactions;
 mod keychain;
 pub mod knowledge;
 mod obsidian;
