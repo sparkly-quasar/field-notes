@@ -215,7 +215,7 @@
   <section class="trends" aria-labelledby="trends-h">
     <h3 id="trends-h">Trends</h3>
     <p class="lede">
-      The last {periodWord} against the {periodWord} before. What changed in what you logged, laid out. Nothing here is a judgement.
+      Differences between the last {periodWord} and the {periodWord} before.
     </p>
 
     {#if !enough}
