@@ -56,29 +56,49 @@ pub struct TimedDose {
 /// `OVERLAP_MARGIN_MIN` for after-effects and loose timestamps. Logged live, every
 /// dose is "now" and this is the same as [`combo_warnings`]; for a past session,
 /// a stimulant at 6pm and a benzo at 3am a day later aren't a combination.
+///
+/// Pairs that only meet once one of them is past its peak are softened rather than
+/// dropped (see [`soften_for_tail`]): the substance is fading, not gone, and for
+/// some pairs the fading is the risk.
 pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning> {
     let mut names: Vec<String> = doses.iter().map(|d| d.name.clone()).collect();
     names.sort();
     names.dedup();
     let mut warnings = combo_warnings(r, &names);
 
-    // Each dose's active window, in minutes since the epoch.
-    let windows: Vec<(String, f64, f64)> = doses
+    // Each dose's windows, in minutes since the epoch: (name, taken, end of peak, end).
+    let windows: Vec<(String, f64, f64, f64)> = doses
         .iter()
         .filter_map(|d| {
             let t = d.at_min?;
-            let dur = r.lookup(&d.name).as_ref().and_then(|i| active_minutes(i, &d.route)).unwrap_or(UNKNOWN_DURATION_MIN);
-            Some((d.name.to_lowercase(), t, t + dur + OVERLAP_MARGIN_MIN))
+            let info = r.lookup(&d.name);
+            let dur = info.as_ref().and_then(|i| active_minutes(i, &d.route)).unwrap_or(UNKNOWN_DURATION_MIN);
+            // No phase data: the whole window counts as the strong part.
+            let peak = info.as_ref().and_then(|i| peak_end_minutes(i, &d.route)).map_or(dur, |p| p.min(dur));
+            Some((d.name.to_lowercase(), t, t + peak, t + dur + OVERLAP_MARGIN_MIN))
         })
         .collect();
-    let overlap = |a: &str, b: &str| {
-        let (a, b) = (a.to_lowercase(), b.to_lowercase());
-        let wa: Vec<_> = windows.iter().filter(|w| w.0 == a).collect();
-        let wb: Vec<_> = windows.iter().filter(|w| w.0 == b).collect();
+    let of = |n: &str| windows.iter().filter(|w| w.0 == n.to_lowercase()).collect::<Vec<_>>();
+    let meets = |x0: f64, x1: f64, y0: f64, y1: f64| x0 <= y1 && y0 <= x1;
+
+    warnings.retain_mut(|w| {
+        let (wa, wb) = (of(&w.a), of(&w.b));
         // A dose with no usable time can't be ruled out.
-        wa.is_empty() || wb.is_empty() || wa.iter().any(|x| wb.iter().any(|y| x.1 <= y.2 && y.1 <= x.2))
-    };
-    warnings.retain(|w| overlap(&w.a, &w.b));
+        if wa.is_empty() || wb.is_empty() {
+            return true;
+        }
+        if !wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.3, y.1, y.3))) {
+            return false;
+        }
+        let at_peak = wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.2, y.1, y.2)));
+        if !at_peak {
+            // The one that had peaked first is the one fading when they meet.
+            let a_first = wa.iter().map(|x| x.2).fold(f64::MAX, f64::min) <= wb.iter().map(|y| y.2).fold(f64::MAX, f64::min);
+            let fading = if a_first { w.a.clone() } else { w.b.clone() };
+            soften_for_tail(r, w, &fading);
+        }
+        true
+    });
     warnings
 }
 
@@ -87,27 +107,77 @@ pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning>
 pub const UNKNOWN_DURATION_MIN: f64 = 8.0 * 60.0;
 pub const OVERLAP_MARGIN_MIN: f64 = 60.0;
 
-/// How long a dose of this lasts by the reference's "total" for the route, longest
-/// end of the range. IM is read as IV, the nearest route DoseWiki lists.
-pub fn active_minutes(info: &PwInfo, route: &str) -> Option<f64> {
+/// The longest end of a DoseWiki duration like "2-4 hours", in minutes.
+fn max_minutes(s: &str) -> Option<f64> {
+    let max = s.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter_map(|n| n.parse::<f64>().ok()).next_back()?;
+    let unit = s.to_lowercase();
+    Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
+}
+
+/// The reference's entry for a route, IM read as IV, the nearest route DoseWiki lists.
+fn roa<'a>(info: &'a PwInfo, route: &str) -> Option<&'a crate::pw::PwRoa> {
     let want = match route.to_lowercase().as_str() {
         "im" | "iv" => "intravenous".to_string(),
         "vaporized" => "vaporized".to_string(),
         r => r.to_string(),
     };
-    let parse = |s: &str| -> Option<f64> {
-        let max = s.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter_map(|n| n.parse::<f64>().ok()).last()?;
-        let unit = s.to_lowercase();
-        Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
-    };
-    let on_route = info
-        .roas
+    info.roas
         .iter()
         .find(|r| r.name.eq_ignore_ascii_case(route))
         .or_else(|| info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(&want)))
+}
+
+/// How long a dose of this lasts by the reference's "total" for the route, longest
+/// end of the range.
+pub fn active_minutes(info: &PwInfo, route: &str) -> Option<f64> {
+    roa(info, route)
         .and_then(|r| r.total.as_deref())
-        .and_then(parse);
-    on_route.or_else(|| info.roas.iter().filter_map(|r| r.total.as_deref().and_then(parse)).reduce(f64::max))
+        .and_then(max_minutes)
+        .or_else(|| info.roas.iter().filter_map(|r| r.total.as_deref().and_then(max_minutes)).reduce(f64::max))
+}
+
+/// When the peak is over: onset, come-up and peak added, longest ends. `None` when
+/// the reference doesn't give a peak for the route, so nothing is called a tail
+/// on a guess. A missing come-up is read as already counted in the onset.
+pub fn peak_end_minutes(info: &PwInfo, route: &str) -> Option<f64> {
+    let r = roa(info, route)?;
+    let peak = r.peak.as_deref().and_then(max_minutes)?;
+    let onset = r.onset.as_deref().and_then(max_minutes)?;
+    Some(onset + r.come_up.as_deref().and_then(max_minutes).unwrap_or(0.0) + peak)
+}
+
+/// A pair that only meets while one of them is past its peak becomes a note,
+/// saying so, unless it is one where the tail is no safer:
+/// - anything rated dangerous;
+/// - MAOIs, which go on interacting long after they're felt;
+/// - two serotonergic drugs, where the risk follows blood levels, not the high;
+/// - a stimulant with an opioid, benzo or GHB-type sedative, where the stimulant
+///   wearing off is exactly when breathing can stop.
+pub fn soften_for_tail(r: &impl Reference, w: &mut Warning, fading: &str) {
+    if w.severity == "danger" {
+        return;
+    }
+    let (ca, cb) = (r.classes(&w.a), r.classes(&w.b));
+    let has = |c: &[String], k: &str| c.iter().any(|x| x == k);
+    let either = |k: &str| has(&ca, k) || has(&cb, k);
+    let sero = |c: &[String]| ["ssri", "serotonin_releaser", "serotonergic"].iter().any(|k| has(c, k));
+    let ghb_like = |n: &str| {
+        let n = n.to_lowercase();
+        ["ghb", "gbl", "1,4-butanediol", "1,4-bd", "sodium oxybate"].iter().any(|g| n.contains(g))
+    };
+    let sed = |c: &[String], n: &str| ["opioid", "benzodiazepine"].iter().any(|k| has(c, k)) || ghb_like(n);
+    if either("maoi")
+        || (sero(&ca) && sero(&cb))
+        || (has(&ca, "stimulant") && sed(&cb, &w.b))
+        || (has(&cb, "stimulant") && sed(&ca, &w.a))
+    {
+        return;
+    }
+    w.severity = "note";
+    w.message = format!(
+        "{fading} was past its peak by the time these overlapped, so this matters less than it would at full strength. It is fading, not gone. {}",
+        w.message
+    );
 }
 
 /// Active metabolites sold or taken in their own right, and prodrugs, with the drug
@@ -365,5 +435,41 @@ mod tests {
         let d = |name: &str, h: f64| TimedDose { name: name.into(), route: "oral".into(), at_min: Some(h * 60.0) };
         assert!(!session_warnings(&r, &[d("MDMA", 0.0), d("Tramadol", 1.0)]).is_empty());
         assert!(session_warnings(&r, &[d("MDMA", 0.0), d("Tramadol", 72.0)]).is_empty());
+    }
+
+    fn d(name: &str, h: f64) -> TimedDose {
+        TimedDose { name: name.into(), route: "oral".into(), at_min: Some(h * 60.0) }
+    }
+
+    #[test]
+    fn alcohol_at_the_peak_of_dexamphetamine_is_not_softened() {
+        // Oral dexamphetamine's peak runs to 5.5h on DoseWiki's longest figures.
+        let w = session_warnings(&bundled(), &[d("Dextroamphetamine", 0.0), d("Alcohol", 5.0)]);
+        assert!(!w.is_empty(), "{w:?}");
+        assert!(w.iter().all(|w| !w.message.contains("past its peak")), "{w:?}");
+    }
+
+    #[test]
+    fn alcohol_in_the_tail_of_dexamphetamine_is_a_softened_note() {
+        let w = session_warnings(&bundled(), &[d("Dextroamphetamine", 0.0), d("Alcohol", 7.0)]);
+        assert!(!w.is_empty(), "{w:?}");
+        for w in &w {
+            assert_eq!(w.severity, "note", "{w:?}");
+            assert!(w.message.starts_with("Dextroamphetamine was past its peak"), "{w:?}");
+        }
+    }
+
+    #[test]
+    fn a_fading_stimulant_with_ghb_is_never_softened() {
+        let w = session_warnings(&bundled(), &[d("Amphetamine", 0.0), d("GHB", 7.0)]);
+        assert!(!w.is_empty(), "{w:?}");
+        assert!(w.iter().all(|w| !w.message.contains("past its peak")), "{w:?}");
+    }
+
+    #[test]
+    fn ghb_with_stimulants_does_not_call_it_an_opiate() {
+        let w = combo_warnings(&bundled(), &["Amphetamine".into(), "GHB".into()]);
+        assert!(!w.is_empty(), "{w:?}");
+        assert!(w.iter().all(|w| !w.message.contains("opiate")), "{w:?}");
     }
 }

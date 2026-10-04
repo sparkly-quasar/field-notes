@@ -200,8 +200,20 @@ pub fn dosewiki_message(severity: &str, reason: Option<&str>) -> String {
         _ => "DoseWiki notes caution with this combination",
     };
     match reason {
-        Some(r) if !r.is_empty() => format!("{lead}: {r}"),
+        Some(r) if !r.is_empty() => format!("{lead}: {}", correct_reason(r)),
         _ => format!("{lead} — treat as risky and check trusted sources."),
+    }
+}
+
+/// Fix known slips in DoseWiki's wording, here rather than in the vendored data so
+/// a refresh can't bring them back. Its stimulant entries reuse the opioid sentence
+/// for GHB/GBL and other sedatives ("...a higher dose of sedatives. If the stimulant
+/// wears off first then the opiate may overcome..."), and GHB isn't an opiate.
+pub fn correct_reason(r: &str) -> String {
+    if r.contains("sedatives") {
+        r.replace("the opiate", "the sedative")
+    } else {
+        r.to_string()
     }
 }
 
