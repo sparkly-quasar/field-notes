@@ -610,6 +610,12 @@ pub fn session_warnings(conn: &Connection, experience_id: i64) -> rusqlite::Resu
     Ok(field_notes_core::check::session_warnings(&DbRef(conn), &doses))
 }
 
+/// Interaction warnings for doses from anywhere in the journal, timed the same way
+/// as one session's (see [`field_notes_core::check::session_warnings`]).
+pub fn timed_warnings(conn: &Connection, doses: &[field_notes_core::check::TimedDose]) -> Vec<crate::interactions::Warning> {
+    field_notes_core::check::session_warnings(&DbRef(conn), doses)
+}
+
 /// Every warning we know about for a set of substances taken together (see
 /// [`field_notes_core::check::combo_warnings`]). This is the *only* way warnings
 /// should be produced: logging a dose and asking the combo checker must agree.

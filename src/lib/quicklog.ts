@@ -29,6 +29,7 @@ import {
   logDose,
   updateExperience,
   type ExperienceSummary,
+  type TimedDose,
   type Warning,
 } from "./api";
 import { deferStretch, NeedsComputerError } from "./offline";
@@ -100,7 +101,7 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
     title: entry.title,
     // The dose is saved whatever happens here; if the wider check can't run, the
     // entry's own check still stands.
-    warnings: await allWarnings(substance, input.at, logged.warnings, id).catch(() => logged.warnings),
+    warnings: await allWarnings(substance, input.at, logged.warnings, id, input.route).catch(() => logged.warnings),
     doseId: logged.dose.id,
     fresh,
   };
@@ -139,22 +140,42 @@ export async function stretchToCover(id: number, at: string) {
  * `log_dose` compares a dose against the rest of **its own entry**, which for a
  * quick log is nothing at all — so on its own it would go quiet on exactly the
  * combination that matters. Widen the question to "what else was in you around
- * then" and run the same deterministic checker over that.
+ * then" and run the same timed checker over every dose in the entries nearby, at
+ * the times they were actually taken: pairs that never overlapped drop out, and
+ * pairs that only met once one was past its peak are softened.
  *
- * Entry start times are the coarse grain available without reading every dose
- * in the journal, so this can flag a pair that was hours apart. That is the
- * right way to be wrong: a warning you can dismiss beats silence you can't.
+ * An entry whose doses can't be read (on a phone, one that isn't saved there)
+ * counts as taken when the entry started. That can flag a pair that was hours
+ * apart, which is the right way to be wrong: a warning you can dismiss beats
+ * silence you can't.
  */
-export async function allWarnings(substance: string, at: string, own: Warning[], entryId?: number): Promise<Warning[]> {
+export async function allWarnings(
+  substance: string,
+  at: string,
+  own: Warning[],
+  entryId?: number,
+  route = "",
+): Promise<Warning[]> {
   const t = new Date(at).getTime();
+  const minutes = (iso: string) => (Number.isFinite(Date.parse(iso)) ? Date.parse(iso) / 60_000 : null);
   // The entry's own check (`own`) already covers it, and knows when each dose was
-  // taken; checking its names again here would bring back pairs that never met.
-  const nearby = (await listExperiences())
-    .filter((e) => e.id !== entryId && Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000)
-    .flatMap((e) => e.substances);
+  // taken; checking its doses again here would bring back pairs that never met.
+  const nearby = (await listExperiences()).filter(
+    (e) => e.id !== entryId && Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000,
+  );
+  const doses: TimedDose[] = [{ substance_name: substance, route, at_min: minutes(at) }];
+  for (const e of nearby) {
+    try {
+      for (const d of (await getExperience(e.id)).doses) {
+        doses.push({ substance_name: d.substance_name, route: d.route, at_min: minutes(d.taken_at) });
+      }
+    } catch {
+      for (const n of e.substances) doses.push({ substance_name: n, route: "", at_min: minutes(e.started_at) });
+    }
+  }
 
-  const names = [...new Set([substance, ...nearby].map((n) => n.trim()).filter(Boolean))];
-  const wider = names.length > 1 ? await checkCombo(names) : [];
+  const names = [...new Set(doses.map((d) => d.substance_name.trim()).filter(Boolean))];
+  const wider = names.length > 1 ? await checkCombo(names, doses) : [];
 
   // A pair is the same pair in either order: the entry's own check may report
   // "Heroin + Alcohol" where the wider one says "Alcohol + Heroin", and showing the
@@ -356,7 +377,7 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
         // Keep the words around the dose when there were any worth keeping.
         note: l.text.split(/\s+/).length > 4 ? l.text : "",
       });
-      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings, id)));
+      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings, id, l.route)));
     } else if (l.text.trim()) {
       await addTimelineEvent({ experience_id: id, at: l.at, note: l.text.trim(), intensity: l.intensity });
     }
