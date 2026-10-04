@@ -11,6 +11,23 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.23.0
+
+- **Warnings know where a dose is in its arc.** When two things only overlap
+  after one of them has peaked, the warning becomes a quieter note that says
+  so: it matters less than at full strength, but the substance is fading, not
+  gone. Combinations where the comedown is no safer still warn in full:
+  anything rated dangerous, MAOIs, two serotonergic drugs, and a stimulant with
+  an opioid, benzo or GHB, where the stimulant wearing off is the risk.
+- **Quick logs are checked by when things were actually taken.** A dose logged
+  on its own used to be checked against everything in entries from the 12 hours
+  around it, as if it had all been taken at once. Now each dose counts from its
+  own time, so things that never overlapped don't warn.
+- **GHB isn't called an opiate.** The stimulant warning for GHB/GBL said "the
+  opiate may overcome the individual". It now says "the sedative".
+- **Trends** now opens with "Differences between the last 30 days and the 30
+  days before."
+
 ## v0.22.2
 
 - **Save or share an experience as a PDF.** To send a trip report to someone:
