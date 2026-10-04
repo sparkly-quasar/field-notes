@@ -85,6 +85,27 @@ function load(): ob.State {
   }
 }
 
+/**
+ * Ask the browser not to clear this site's storage when the phone runs low on
+ * space, the moment there's something queued worth keeping. Chrome grants it
+ * without asking for an app on the home screen; Firefox may ask once, right after
+ * the tap that queued it; Safari decides for itself. Refused or unsupported, the
+ * queue is kept exactly as before, so nothing waits on the answer.
+ */
+let askedToKeep = false;
+function keepStorage() {
+  if (askedToKeep) return;
+  askedToKeep = true;
+  try {
+    navigator.storage
+      ?.persisted?.()
+      .then((kept) => (kept ? true : navigator.storage.persist?.()))
+      .catch(() => {});
+  } catch {
+    // No storage manager here: nothing to ask.
+  }
+}
+
 function save(s: ob.State) {
   try {
     localStorage.setItem(STATE_KEY, JSON.stringify(s));
@@ -463,11 +484,13 @@ async function answerHere<T>(cmd: string, args: Record<string, any>): Promise<T>
               advice: [],
             },
           ];
+      keepStorage();
       return update((s) => ob.queue(s, cmd, args, check)) as T;
     }
     case "create_experience":
     case "add_timeline_event":
     case "end_experience":
+      keepStorage();
       return update((s) => ob.queue(s, cmd, args, () => [])) as T;
     default:
       if (TALK.includes(cmd)) throw new NeedsComputerError(`${why} Talk runs on your computer, so it's back when your computer is.`);

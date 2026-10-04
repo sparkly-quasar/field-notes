@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.23.1
+
+- **What your phone saves offline is better protected.** The first time
+  something is saved on your phone to send later, the app asks the browser to
+  keep its storage even if the phone runs low on space. On Android with the app
+  on your home screen, this is usually granted without asking.
+
 ## v0.23.0
 
 - **Gentler warnings once a dose is wearing off.** If two substances only
