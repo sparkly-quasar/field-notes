@@ -903,7 +903,8 @@ fn offline<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: Value, why: &str) ->
         }
         "check_combo" => {
             let names: Vec<String> = serde_json::from_value(args["names"].clone()).unwrap_or_default();
-            serde_json::to_value(commands::check_combo(db, names)).map_err(|e| e.to_string())
+            let doses: Option<Vec<commands::TimedDoseIn>> = serde_json::from_value(args["doses"].clone()).ok();
+            serde_json::to_value(commands::check_combo(db, names, doses)).map_err(|e| e.to_string())
         }
         "crisis_scan" => {
             let text = args["text"].as_str().unwrap_or_default().to_string();
