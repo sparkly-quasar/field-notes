@@ -132,6 +132,18 @@ test("the phone's checker flags what the computer flags", () => {
   assert.ok(call("update_dose", {}).err);
 });
 
+test("a quick log's timed check softens a pair that only met past a peak", () => {
+  const call = loadEngine();
+  const dose = (substance_name, h) => ({ substance_name, route: "oral", at_min: h * 60 });
+  const names = ["Dextroamphetamine", "Alcohol"];
+  const peak = call("check_combo", { names, doses: [dose("Dextroamphetamine", 0), dose("Alcohol", 5)] }).ok;
+  assert.ok(peak.length && peak.every((w) => !w.message.includes("past its peak")));
+  const tail = call("check_combo", { names, doses: [dose("Dextroamphetamine", 0), dose("Alcohol", 7)] }).ok;
+  assert.ok(tail.length && tail.every((w) => w.severity === "note" && w.message.includes("past its peak")));
+  const apart = call("check_combo", { names, doses: [dose("Dextroamphetamine", 0), dose("Alcohol", 30)] }).ok;
+  assert.deepEqual(apart, []);
+});
+
 test("the phone's checker only combines doses that overlapped", () => {
   const call = loadEngine();
   const h = (n) => Date.parse("2026-10-03T18:00:00Z") / 60_000 + n * 60;

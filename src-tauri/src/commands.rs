@@ -54,13 +54,43 @@ pub fn add_substance_in(db: &Db, input: SubstanceInput) -> Result<Substance, Str
 /// rules *and* DoseWiki's graded interaction lists. If the journal is locked we
 /// can't reach either the user's classifications or the cached reference data, so
 /// we fall back to the built-in classes rather than going silent.
+///
+/// With `doses`, the question is about doses taken at known times instead (a
+/// quick log against the entries around it): pairs that never overlapped drop
+/// out and pairs that only met past a peak are softened, as within one session.
+/// Same shape as the phone engine's `session_warnings`.
 #[tauri::command]
-pub fn check_combo(db: State<'_, Db>, names: Vec<String>) -> Vec<Warning> {
-    check_combo_in(&db, names)
+pub fn check_combo(db: State<'_, Db>, names: Vec<String>, doses: Option<Vec<TimedDoseIn>>) -> Vec<Warning> {
+    check_combo_in(&db, names, doses)
+}
+
+/// One dose for a timed [`check_combo`]: `at_min` is minutes since the epoch.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TimedDoseIn {
+    pub substance_name: String,
+    #[serde(default)]
+    pub route: String,
+    pub at_min: Option<f64>,
 }
 
 /// [`check_combo`] against any person's journal (the portal picks it by device).
-pub fn check_combo_in(db: &Db, names: Vec<String>) -> Vec<Warning> {
+pub fn check_combo_in(db: &Db, names: Vec<String>, doses: Option<Vec<TimedDoseIn>>) -> Vec<Warning> {
+    if let Some(doses) = doses.filter(|d| !d.is_empty()) {
+        let timed: Vec<field_notes_core::check::TimedDose> = doses
+            .iter()
+            .map(|d| field_notes_core::check::TimedDose {
+                name: d.substance_name.clone(),
+                route: d.route.clone(),
+                at_min: d.at_min,
+            })
+            .collect();
+        if let Ok(w) = db.with(|c| Ok(db::timed_warnings(c, &timed))) {
+            return w;
+        }
+        // Locked: fall through to the untimed backstop over the same names.
+        let names: Vec<String> = doses.into_iter().map(|d| d.substance_name).collect();
+        return check_combo_in(db, names, None);
+    }
     db.with(|c| Ok(db::combo_warnings(c, &names))).unwrap_or_else(|_| {
         let subs: Vec<(String, Vec<String>)> =
             names.iter().map(|n| (n.clone(), interactions::builtin_classes(n))).collect();

@@ -628,7 +628,7 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "remove_duplicate_entries" => done(commands::remove_duplicate_entries_in(db)),
 
         // --- safety: the same deterministic layers the desktop uses ---
-        "check_combo" => ok(commands::check_combo_in(db, arg(&args, "names")?)),
+        "check_combo" => ok(commands::check_combo_in(db, arg(&args, "names")?, arg(&args, "doses")?)),
         "interaction_classes" => ok(commands::interaction_classes()),
         "crisis_scan" => ok(commands::crisis_scan_text(arg(&args, "text")?, arg(&args, "recent")?)),
         "emergency_resources" => ok(commands::emergency_resources()),
