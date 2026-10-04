@@ -11,6 +11,22 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.23.0
+
+- **Gentler warnings once a dose is wearing off.** If two substances only
+  overlap after one of them is past its peak, the warning now says so ("past
+  its peak by the time these overlapped… it is fading, not gone") above the
+  usual advice. Some combinations always get the full warning: anything rated
+  dangerous, anything with an MAOI, two serotonergic drugs, and a stimulant
+  with an opioid, benzo or GHB-type sedative, where the stimulant wearing off
+  is the risk.
+- **Quick logs check timing.** A quick log is now checked against each dose at
+  the time it was actually taken, not against everything from the last 12
+  hours.
+- **Clearer GHB warnings.** Stimulant warnings about GHB or GBL no longer call
+  it "the opiate".
+- **Shorter Trends intro.**
+
 ## v0.22.2
 
 - **Save or share an experience as a PDF.** To send a trip report to someone:
