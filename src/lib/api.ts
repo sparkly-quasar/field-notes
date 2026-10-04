@@ -339,7 +339,16 @@ export const contributionSave = (id: number, path: string) =>
 export const interactionClasses = () => invoke<string[]>("interaction_classes");
 export const listSubstances = () => invoke<Substance[]>("list_substances");
 export const addSubstance = (input: SubstanceInput) => invoke<Substance>("add_substance", { input });
-export const checkCombo = (names: string[]) => invoke<Warning[]>("check_combo", { names });
+/** A dose for a timed check: when it was taken, in minutes since the epoch. */
+export interface TimedDose {
+  substance_name: string;
+  route: string;
+  at_min: number | null;
+}
+/** With `doses`, pairs are checked by when they were taken: ones that never
+ *  overlapped drop out, ones that met past a peak are softened. */
+export const checkCombo = (names: string[], doses?: TimedDose[]) =>
+  invoke<Warning[]>("check_combo", doses ? { names, doses } : { names });
 export const createExperience = (input: ExperienceInput) =>
   invoke<Experience>("create_experience", { input });
 export const listExperiences = () => invoke<ExperienceSummary[]>("list_experiences");

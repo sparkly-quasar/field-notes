@@ -439,7 +439,7 @@ async function answerHere<T>(cmd: string, args: Record<string, any>): Promise<T>
       return d as T;
     }
     case "check_combo":
-      return (await requireEngine()).call("check_combo", { names: args.names });
+      return (await requireEngine()).call("check_combo", { names: args.names, doses: args.doses });
     case "pw_lookup":
       return (await requireEngine()).call("pw_lookup", { name: args.name });
     case "pw_names":

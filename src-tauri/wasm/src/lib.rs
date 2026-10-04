@@ -117,6 +117,8 @@ pub fn run(cmd: &str, args: &Value) -> Result<Value, String> {
     let names = || -> Vec<String> { serde_json::from_value(args["names"].clone()).unwrap_or_default() };
     let to = |v: Result<Value, serde_json::Error>| v.map_err(|e| e.to_string());
     match cmd {
+        // With `doses`, timed like a session; see the desktop's `check_combo`.
+        "check_combo" if args["doses"].as_array().is_some_and(|d| !d.is_empty()) => run("session_warnings", args),
         "check_combo" => with_reference(|r| to(serde_json::to_value(check::combo_warnings(r, &names())))),
         "session_warnings" => with_reference(|r| {
             let doses: Vec<DoseIn> = serde_json::from_value(args["doses"].clone()).map_err(|e| e.to_string())?;
