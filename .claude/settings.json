@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git -C \"$CLAUDE_PROJECT_DIR\" config user.name sparkly-quasar && git -C \"$CLAUDE_PROJECT_DIR\" config user.email 301139880+sparkly-quasar@users.noreply.github.com"
+          }
+        ]
+      }
+    ]
+  }
+}
