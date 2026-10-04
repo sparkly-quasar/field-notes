@@ -492,6 +492,7 @@ mod tests {
         // DoseWiki leaves these unclassed; the built-in matcher fills in.
         assert_eq!(families_for("Alcohol", &[], &[]), v(&["depressants"]));
         assert_eq!(families_for("GHB", &[], &[]), v(&["depressants"]));
+        assert_eq!(families_for("Beer", &[], &[]), v(&["depressants"]));
         assert_eq!(families_for("Nitrous", &[], &[]), v(&["dissociatives"]));
         // Nothing to go on: "other", never dropped.
         assert_eq!(families_for("Blue lotus", &[], &[]), v(&["other"]));

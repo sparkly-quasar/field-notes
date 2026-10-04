@@ -279,7 +279,15 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     {
         add("stimulant", &mut c);
     }
-    // depressants
+    // depressants. Drinks by name too ("Beer"), matched whole so "ginseng" or
+    // "rum raisin" isn't alcohol; same list as the phone's drink unit (quicklog.ts).
+    const DRINKS: &[&str] = &[
+        "booze", "beer", "wine", "cider", "vodka", "whiskey", "whisky", "rum", "gin", "tequila",
+        "mezcal", "liquor", "spirits", "sake", "champagne", "glass of wine", "shot",
+    ];
+    if DRINKS.contains(&n.trim()) {
+        add("depressant", &mut c);
+    }
     if n.contains("alcohol") || n.contains("ethanol") || n.contains("ghb") || n.contains("gbl")
         || n.contains("butanediol") || n == "1,4-b" || n == "14b" || n.contains("barbiturate") || n.contains("phenibut")
     {
@@ -358,6 +366,18 @@ mod tests {
         // A plain stimulant keeps the stimulant note.
         let w = check(&[sub("amphetamine"), sub("LSD")]);
         assert!(w[0].message.starts_with("Stimulant + psychedelic"), "{w:?}");
+    }
+
+    #[test]
+    fn drinks_by_name_are_alcohol() {
+        for d in ["Beer", "wine", "Vodka", " gin ", "Glass of wine", "shot"] {
+            assert!(builtin_classes(d).contains(&"depressant".to_string()), "{d} should be a depressant");
+        }
+        for not in ["ginseng", "rum raisin", "winery tour"] {
+            assert!(builtin_classes(not).is_empty(), "{not} isn't a drink");
+        }
+        let w = check(&[sub("Beer"), sub("alprazolam")]);
+        assert!(!w.is_empty(), "beer + a benzo must be flagged: {w:?}");
     }
 
     #[test]
