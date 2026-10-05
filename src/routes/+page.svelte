@@ -130,6 +130,7 @@
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
+  import KindQuestion from "$lib/KindQuestion.svelte";
   import { describeAmount, detailOf, inUnit, measure } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
@@ -261,6 +262,10 @@
   let qlWhen = $state("");
   let qlWarnings = $state<Warning[]>([]);
   let qlSaved = $state<{ id: number; title: string; at: string } | null>(null);
+  /** The substance just logged in each dose form, for KindQuestion; `n` asks again. */
+  let qlAsk = $state({ s: "", n: 0 });
+  let dAsk = $state({ s: "", n: 0 });
+  let qAsk = $state({ s: "", n: 0 });
   let qlInto = $state<number | null>(null);
   const qlRecents = $derived(recentSubstances(experiences));
 
@@ -1046,6 +1051,7 @@
     rememberDoseShape(qlSub, { unit: qlUnit, route: qlRoute });
     qlWarnings = res.warnings;
     qlSaved = { id: res.id, title: res.title, at };
+    qlAsk = { s: qlSubAs || qlSub.trim(), n: qlAsk.n + 1 };
     qlInto = null;
     qlSub = qlAmt = "";
     qlDetail = {};
@@ -1130,6 +1136,7 @@
       ...dDetail,
     });
     lastWarnings = res.warnings;
+    dAsk = { s: res.dose.substance_name, n: dAsk.n + 1 };
     dSubstance = dAmount = "";
     dDetail = {};
     dTime = defaultDoseTime();
@@ -1652,6 +1659,7 @@
       ...qDetail,
     });
     const r = res.dose;
+    qAsk = { s: r.substance_name, n: qAsk.n + 1 };
     lastLogged = { id: r.id, label: `${r.substance_name}${r.amount != null ? ` ${describeAmount(r.substance_name, r.amount, r.unit, r)}` : ""}` };
     qSub = ""; qAmt = ""; qNote = "";
     qDetail = {};
@@ -2673,6 +2681,7 @@
           </div>
           <NameHint name={dSubstance} bind:saveAs={dSubstanceAs} />
           <DoseDetailFields substance={dSubstanceAs || dSubstance} unit={dUnit} amount={dAmount} bind:detail={dDetail} />
+          <KindQuestion substance={dAsk.s} tick={dAsk.n} />
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
@@ -2849,6 +2858,7 @@
                   <button class="ghost small-btn" onclick={() => addNotesTo(qlSaved!.id)}>Add notes</button>
                   <button class="ghost small-btn" onclick={quickLogAnother}>Log another into it</button>
                 </p>
+                <KindQuestion substance={qlAsk.s} tick={qlAsk.n} />
               {/if}
             </div>
           {/if}
@@ -4381,6 +4391,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <DoseDetailFields substance={qSub} unit={qUnit} amount={qAmt} bind:detail={qDetail} />
           {#if lastLogged}
             <p class="small live-saved">✓ Logged {lastLogged.label}. <button class="link" onclick={undoLastLogged}>Undo</button></p>
+            <KindQuestion substance={qAsk.s} tick={qAsk.n} />
           {/if}
 
           <h3>Timeline</h3>

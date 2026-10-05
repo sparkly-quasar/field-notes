@@ -52,6 +52,9 @@ const ROUTED = new Set([
   "save_unit_kind",
   "delete_unit_kind",
   "set_bedtime",
+  "kind_question",
+  "answer_kind_question",
+  "set_substance_kind",
   "check_combo",
   "canonical_name",
   "crisis_scan",
@@ -270,6 +273,22 @@ export const saveUnitKind = (substance: string, kind: Omit<UnitKind, "id" | "sub
 export const deleteUnitKind = (id: number) => invoke<void>("delete_unit_kind", { id });
 /** "23:00", "varies", "skip", or null to forget it (the time-of-day card asks again). */
 export const setBedtime = (value: string | null) => invoke<void>("set_bedtime", { value });
+
+/** A question about how a substance is taken (kinds.rs), asked after logging it. */
+export interface KindQuestion {
+  substance: string;
+  /** "routine" or "as_needed": which question. */
+  ask: string;
+  text: string;
+  choices: { value: string; label: string }[];
+}
+/** The question to ask about a substance just logged, or null. */
+export const kindQuestion = (substance: string) => invoke<KindQuestion | null>("kind_question", { substance });
+export const answerKindQuestion = (substance: string, ask: string, answer: string) =>
+  invoke<void>("answer_kind_question", { substance, ask, answer });
+/** "" (as experiences), "routine" or "as_needed". */
+export const setSubstanceKind = (substance: string, kind: string) =>
+  invoke<void>("set_substance_kind", { substance, kind });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
@@ -448,6 +467,9 @@ export interface StatsSubstance {
   /** Drug families it counts toward: psychedelics, entactogens, dissociatives,
    *  stimulants, depressants, opioids, cannabinoids, other (stats.rs). */
   families: string[];
+  /** How it's taken: "" (as experiences), "routine" or "as_needed" (kinds.rs).
+   *  Missing from older servers, which read as "". */
+  kind?: string;
   /** The dose reference's half-life, when it has one. Missing from older servers. */
   half_life?: { text: string; route: string; low_hours: number; high_hours: number } | null;
 }

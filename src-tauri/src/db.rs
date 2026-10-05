@@ -212,6 +212,18 @@ CREATE TABLE IF NOT EXISTS journal_settings (
     value          TEXT NOT NULL
 );
 
+-- How each substance is taken (kinds.rs): '' as experiences, 'routine', or
+-- 'as_needed'; and what's been asked about it, so a question is never nagged.
+CREATE TABLE IF NOT EXISTS substance_kinds (
+    substance          TEXT PRIMARY KEY,
+    kind               TEXT NOT NULL DEFAULT '',
+    as_needed_asked    INTEGER NOT NULL DEFAULT 0,
+    routine_no_at      TEXT,
+    routine_no_amount  REAL,
+    routine_no_minute  INTEGER,
+    snooze_until       TEXT
+);
+
 CREATE TABLE IF NOT EXISTS timeline_events (
     id             INTEGER PRIMARY KEY,
     experience_id  INTEGER NOT NULL REFERENCES experiences(id) ON DELETE CASCADE,
@@ -904,15 +916,16 @@ pub fn set_setting(conn: &Connection, key: &str, value: Option<&str>) -> rusqlit
 
 // ---------- capsule kinds ----------
 
-/// The key a capsule kind is stored under: the substance the name means, so
-/// "shrooms" and "Psilocybin Mushrooms" share their capsules.
-fn kind_key(conn: &Connection, substance: &str) -> rusqlite::Result<String> {
+/// The key a substance's own settings are stored under (capsule kinds, how it's
+/// taken): the substance the name means, so "shrooms" and "Psilocybin
+/// Mushrooms" share them.
+pub(crate) fn substance_key(conn: &Connection, substance: &str) -> rusqlite::Result<String> {
     let s = substance.trim();
     Ok(name_index(conn)?.canonical(s).unwrap_or_else(|| s.to_string()).to_lowercase())
 }
 
 pub fn list_unit_kinds(conn: &Connection, substance: &str) -> rusqlite::Result<Vec<UnitKind>> {
-    let key = kind_key(conn, substance)?;
+    let key = substance_key(conn, substance)?;
     let mut stmt = conn.prepare(
         "SELECT id, substance, label, per_unit, per_unit_unit FROM unit_kinds
          WHERE substance = ?1 ORDER BY label COLLATE NOCASE",
@@ -933,7 +946,7 @@ pub fn list_unit_kinds(conn: &Connection, substance: &str) -> rusqlite::Result<V
 
 /// Add a kind, or change the amount of the one with this label.
 pub fn save_unit_kind(conn: &Connection, substance: &str, k: &UnitKind) -> rusqlite::Result<UnitKind> {
-    let key = kind_key(conn, substance)?;
+    let key = substance_key(conn, substance)?;
     let label = k.label.trim();
     conn.execute(
         "INSERT INTO unit_kinds (substance, label, per_unit, per_unit_unit) VALUES (?1, ?2, ?3, ?4)

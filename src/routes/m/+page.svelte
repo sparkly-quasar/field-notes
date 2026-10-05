@@ -111,6 +111,7 @@
   import RiskNotes from "$lib/RiskNotes.svelte";
   import NameHint from "$lib/NameHint.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
+  import KindQuestion from "$lib/KindQuestion.svelte";
   import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
@@ -198,6 +199,8 @@
   let dAmt = $state("");
   let dUnit = $state("mg");
   let dDetail = $state<DoseDetail>({});
+  /** The substance just logged, for KindQuestion; `n` asks again after another dose. */
+  let dAsk = $state({ s: "", n: 0 });
   let dRoute = $state("oral");
   let dWhen = $state("");
   /** What just saved, with its warnings — shown in the sheet, next to the button pressed. */
@@ -989,6 +992,7 @@
         doseId: res.doseId,
         fresh: res.fresh,
       };
+      dAsk = { s: substance, n: dAsk.n + 1 };
       dSub = dAmt = "";
       dDetail = {};
       await refresh();
@@ -2452,6 +2456,7 @@
               <p class="receipt-line"><span><strong>✓ Saved</strong> · {receipt.line}</span>
                 {#if receipt.doseId != null}<button class="ghost small" onclick={undoLastLog}>Undo</button>{/if}</p>
               {@render warnings(receipt.warnings)}
+              <KindQuestion substance={dAsk.s} tick={dAsk.n} />
             </div>
           {/if}
 

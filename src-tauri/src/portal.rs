@@ -459,6 +459,9 @@ pub const EXPOSED: &[&str] = &[
     "save_unit_kind",
     "delete_unit_kind",
     "set_bedtime",
+    "kind_question",
+    "answer_kind_question",
+    "set_substance_kind",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
     // here at the end of "Sync journal to server".
     "remove_duplicate_entries",
@@ -633,6 +636,16 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         }
         "delete_unit_kind" => done(commands::delete_unit_kind_in(db, arg(&args, "id")?)),
         "set_bedtime" => done(commands::set_bedtime_in(db, arg(&args, "value")?)),
+        "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
+        "answer_kind_question" => done(commands::answer_kind_question_in(
+            db,
+            arg(&args, "substance")?,
+            arg(&args, "ask")?,
+            arg(&args, "answer")?,
+        )),
+        "set_substance_kind" => {
+            done(commands::set_substance_kind_in(db, arg(&args, "substance")?, arg(&args, "kind")?))
+        }
         "delete_timeline_event" => done(commands::delete_timeline_event_in(db, arg(&args, "id")?)),
         "delete_substance" => done(commands::delete_substance_in(db, arg(&args, "id")?)),
         "remove_duplicate_entries" => done(commands::remove_duplicate_entries_in(db)),

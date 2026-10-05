@@ -100,6 +100,9 @@ pub struct SubstanceStats {
     /// The reference's half-life, when it has one: how long until about half a
     /// dose is gone from the body. Read for the time-of-day card's bedtime note.
     pub half_life: Option<HalfLife>,
+    /// How it's taken (kinds.rs): "" as experiences, "routine" or "as_needed".
+    /// Routine and as-needed doses leave the experience views; nothing else.
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -661,6 +664,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         let families = families_of(conn, &name);
         let top_route = routes.first().map(|r| r.0.clone()).unwrap_or_default();
         let half_life = half_life_for(conn, &name, &top_route);
+        let kind = crate::kinds::kind_of(conn, &key)?;
         substances.push(SubstanceStats {
             key,
             name,
@@ -672,6 +676,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             routes,
             families,
             half_life,
+            kind,
         });
     }
     substances.sort_by(|a, b| b.sessions.cmp(&a.sessions).then(b.doses.cmp(&a.doses)).then(a.name.cmp(&b.name)));

@@ -14,6 +14,7 @@ pub mod db;
 mod devices;
 pub(crate) use field_notes_core::interactions;
 mod keychain;
+mod kinds;
 pub mod knowledge;
 mod obsidian;
 mod owner_auth;
@@ -262,6 +263,9 @@ pub fn run() {
             commands::save_unit_kind,
             commands::delete_unit_kind,
             commands::set_bedtime,
+            commands::kind_question,
+            commands::answer_kind_question,
+            commands::set_substance_kind,
             commands::delete_timeline_event,
             commands::delete_substance,
             commands::ai_status,

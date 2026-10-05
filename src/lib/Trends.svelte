@@ -58,6 +58,14 @@
   );
   const recent = (t: number) => t >= mid;
 
+  // Routine and as-needed substances (kinds.rs) aren't experiences: the overall
+  // "how often" and combinations count only entries with something else in them.
+  // A routine one has no "how often" or "time between" of its own (daily is the
+  // point), but keeps its amount trends; an as-needed one keeps everything, since
+  // taking it more often is exactly what's worth seeing.
+  const kindOf = (key: string) => data?.substances.find((s) => s.key === key)?.kind ?? "";
+  const experiences = $derived(exps.filter((e) => e.subs.some((k) => !kindOf(k))));
+
   // ---- the trends ----
   type Bucket = { start: number; count: number; recent: boolean };
   type Trend =
@@ -96,7 +104,7 @@
 
     // How often: overall (when nothing is picked), then per substance.
     const often = (key: string | null) => {
-      const mine = exps.filter((e) => key == null || e.subs.includes(key));
+      const mine = key == null ? experiences : exps.filter((e) => e.subs.includes(key));
       const before = mine.filter((e) => !recent(e.t)).length;
       const lately = mine.filter((e) => recent(e.t)).length;
       if (before < MIN_EACH || lately < MIN_EACH || !changed(before, lately)) return;
@@ -110,7 +118,7 @@
       });
     };
     if (!focus) often(null);
-    for (const k of keys) often(k);
+    for (const k of keys) if (kindOf(k) !== "routine") often(k);
 
     for (const k of keys) {
       const sub = data.substances.find((s) => s.key === k)!;
@@ -123,7 +131,7 @@
       // Time between: the typical gap in each period.
       const gaps = (xs: Exp[]) => xs.slice(1).map((e, i) => (e.t - xs[i].t) / DAY);
       const gB = median(gaps(before)), gL = median(gaps(lately));
-      if (gB != null && gL != null && gB > 0 && changed(gB, gL)) {
+      if (kindOf(k) !== "routine" && gB != null && gL != null && gB > 0 && changed(gB, gL)) {
         const closer = gL < gB;
         out.push({
           kind: "gaps", key: k, up: !closer, times: mine.map((e) => e.t),
@@ -178,7 +186,7 @@
 
     // Combinations: the share of experiences with more than one substance.
     if (!focus) {
-      const before = exps.filter((e) => !recent(e.t)), lately = exps.filter((e) => recent(e.t));
+      const before = experiences.filter((e) => !recent(e.t)), lately = experiences.filter((e) => recent(e.t));
       if (before.length >= MIN_EACH && lately.length >= MIN_EACH) {
         const share = (xs: Exp[]) => xs.filter((e) => e.subs.length > 1).length / xs.length;
         const sB = share(before), sL = share(lately);

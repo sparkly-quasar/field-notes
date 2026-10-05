@@ -1307,7 +1307,22 @@ still be visible.
    substances with doses near bedtime. Bedtime is changed from the card itself
    ("Change"), not from Settings. A dose taken after bedtime isn't counted: the
    app doesn't know when anyone actually slept.
-4. **Routine and as-needed doses** (see below).
+4. **Routine and as-needed doses** (see below). *Built 2026-10-05, not yet
+   released:* `kinds.rs` (the `substance_kinds` table, the groups, routine
+   detection, the two questions and their answers), `kind_question`,
+   `answer_kind_question` and `set_substance_kind`; `KindQuestion.svelte` after
+   every dose form's receipt; `kind` on each substance in Stats. Routine
+   detection allows the odd outlier: **at least 4 in 5** doses within 3 hours
+   and a quarter of the amount (one late dose shouldn't hide a routine). The
+   overview, families and Trends' "how often" and combinations count
+   experiences only; a routine substance has no "how often" or "time between"
+   trend but keeps its amount trends; an as-needed one keeps everything. A
+   picked substance gets "How you take it" (any substance, by hand) and, when
+   routine or as needed, days taken in the last 28 and the 28 before, usual
+   time and amount. **Not built yet:** the dependence notes ("Patterns to watch,
+   by group", including the as-needed drift note), which wait for the clinician
+   review of their wording; "Sync journal to server" doesn't copy how
+   substances are taken (each person's computer keeps its own).
 5. **Dose tiers and automatic microdosing** (see below), once routine and
    as-needed doses are filtered out.
 6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets

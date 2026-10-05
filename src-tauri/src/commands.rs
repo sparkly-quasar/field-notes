@@ -259,6 +259,46 @@ fn is_bedtime(v: &str) -> bool {
     }
 }
 
+// ---------- routine and as-needed (kinds.rs) ----------
+
+/// The question to ask about a substance just logged, if any: "is this part of
+/// your routine?" or "how do you take this?". Asked rarely, and never nagged.
+#[tauri::command]
+pub fn kind_question(db: State<'_, Db>, substance: String) -> Result<Option<crate::kinds::KindQuestion>, String> {
+    kind_question_in(&db, substance)
+}
+
+/// [`kind_question`] against any person's journal (the portal picks it by device).
+pub fn kind_question_in(db: &Db, substance: String) -> Result<Option<crate::kinds::KindQuestion>, String> {
+    db.with(|c| crate::kinds::question(c, &substance, chrono::Utc::now()))
+}
+
+#[tauri::command]
+pub fn answer_kind_question(db: State<'_, Db>, substance: String, ask: String, answer: String) -> Result<(), String> {
+    answer_kind_question_in(&db, substance, ask, answer)
+}
+
+/// [`answer_kind_question`] against any person's journal (the portal picks it by device).
+pub fn answer_kind_question_in(db: &Db, substance: String, ask: String, answer: String) -> Result<(), String> {
+    db.with(|c| Ok(crate::kinds::answer(c, &substance, &ask, &answer, chrono::Utc::now())))?
+}
+
+/// Mark how a substance is taken, by hand: "" (as experiences), "routine" or
+/// "as_needed". Any substance, any kind; it changes where doses show in Stats,
+/// never whether they count.
+#[tauri::command]
+pub fn set_substance_kind(db: State<'_, Db>, substance: String, kind: String) -> Result<(), String> {
+    set_substance_kind_in(&db, substance, kind)
+}
+
+/// [`set_substance_kind`] against any person's journal (the portal picks it by device).
+pub fn set_substance_kind_in(db: &Db, substance: String, kind: String) -> Result<(), String> {
+    if !["", crate::kinds::ROUTINE, crate::kinds::AS_NEEDED].contains(&kind.as_str()) {
+        return Err(format!("Not a way of taking something: {kind}"));
+    }
+    db.with(|c| crate::kinds::set_kind(c, &substance, &kind))
+}
+
 // ---------- capsule kinds ----------
 
 /// Saved capsule (pill, tab) kinds for a substance: "00 caps, 0.45 g".

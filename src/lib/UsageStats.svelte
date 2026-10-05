@@ -8,7 +8,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
-  import { usageStats, setBedtime, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
+  import { usageStats, setBedtime, setSubstanceKind, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
   import Trends from "$lib/Trends.svelte";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
@@ -126,11 +126,30 @@
   /** With a family picked, the substance chips narrow to its members. */
   const shownChoices = $derived(family ? choices.filter((c) => famKeys.has(c.sub.key)) : choices);
 
+  // ---- routine and as-needed (kinds.rs) ----
+  // They leave the experience views (how often, the calendar, time between,
+  // "days since"), never the rest: the dose chart, time of day, combinations and
+  // amount trends count every dose. Picking one shows it on its own.
+  const careKeys = $derived(new Set((data?.substances ?? []).filter((x) => x.kind).map((x) => x.key)));
+  const careSubs = $derived((data?.substances ?? []).filter((x) => x.kind));
+  const KIND_LABEL: Record<string, string> = { "": "As experiences", routine: "Routine", as_needed: "As needed" };
+
+  async function setKind(kind: string) {
+    if (!sub || !data) return;
+    const key = sub.key;
+    await setSubstanceKind(sub.name, kind);
+    data = { ...data, substances: data.substances.map((x) => (x.key === key ? { ...x, kind } : x)) };
+  }
+
   // ---- time window ----
   const now = Date.now();
   const sessions = $derived(
     (data?.sessions ?? []).filter((s) =>
-      sub ? s.substances.includes(sub.key) : family ? s.substances.some((k) => famKeys.has(k)) : true,
+      sub
+        ? s.substances.includes(sub.key)
+        : family
+          ? s.substances.some((k) => famKeys.has(k) && !careKeys.has(k))
+          : s.substances.some((k) => !careKeys.has(k)),
     ),
   );
   const sessionTimes = $derived(
@@ -196,7 +215,7 @@
   // ---- and for a family: across sessions with anything in it, so LSD then
   // mushrooms nine days later is a nine-day gap. ----
   const famLastT = $derived.by(() => {
-    const t = famSubs.map((s) => ts(s.last_used)).filter((x): x is number => x != null);
+    const t = famSubs.filter((s) => !s.kind).map((s) => ts(s.last_used)).filter((x): x is number => x != null);
     return t.length ? Math.max(...t) : null;
   });
   const famDoses = $derived(famSubs.reduce((n, s) => n + s.doses, 0));
@@ -208,6 +227,31 @@
   const subRatings = $derived(
     sub ? sessions.filter((s) => s.rating != null).map((s) => s.rating as number) : [],
   );
+
+  /** For a routine or as-needed substance: days taken in the last four weeks and
+   *  the four before, its usual time, and its usual amount. Plain counts only;
+   *  any note about what a pattern means waits for the dependence notes, whose
+   *  wording is checked by a clinician first (ROADMAP.md). */
+  const care = $derived.by(() => {
+    if (!sub?.kind) return null;
+    const pts = sub.series.flatMap((u) => u.points);
+    const times = pts.map((p) => ts(p.taken_at)).filter((t): t is number => t != null);
+    const today = startOfDay(now);
+    const daysIn = (from: number, to: number) =>
+      new Set(times.filter((t) => t >= from && t < to).map((t) => dayKey(t))).size;
+    const lately = daysIn(today - 27 * 86_400_000, today + 86_400_000);
+    const before = daysIn(today - 55 * 86_400_000, today - 27 * 86_400_000);
+    const mins = times.map((t) => new Date(t).getHours() * 60 + new Date(t).getMinutes());
+    const usual = median(mins);
+    const main = sub.series[0];
+    const amount = median(main.points.map((p) => p.amount).filter((a): a is number => a != null));
+    return {
+      lately,
+      before,
+      time: usual == null ? null : new Date(2026, 0, 1, Math.floor(usual / 60), Math.round(usual % 60)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+      amount: amount == null ? null : `${fmtNum(amount)} ${main.unit}`,
+    };
+  });
 
   // ---- frequency ----
   const freq = $derived(frequency(sessionTimes, windowFrom, now));
@@ -384,10 +428,12 @@
 
     {#if sub}
       <div class="tiles">
-        <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "experience" : "experiences"}</span></div>
+        {#if !sub.kind}
+          <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "experience" : "experiences"}</span></div>
+        {/if}
         <div class="tile"><span class="big">{sub.doses}</span><span class="cap">{sub.doses === 1 ? "dose" : "doses"}</span></div>
         {#if lastT != null}
-          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last experience</span></div>
+          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since the last {sub.kind ? "dose" : "experience"}</span></div>
         {/if}
       </div>
     {:else if family}
@@ -403,11 +449,42 @@
       {/if}
     {:else}
       <div class="tiles">
-        <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "experience" : "experiences"}</span></div>
+        <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
         <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
       </div>
       <p class="note pickhint">Pick a family or a substance to narrow everything below to it.</p>
+    {/if}
+    {#if !sub && careSubs.length}
+      <p class="note pickhint">
+        {careSubs.slice(0, 3).map((x) => label(x.key)).join(", ")}{careSubs.length > 3 ? ` and ${careSubs.length - 3} more` : ""}
+        {careSubs.length === 1
+          ? careSubs[0].kind === "routine" ? "is part of your routine, so it isn't" : "is taken as needed, so it isn't"
+          : "are taken as routine or as needed, so they aren't"} counted as experiences here.
+        Every dose still counts in time of day, combinations and amounts. Pick one to see it on its own.
+      </p>
+    {/if}
+    {#if sub}
+      <div class="kindrow" role="group" aria-label="How you take {label(sub.key)}">
+        <span class="note">How you take it</span>
+        <div class="seg small">
+          {#each ["", "routine", "as_needed"] as k}
+            <button class:on={(sub.kind ?? "") === k} aria-pressed={(sub.kind ?? "") === k} onclick={() => setKind(k)}>{KIND_LABEL[k]}</button>
+          {/each}
+        </div>
+      </div>
+      {#if care}
+        <section class="card care">
+          <h3>{sub.kind === "routine" ? "Routine" : "As needed"} · {label(sub.key)}</h3>
+          <div class="facts">
+            <div><span class="big">{care.lately}</span><span class="cap">of the last 28 days</span></div>
+            <div><span class="big">{care.before}</span><span class="cap">of the 28 before</span></div>
+            {#if care.time}<div><span class="big">{care.time}</span><span class="cap">usual time</span></div>{/if}
+            {#if care.amount}<div><span class="big">{care.amount}</span><span class="cap">usual amount</span></div>{/if}
+          </div>
+          <p class="note">Days it was taken. These doses aren't counted as experiences elsewhere in Stats, but every chart for {label(sub.key)} below includes them, and combination checks always do.</p>
+        </section>
+      {/if}
     {/if}
 
     {#key range}
@@ -538,7 +615,7 @@
           {#if SPACING_NOTE[family] && !hiding()}<p class="note guide">{SPACING_NOTE[family]}</p>{/if}
           <h4>In this family (experiences)</h4>
           <ul class="bars">
-            {#each famSubs as s}
+            {#each famSubs.filter((x) => !x.kind) as s}
               <li><span class="lbl">{label(s.key)}</span><span class="track"><span class="fill" style:width={`${(s.sessions / Math.max(1, sessions.length)) * 100}%`}></span></span><span class="n" title={plural(s.sessions, "session")}>{s.sessions}</span></li>
             {/each}
           </ul>
@@ -781,6 +858,10 @@
     background: var(--st-accent); color: var(--on-accent, var(--accent-ink, #0c0e12)); font: inherit; font-weight: 600; cursor: pointer;
   }
   .axisnote .link { min-height: 0; padding: 0; margin-left: 0.25rem; }
+  .kindrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; margin: 0 0 0.8rem; }
+  .kindrow .note { margin: 0; }
+  .seg.small button { padding: 0.35rem 0.7rem; min-height: 34px; font-size: 0.85rem; }
+  .care { margin-bottom: 0.8rem; }
   .nearbed { margin: 0.5rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; }
   .nearbed li + li { margin-top: 0.2rem; }
   .hlabels { display: grid; grid-template-columns: repeat(4, 1fr) 0; color: var(--st-muted); font-size: 11px; margin-top: 4px; }
