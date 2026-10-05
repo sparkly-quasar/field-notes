@@ -14,6 +14,7 @@
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats } from "$lib/api";
   import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek } from "$lib/stats";
+  import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
 
   let {
     days,
@@ -34,6 +35,8 @@
   let data = $state<UsageStats | null>(null);
   let showAll = $state(false);
   let failed = $state(false);
+  /** What a tap opened: a bar or a dot (by index) on one card (by `tid`). */
+  let pick = $state<{ card: string; i: number } | null>(null);
 
   const now = Date.now();
   const mid = $derived(startOfDay(now) - (days - 1) * DAY);
@@ -49,10 +52,10 @@
   const label = (key: string) => nameShown(realName.get(key) ?? key);
   const periodWord = $derived(days === 30 ? "30 days" : days === 90 ? "90 days" : days === 365 ? "year" : `${days} days`);
 
-  type Exp = { id: number; t: number; subs: string[]; rating: number | null };
+  type Exp = PickExp;
   const exps = $derived(
     (data?.sessions ?? [])
-      .map((s) => ({ id: s.experience_id, t: ts(s.started_at), subs: s.substances, rating: s.rating }))
+      .map((s) => ({ id: s.experience_id, t: ts(s.started_at), title: s.title, subs: s.substances, rating: s.rating }))
       .filter((e): e is Exp => e.t != null && e.t >= start)
       .sort((a, b) => a.t - b.t),
   );
@@ -62,7 +65,7 @@
   type Bucket = { start: number; count: number; recent: boolean };
   type Trend =
     | { kind: "often"; key: string | null; title: string; text: string; up: boolean; buckets: Bucket[]; before: number; lately: number; unit: string }
-    | { kind: "gaps"; key: string; title: string; text: string; up: boolean; times: number[]; note: string }
+    | { kind: "gaps"; key: string; title: string; text: string; up: boolean; times: number[]; ids: number[]; note: string }
     | { kind: "dose"; key: string; title: string; text: string; up: boolean; unit: string; points: { t: number; v: number; id: number }[]; note: string | null }
     | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; cells: { id: number; on: boolean; n: number | null; recent: boolean }[]; legend: string };
 
@@ -126,7 +129,7 @@
       if (gB != null && gL != null && gB > 0 && changed(gB, gL)) {
         const closer = gL < gB;
         out.push({
-          kind: "gaps", key: k, up: !closer, times: mine.map((e) => e.t),
+          kind: "gaps", key: k, up: !closer, times: mine.map((e) => e.t), ids: mine.map((e) => e.id),
           title: `${label(k)} experiences are ${closer ? "closer together" : "further apart"}`,
           text: `Typically ${fmtNum(Math.round(gL))} days apart lately, ${fmtNum(Math.round(gB))} days before.`,
           note: closer ? "Closer together, more of the tolerance from one carries into the next, so the same amount does less." : "",
@@ -203,6 +206,20 @@
     exps.filter((e) => recent(e.t)).length >= MIN_EACH && exps.filter((e) => !recent(e.t)).length >= MIN_EACH,
   );
 
+  /** A card's identity, so a tap stays on its card when the list changes. */
+  const tid = (tr: Trend) => `${tr.kind}|${tr.key}|${tr.kind === "dose" ? tr.unit : ""}`;
+  const picked = (tr: Trend, i: number) => pick?.card === tid(tr) && pick.i === i;
+  const toggle = (tr: Trend, i: number) => (pick = picked(tr, i) ? null : { card: tid(tr), i });
+  const keyTap = (e: KeyboardEvent, fn: () => void) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); }
+  };
+  const byId = $derived(new Map(exps.map((e) => [e.id, e])));
+  const items = (ids: number[]) => ids.map((id) => byId.get(id)).filter((e): e is Exp => !!e).map((e) => pickItem(e, label));
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const fmtLong = (t: number, unit: string) =>
+    unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      : `Week of ${new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+
   const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern" };
   const fmtMonth = (t: number, unit: string) =>
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "short" }) : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -215,7 +232,7 @@
   <section class="trends" aria-labelledby="trends-h">
     <h3 id="trends-h">Trends</h3>
     <p class="lede">
-      Differences between the last {periodWord} and the {periodWord} before.
+      Differences between the last {periodWord} and the {periodWord} before. Tap a bar or a dot for its experiences.
     </p>
 
     {#if !enough}
@@ -247,7 +264,10 @@
             {/each}
             {#each tr.buckets as b, i}
               {@const x = L + i * slot + (slot - bw) / 2}
-              <rect class="bar" class:before={!b.recent} x={x} y={y(b.count)} width={bw} height={Math.max(0, B - y(b.count))} rx="3">
+              <rect class="bar" class:before={!b.recent} class:sel={picked(tr, i)} x={x} y={y(b.count)} width={bw} height={Math.max(0, B - y(b.count))} rx="3" />
+              <rect class="hit" x={L + i * slot} y={T} width={slot} height={B - T}
+                role="button" tabindex={b.count ? 0 : -1} aria-label="{fmtLong(b.start, tr.unit)}: {plural(b.count, 'experience')}"
+                onclick={() => toggle(tr, i)} onkeydown={(e) => keyTap(e, () => toggle(tr, i))}>
                 <title>{fmtMonth(b.start, tr.unit)}: {b.count}</title>
               </rect>
             {/each}
@@ -262,6 +282,13 @@
             <span><i class="sw before"></i>Before: {fmtNum(Math.round((tr.before / nB) * 10) / 10)} a {tr.unit}</span>
             <span><i class="sw"></i>Lately: {fmtNum(Math.round((tr.lately / nL) * 10) / 10)} a {tr.unit}</span>
           </div>
+          {#if pick?.card === tid(tr) && tr.buckets[pick.i]}
+            {@const b = tr.buckets[pick.i]}
+            {@const end = tr.buckets[pick.i + 1]?.start ?? Infinity}
+            {@const ids = exps.filter((e) => e.t >= b.start && e.t < end && (tr.key == null || e.subs.includes(tr.key))).map((e) => e.id)}
+            <StatsPick heading={fmtLong(b.start, tr.unit)} note={plural(ids.length, "experience")} items={items(ids)}
+              empty="No experiences in this {tr.unit}." {onOpen} onClose={() => (pick = null)} />
+          {/if}
         {:else if tr.kind === "gaps"}
           {@const H = 70}{@const L = 8}{@const R = W - 8}{@const cy = 34}
           {@const x = (t: number) => L + ((t - start) / (now - start)) * (R - L)}
@@ -273,9 +300,20 @@
               {#if i > 0 && x(t) - x(tr.times[i - 1]) > 18}
                 <text class="axis" class:hi={recent(t)} x={(x(t) + x(tr.times[i - 1])) / 2} y={cy - 12} text-anchor="middle">{Math.round((t - tr.times[i - 1]) / DAY)}d</text>
               {/if}
-              <circle class="pt" class:before={!recent(t)} cx={x(t)} cy={cy} r="5"><title>{new Date(t).toLocaleDateString()}</title></circle>
+              <circle class="pt" class:before={!recent(t)} class:sel={picked(tr, i)} cx={x(t)} cy={cy} r="5" />
+              <circle class="hit" cx={x(t)} cy={cy} r="12" role="button" tabindex="0"
+                aria-label={new Date(t).toLocaleDateString()} onclick={() => toggle(tr, i)} onkeydown={(e) => keyTap(e, () => toggle(tr, i))}>
+                <title>{new Date(t).toLocaleDateString()}</title>
+              </circle>
             {/each}
           </svg>
+          {#if pick?.card === tid(tr) && tr.times[pick.i] != null}
+            {@const i = pick.i}
+            {@const gap = (a: number, b: number) => plural(Math.round((tr.times[b] - tr.times[a]) / DAY), "day")}
+            <StatsPick heading={new Date(tr.times[i]).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+              note={[i > 0 ? `${gap(i - 1, i)} after the one before` : "", i < tr.times.length - 1 ? `${gap(i, i + 1)} before the next` : ""].filter(Boolean).join(", ")}
+              items={items([tr.ids[i]])} {onOpen} onClose={() => (pick = null)} />
+          {/if}
           {#if tr.note}<p class="note">{tr.note}</p>{/if}
         {:else if tr.kind === "dose"}
           {@const H = 140}{@const L = 30}{@const R = W - 6}{@const T = 8}{@const B = H - 20}
@@ -288,13 +326,20 @@
             <line class="grid-l" x1={L} x2={R} y1={B} y2={B} />
             {#each [0, sc.max] as v}<text class="axis" x={L - 5} y={y(v) + 4} text-anchor="end">{v}</text>{/each}
             <polyline class="line" points={pts.map((p) => `${x(p.t)},${y(p.v)}`).join(" ")} />
-            {#each pts as p}
-              <circle class="pt" cx={x(p.t)} cy={y(p.v)} r="4.5" role="button" tabindex="0"
-                onclick={() => onOpen?.(p.id)} onkeydown={(e) => e.key === "Enter" && onOpen?.(p.id)}>
+            {#each pts as p, i}
+              <circle class="pt" class:sel={picked(tr, i)} cx={x(p.t)} cy={y(p.v)} r="4.5" />
+              <circle class="hit" cx={x(p.t)} cy={y(p.v)} r="12" role="button" tabindex="0"
+                aria-label="{new Date(p.t).toLocaleDateString()}: {fmtNum(p.v)} {tr.unit}"
+                onclick={() => toggle(tr, i)} onkeydown={(e) => keyTap(e, () => toggle(tr, i))}>
                 <title>{new Date(p.t).toLocaleDateString()}: {fmtNum(p.v)} {tr.unit} in all</title>
               </circle>
             {/each}
           </svg>
+          {#if pick?.card === tid(tr) && pts[pick.i]}
+            {@const p = pts[pick.i]}
+            <StatsPick heading="{fmtNum(p.v)} {tr.unit} in all" note={new Date(p.t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+              items={items([p.id])} {onOpen} onClose={() => (pick = null)} />
+          {/if}
           {#if tr.note}<p class="note">{tr.note}</p>{/if}
         {:else}
           <div class="cells">
@@ -341,9 +386,12 @@
   .tick { stroke: var(--tr-edge); }
   .bar { fill: var(--tr-accent); }
   .bar.before { fill: var(--tr-surface-2); stroke: var(--tr-edge); stroke-width: 1.5; }
+  .hit { fill: transparent; cursor: pointer; outline: none; }
+  .hit:focus-visible { stroke: var(--focus, var(--tr-text)); stroke-width: 2; }
   .avg { stroke: var(--tr-text); stroke-width: 1.5; stroke-dasharray: 4 3; }
-  .pt { fill: var(--tr-accent); stroke: var(--tr-surface); stroke-width: 2; cursor: pointer; }
+  .pt { fill: var(--tr-accent); stroke: var(--tr-surface); stroke-width: 2; pointer-events: none; }
   .pt.before { fill: var(--tr-surface-2); stroke: var(--tr-edge); stroke-width: 1.5; }
+  .bar.sel, .pt.sel { stroke: var(--tr-text); stroke-width: 2; }
   .line { fill: none; stroke: var(--tr-accent); stroke-width: 2; }
   .legend { display: flex; gap: 0.9rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--tr-muted); margin-top: 0.3rem; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 0.3rem; vertical-align: -1px; background: var(--tr-accent); }
