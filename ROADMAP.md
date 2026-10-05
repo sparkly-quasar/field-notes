@@ -1263,7 +1263,11 @@ still be visible.
 #### Order of work
 
 1. **Convert between mass units (µg, mg, g)** in series grouping and band
-   matching. Plain arithmetic, so it keeps the "no invented numbers" rule.
+   matching. *Built 2026-10-05, not yet released:* `stats::in_unit` and
+   `usual_mass_unit`; a substance's mass doses form one series in the unit
+   logged most, each converted point keeps `logged_amount`/`logged_unit`
+   (shown as "logged as 600 mg"), and reference bands convert into the
+   series' unit. Plain arithmetic, so it keeps the "no invented numbers" rule.
    Tab, drop, hit, cap and other count units stay unconverted, as
    `different_units_are_never_merged` already requires.
 2. **Mushroom form: fresh, dried, powdered or edible** (owner's decision,

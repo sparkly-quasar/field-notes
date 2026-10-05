@@ -4,9 +4,12 @@
 //! This is the one place the grouping rules live. The desktop and the phone both
 //! render what [`usage_stats`] returns, so neither UI re-derives them:
 //!
-//! - **Never merge units.** A substance logged in `µg` and in `tab` becomes two
-//!   series. Amounts are never converted: a tab has no µg value, and guessing one
-//!   would be inventing a number.
+//! - **Units of mass are one scale; nothing else converts.** `µg`, `mg` and `g`
+//!   are plain arithmetic, so 600 mg and 5 g of kratom are one series, shown in
+//!   the unit you log most, with each converted dose keeping what you wrote. A
+//!   substance logged in `µg` and in `tab` is still two series: a tab has no µg
+//!   value, and guessing one would be inventing a number. Volume (`ml`) isn't
+//!   mass either, since that would need a density.
 //! - **A dose with no amount still happened.** It counts toward sessions, spacing
 //!   and combinations, and is counted in `without_amount`, but it has no place on a
 //!   dose axis.
@@ -23,7 +26,8 @@
 //!
 //! Dose-range bands come from the bundled dose reference (`pw.rs`), never from the
 //! knowledge corpus: the same containment rule the Companion follows. They're only
-//! attached when the reference's unit for that route matches the logged unit.
+//! attached when the reference's unit for that route is the series' unit or
+//! another unit of mass, converted to it.
 
 use crate::db;
 use crate::pw::Range;
@@ -84,7 +88,7 @@ pub struct SubstanceStats {
     pub last_used: String,
     /// Days between consecutive sessions with this substance, oldest gap first.
     pub gaps_days: Vec<f64>,
-    /// One series per unit, never merged.
+    /// One series per unit; units of mass share one (see the module docs).
     pub series: Vec<UnitSeries>,
     /// Route → dose count, most used first. An empty route is reported as "".
     pub routes: Vec<(String, usize)>,
@@ -107,8 +111,13 @@ pub struct DosePoint {
     pub dose_id: i64,
     pub experience_id: i64,
     pub taken_at: String,
+    /// In the series' unit.
     pub amount: Option<f64>,
     pub route: String,
+    /// What was written, when it was in another unit of mass (600 mg in a g
+    /// series). `None` when the amount is as logged.
+    pub logged_amount: Option<f64>,
+    pub logged_unit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -144,37 +153,87 @@ struct Row {
     at: Option<DateTime<Utc>>,
 }
 
-/// Units that are the same unit spelled differently. Used only to decide whether a
-/// reference band applies; logged amounts and units are never rewritten.
-fn unit_eq(a: &str, b: &str) -> bool {
-    fn canon(u: &str) -> String {
-        let u = u.trim().to_lowercase();
-        match u.as_str() {
-            "ug" | "mcg" | "μg" | "µg" => "µg".into(),
-            _ => u,
-        }
+/// A unit's one spelling: "ug", "mcg" and "micrograms" are all "µg". Logged
+/// units are never rewritten; this is only for comparing them.
+fn canon_unit(u: &str) -> String {
+    let u = u.trim().to_lowercase();
+    match u.as_str() {
+        "ug" | "mcg" | "μg" | "µg" | "microgram" | "micrograms" => "µg".into(),
+        "milligram" | "milligrams" => "mg".into(),
+        "gram" | "grams" => "g".into(),
+        _ => u,
     }
-    canon(a) == canon(b)
+}
+
+/// Units that are the same unit spelled differently.
+fn unit_eq(a: &str, b: &str) -> bool {
+    canon_unit(a) == canon_unit(b)
+}
+
+/// Micrograms in one of `unit`, for units of mass. `None` for anything else
+/// (tab, drop, hit, ml, drink…), which never converts.
+fn micrograms_per(unit: &str) -> Option<f64> {
+    match canon_unit(unit).as_str() {
+        "µg" => Some(1.0),
+        "mg" => Some(1_000.0),
+        "g" => Some(1_000_000.0),
+        _ => None,
+    }
+}
+
+/// `amount` of `from` in `to`: as is when they're one unit, converted when both
+/// are units of mass, else `None`. Rounded to 12 significant digits so 0.6 g
+/// doesn't come out as 0.6000000000000001.
+fn in_unit(amount: f64, from: &str, to: &str) -> Option<f64> {
+    if unit_eq(from, to) {
+        return Some(amount);
+    }
+    let v = amount * micrograms_per(from)? / micrograms_per(to)?;
+    if v == 0.0 || !v.is_finite() {
+        return Some(v);
+    }
+    let scale = 10f64.powi(12 - v.abs().log10().ceil() as i32);
+    Some((v * scale).round() / scale)
 }
 
 /// The reference bands for a substance logged in `unit`, preferring the route the
-/// doses were most often taken by. `None` unless the reference's unit matches.
+/// doses were most often taken by, converted to `unit` when the reference uses
+/// another unit of mass (kratom's are in g; 600 mg still gets them). `None`
+/// unless the units match or convert.
 fn bands_for(conn: &Connection, name: &str, unit: &str, route: &str) -> Option<Bands> {
     let info = db::pw_lookup(conn, name).ok().flatten()?;
-    let fits = |r: &&crate::pw::PwRoa| r.units.as_deref().is_some_and(|u| unit_eq(u, unit));
+    let fits = |r: &&crate::pw::PwRoa| r.units.as_deref().is_some_and(|u| in_unit(1.0, u, unit).is_some());
     let candidates: Vec<_> = info.roas.iter().filter(fits).collect();
     let roa = candidates
         .iter()
         .find(|r| !route.is_empty() && r.name.eq_ignore_ascii_case(route))
         .or(if candidates.len() == 1 { candidates.first() } else { None })?;
+    let from = roa.units.as_deref().unwrap_or(unit);
+    let conv = |x: Option<f64>| x.and_then(|v| in_unit(v, from, unit));
+    let range = |r: &Range| Range { min: conv(r.min), max: conv(r.max) };
     Some(Bands {
         route: roa.name.clone(),
-        threshold: roa.threshold,
-        light: roa.light.clone(),
-        common: roa.common.clone(),
-        strong: roa.strong.clone(),
-        heavy: roa.heavy,
+        threshold: conv(roa.threshold),
+        light: range(&roa.light),
+        common: range(&roa.common),
+        strong: range(&roa.strong),
+        heavy: conv(roa.heavy),
     })
+}
+
+/// The unit of mass a substance's mass doses are shown in: the one logged most
+/// often, the earliest-logged on a tie.
+fn usual_mass_unit(doses: &[&Row]) -> String {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for r in doses {
+        let u = canon_unit(&r.unit);
+        match counts.iter_mut().find(|(c, _)| *c == u) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((u, 1)),
+        }
+    }
+    let best = counts.iter().map(|(_, n)| *n).max().unwrap_or(0);
+    counts.into_iter().find(|(_, n)| *n == best).map(|(u, _)| u).unwrap_or_default()
 }
 
 // ---------- drug families ----------
@@ -375,10 +434,15 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         routes.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
         // Units: one series per unit, however it was spelled ("ug", "UG", "mcg"
-        // and "µg" are one unit). Micrograms are labelled "µg"; any other unit
-        // keeps the first spelling seen. Amounts are never converted.
+        // and "µg" are one unit). Units of mass share one series, labelled µg,
+        // mg or g after the unit logged most. Any other unit keeps the first
+        // spelling seen, and is never converted.
         let mut units: Vec<(String, Vec<&Row>)> = Vec::new();
-        for r in &doses {
+        let mass: Vec<&Row> = doses.iter().copied().filter(|r| micrograms_per(&r.unit).is_some()).collect();
+        if !mass.is_empty() {
+            units.push((usual_mass_unit(&mass), mass));
+        }
+        for r in doses.iter().filter(|r| micrograms_per(&r.unit).is_none()) {
             match units.iter_mut().find(|(u, _)| unit_eq(u, &r.unit)) {
                 Some((_, v)) => v.push(r),
                 None => {
@@ -401,12 +465,17 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
                     without_amount: rs.iter().filter(|r| r.amount.is_none()).count(),
                     points: rs
                         .iter()
-                        .map(|r| DosePoint {
-                            dose_id: r.dose_id,
-                            experience_id: r.experience_id,
-                            taken_at: r.taken_at.clone(),
-                            amount: r.amount,
-                            route: r.route.clone(),
+                        .map(|r| {
+                            let converted = !unit_eq(&r.unit, &unit);
+                            DosePoint {
+                                dose_id: r.dose_id,
+                                experience_id: r.experience_id,
+                                taken_at: r.taken_at.clone(),
+                                amount: r.amount.and_then(|a| in_unit(a, &r.unit, &unit)),
+                                route: r.route.clone(),
+                                logged_amount: if converted { r.amount } else { None },
+                                logged_unit: converted.then(|| r.unit.clone()),
+                            }
                         })
                         .collect(),
                     unit,
@@ -627,5 +696,79 @@ mod tests {
         assert!(unit_eq("MG", "mg"));
         assert!(!unit_eq("mg", "µg"));
         assert!(!unit_eq("tab", "µg"));
+    }
+
+    #[test]
+    fn only_units_of_mass_convert() {
+        assert_eq!(in_unit(600.0, "mg", "g"), Some(0.6));
+        assert_eq!(in_unit(150.0, "ug", "mg"), Some(0.15));
+        assert_eq!(in_unit(0.1, "g", "µg"), Some(100_000.0));
+        assert_eq!(in_unit(3.0, "grams", "mg"), Some(3000.0));
+        assert_eq!(in_unit(2.0, "tab", "tab"), Some(2.0));
+        assert_eq!(in_unit(1.0, "tab", "µg"), None);
+        // Volume needs a density, so it never becomes mass.
+        assert_eq!(in_unit(1.0, "ml", "g"), None);
+        assert_eq!(in_unit(1.0, "drink", "g"), None);
+    }
+
+    #[test]
+    fn units_of_mass_are_one_series_in_the_unit_logged_most() {
+        let c = journal();
+        let e = session(&c, "session", "2026-09-01T09:00:00Z");
+        let e2 = session(&c, "session", "2026-09-02T09:00:00Z");
+        let e3 = session(&c, "session", "2026-09-03T09:00:00Z");
+        dose(&c, e, "Kratom", Some(600.0), "mg", "2026-09-01T09:00:00Z");
+        dose(&c, e2, "Kratom", Some(5.0), "g", "2026-09-02T09:00:00Z");
+        dose(&c, e3, "kratom", Some(4.0), "grams", "2026-09-03T09:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        let k = &s.substances[0];
+        assert_eq!(k.series.len(), 1, "600 mg and 5 g are one series");
+        let series = &k.series[0];
+        assert_eq!(series.unit, "g");
+        let amounts: Vec<_> = series.points.iter().map(|p| p.amount).collect();
+        assert_eq!(amounts, vec![Some(0.6), Some(5.0), Some(4.0)]);
+        // What was written is kept for the converted dose only.
+        assert_eq!(series.points[0].logged_amount, Some(600.0));
+        assert_eq!(series.points[0].logged_unit.as_deref(), Some("mg"));
+        assert_eq!(series.points[1].logged_unit, None);
+        // "grams" is g spelled out, not a conversion.
+        assert_eq!(series.points[2].logged_unit, None);
+    }
+
+    #[test]
+    fn counted_units_stay_apart_from_mass() {
+        let c = journal();
+        let e = session(&c, "session", "2026-09-01T20:00:00Z");
+        dose(&c, e, "LSD", Some(100.0), "µg", "2026-09-01T20:00:00Z");
+        dose(&c, e, "LSD", Some(0.1), "mg", "2026-09-01T21:00:00Z");
+        dose(&c, e, "LSD", Some(1.0), "tab", "2026-09-01T22:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        let units: Vec<_> = s.substances[0].series.iter().map(|u| (u.unit.as_str(), u.points.len())).collect();
+        assert_eq!(units, vec![("µg", 2), ("tab", 1)]);
+    }
+
+    #[test]
+    fn reference_bands_convert_to_the_unit_logged() {
+        let c = journal();
+        let info = serde_json::json!({
+            "name": "Kratom", "common_names": [], "psychoactive": ["Opioid"], "chemical": [],
+            "roas": [{
+                "name": "oral", "units": "g", "threshold": 0.5,
+                "light": {"min": 0.5, "max": 1.5}, "common": {"min": 1.5, "max": 3.0},
+                "strong": {"min": 3.0, "max": 6.0}, "heavy": 6.0
+            }],
+            "interactions": []
+        });
+        c.execute("INSERT INTO pw_substances (name, data) VALUES ('Kratom', ?1)", [info.to_string()]).unwrap();
+        let e = session(&c, "session", "2026-09-01T09:00:00Z");
+        dose(&c, e, "Kratom", Some(600.0), "mg", "2026-09-01T09:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        let series = &s.substances[0].series[0];
+        assert_eq!(series.unit, "mg");
+        let b = series.bands.as_ref().expect("bands in g still apply to mg");
+        assert_eq!(b.threshold, Some(500.0));
+        assert_eq!((b.light.min, b.light.max), (Some(500.0), Some(1500.0)));
+        assert_eq!((b.strong.min, b.strong.max), (Some(3000.0), Some(6000.0)));
+        assert_eq!(b.heavy, Some(6000.0));
     }
 }

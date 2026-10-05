@@ -374,8 +374,13 @@ export interface StatsDosePoint {
   dose_id: number;
   experience_id: number;
   taken_at: string;
+  /** In the series' unit. */
   amount: number | null;
   route: string;
+  /** What was written, when it was another unit of mass (600 mg in a g series).
+   *  Missing from older servers. */
+  logged_amount?: number | null;
+  logged_unit?: string | null;
 }
 export interface StatsUnitSeries {
   unit: string;
