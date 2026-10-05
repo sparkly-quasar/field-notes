@@ -898,6 +898,11 @@ mod tests {
         app.manage(Knowledge(None));
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
+        // The phone asks for these preferences on every load (discreet mode);
+        // without them each load panicked a worker until the portal stopped
+        // answering, which cut `dev_portal` short.
+        let _ = std::fs::remove_file(path.with_extension("server.json"));
+        app.manage(crate::prefs::Prefs::load(path.with_extension("server.json")));
         let _ = std::fs::remove_file(path.with_extension("devices.json"));
         let devices = Devices::load(path.with_extension("devices.json"));
         let (_, token) = devices.pair("Test phone").unwrap();
