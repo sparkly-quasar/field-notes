@@ -1295,7 +1295,18 @@ still be visible.
    (delayed sleep phase is common with ADHD, and shift work exists). Saved as
    a journal setting so the phone and computer agree, editable in Settings.
    "It varies" shows dose times and the half-life wording without bedtime
-   shading.
+   shading. *Built 2026-10-05, not yet released:* `journal_settings` table
+   (`bedtime`: "23:00", "varies", "skip"), `set_bedtime`, and `half_life` on
+   each substance in `usage_stats` (`stats::half_life_hours` reads the
+   reference's text, ignoring bracketed glosses). The time-of-day card asks once
+   (time / It varies / Not now), marks bedtime, and counts doses within one
+   half-life before it, using the **low end** of the range so it never
+   overstates what's left; a dose exactly one half-life before counts. With a
+   substance picked it shades those hours and gives the half-life, adding "often
+   longer than it feels active" for stimulants; without, it lists the
+   substances with doses near bedtime. Bedtime is changed from the card itself
+   ("Change"), not from Settings. A dose taken after bedtime isn't counted: the
+   app doesn't know when anyone actually slept.
 4. **Routine and as-needed doses** (see below).
 5. **Dose tiers and automatic microdosing** (see below), once routine and
    as-needed doses are filtered out.

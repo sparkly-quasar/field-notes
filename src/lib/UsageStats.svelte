@@ -8,11 +8,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
-  import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
+  import { usageStats, setBedtime, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
   import Trends from "$lib/Trends.svelte";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
     niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
+    bedMinutes, closeToBed, hourBeforeBed, fmtBedtime,
   } from "$lib/stats";
 
   let {
@@ -265,6 +266,61 @@
       .filter((t): t is number => t != null)),
   );
   const hourMax = $derived(Math.max(1, ...hours));
+
+  // ---- bedtime (dose-aware Stats, step 3 in ROADMAP.md) ----
+  // Asked once, here, the first time this card is seen; kept in the journal so
+  // the phone and the computer agree. Each dose is counted against its own
+  // substance's half-life from the dose reference, using the low end of the
+  // range, so "close to bedtime" never overstates how much is left.
+  /** Older servers don't send a bedtime and can't store one: say nothing. */
+  const bedSupported = $derived(!!data && "bedtime" in data);
+  const bedtime = $derived(data?.bedtime ?? null);
+  const bed = $derived(bedMinutes(bedtime));
+  let bedEditing = $state(false);
+  let bedInput = $state("23:00");
+  let bedErr = $state("");
+  const asking = $derived(bedSupported && (bedtime == null || bedEditing));
+
+  async function answerBedtime(value: string) {
+    bedErr = "";
+    try {
+      await setBedtime(value);
+      if (data) data = { ...data, bedtime: value };
+      bedEditing = false;
+    } catch (e) {
+      bedErr = `Couldn't save that (${String(e).replace(/^Error: /, "")}).`;
+    }
+  }
+  function changeBedtime() {
+    if (bed != null) bedInput = bedtime!;
+    bedEditing = true;
+  }
+
+  const timesOf = (x: StatsSubstance) =>
+    x.series.flatMap((u) => u.points).map((p) => ts(p.taken_at)).filter((t): t is number => t != null);
+  const fmtHours = (h: number) =>
+    h < 1 ? `${Math.round(h * 60)} minutes` : `${fmtNum(Math.round(h * 10) / 10)} hour${h === 1 ? "" : "s"}`;
+  /** With one substance picked: the hours before bed that are within its half-life. */
+  const lateHours = $derived(
+    sub?.half_life && bed != null
+      ? Array.from({ length: 24 }, (_, h) => hourBeforeBed(h, bed, sub!.half_life!.low_hours))
+      : Array(24).fill(false),
+  );
+  const bedHour = $derived(bed == null ? -1 : Math.floor(bed / 60));
+  /** Without one picked: each substance with doses inside its half-life before bed. */
+  const nearBed = $derived.by(() => {
+    if (bed == null || sub) return [];
+    const list = family ? famSubs : (data?.substances ?? []);
+    return list
+      .filter((x) => x.half_life)
+      .map((x) => {
+        const times = timesOf(x);
+        return { key: x.key, n: closeToBed(times, bed, x.half_life!.low_hours), total: times.length, hours: x.half_life!.low_hours };
+      })
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n || a.key.localeCompare(b.key))
+      .slice(0, 5);
+  });
 
   const fmtDay = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   /** Axis dates carry the year whenever the window spans more than one, or
@@ -576,12 +632,64 @@
         <h3>Time of day{scope ? ` · ${scope}` : ""}</h3>
         <div class="hours" role="img" aria-label="Doses by hour of day">
           {#each hours as n, h}
-            <span class="hcol" title={`${h}:00: ${plural(n, "dose")}`}>
+            <span class="hcol" class:late={lateHours[h]} class:bed={bedHour === h} title={`${h}:00: ${plural(n, "dose")}${bedHour === h ? " · bedtime" : ""}`}>
               <span class="hbar" style:height={`${(n / hourMax) * 100}%`}></span>
             </span>
           {/each}
         </div>
         <div class="hlabels"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span></span></div>
+
+        {#if asking}
+          <div class="bedq">
+            <p class="note">When do you usually go to bed? Doses close to bedtime are marked against how long each substance stays in the body.</p>
+            <div class="bedrow">
+              <input type="time" aria-label="Usual bedtime" bind:value={bedInput} />
+              <button class="primary-s" onclick={() => bedInput && answerBedtime(bedInput)}>Save</button>
+              <button class="link" onclick={() => answerBedtime("varies")}>It varies</button>
+              <button class="link" onclick={() => (bedEditing ? (bedEditing = false) : answerBedtime("skip"))}>{bedEditing ? "Cancel" : "Not now"}</button>
+            </div>
+            {#if bedErr}<p class="note">{bedErr}</p>{/if}
+          </div>
+        {:else if bedSupported}
+          {#if bed != null}
+            <p class="axisnote">
+              Marked: bedtime, {fmtBedtime(bed)}{lateHours.some(Boolean) ? " · shaded: within one half-life before it" : ""}.
+              <button class="link" onclick={changeBedtime}>Change</button>
+            </p>
+          {:else}
+            <p class="axisnote">
+              {bedtime === "varies" ? "Bedtime varies, so doses aren't counted against it." : ""}
+              <button class="link" onclick={changeBedtime}>{bedtime === "varies" ? "Set one" : "Add a bedtime"}</button>
+            </p>
+          {/if}
+          {#if sub}
+            {#if sub.half_life}
+              {#if bed != null}
+                <p class="note">
+                  {closeToBed(timesOf(sub), bed, sub.half_life.low_hours)} of {plural(timesOf(sub).length, "dose")} were within
+                  {fmtHours(sub.half_life.low_hours)} of bedtime.
+                </p>
+              {/if}
+              <p class="note">
+                {label(sub.key)}'s half-life is {sub.half_life.text} (dose reference): about half of a dose is still in the
+                body that long after it's taken{sub.families.includes("stimulants") ? ", which is often longer than it feels active" : ""}.
+              </p>
+            {:else}
+              <p class="note">The dose reference has no half-life for {label(sub.key)}, so this can't say how long a dose stays in the body.</p>
+            {/if}
+          {:else if bed != null}
+            {#if nearBed.length}
+              <ul class="nearbed">
+                {#each nearBed as x}
+                  <li><strong>{label(x.key)}</strong>: {x.n} of {plural(x.total, "dose")} within {fmtHours(x.hours)} of bedtime</li>
+                {/each}
+              </ul>
+              <p class="note">Each counted against its own half-life (the low end, from the dose reference): about half a dose is still in the body that long after it's taken.</p>
+            {:else}
+              <p class="note">No doses with a known half-life were taken within one half-life of bedtime.</p>
+            {/if}
+          {/if}
+        {/if}
       </section>
     </div>
   {/if}
@@ -658,5 +766,22 @@
   .hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 90px; align-items: end; }
   .hcol { height: 100%; display: flex; align-items: flex-end; }
   .hbar { display: block; width: 100%; background: var(--st-accent); border-radius: 3px 3px 0 0; min-height: 0; }
+  /* Within a half-life before bed: tinted behind the bar, so the count still reads. */
+  .hcol.late { background: color-mix(in srgb, var(--caution, #d9a441) 18%, transparent); border-radius: 3px; }
+  .hcol.bed { box-shadow: inset 2px 0 0 var(--st-text); }
+  .bedq { margin-top: 0.6rem; }
+  .bedrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+  .bedrow input {
+    width: auto; margin: 0; font: inherit; min-height: var(--tap-min, 2rem); padding: 0.3rem 0.6rem;
+    border: 1px solid var(--field-border, var(--st-line)); border-radius: 8px;
+    background: var(--field, transparent); color: var(--st-text);
+  }
+  .primary-s {
+    width: auto; margin: 0; min-height: var(--tap-min, 2rem); padding: 0.3rem 0.9rem; border: 0; border-radius: 8px;
+    background: var(--st-accent); color: var(--on-accent, var(--accent-ink, #0c0e12)); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .axisnote .link { min-height: 0; padding: 0; margin-left: 0.25rem; }
+  .nearbed { margin: 0.5rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; }
+  .nearbed li + li { margin-top: 0.2rem; }
   .hlabels { display: grid; grid-template-columns: repeat(4, 1fr) 0; color: var(--st-muted); font-size: 11px; margin-top: 4px; }
 </style>

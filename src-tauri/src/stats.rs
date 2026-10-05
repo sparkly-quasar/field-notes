@@ -64,6 +64,9 @@ pub struct UsageStats {
     pub pairs: Vec<PairCount>,
     pub total_sessions: usize,
     pub total_doses: usize,
+    /// When the person usually goes to bed: "23:00" (local, 24-hour), "varies",
+    /// "skip" (asked, not answered), or `None` (not asked yet). See `set_bedtime`.
+    pub bedtime: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,6 +97,20 @@ pub struct SubstanceStats {
     pub routes: Vec<(String, usize)>,
     /// Drug families this substance counts toward (see [`families_for`]).
     pub families: Vec<String>,
+    /// The reference's half-life, when it has one: how long until about half a
+    /// dose is gone from the body. Read for the time-of-day card's bedtime note.
+    pub half_life: Option<HalfLife>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HalfLife {
+    /// As the reference writes it: "9-14 hours".
+    pub text: String,
+    /// The reference route it's from.
+    pub route: String,
+    /// The range in hours. A single figure is both ends.
+    pub low_hours: f64,
+    pub high_hours: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,6 +251,47 @@ fn bands_for(conn: &Connection, name: &str, unit: &str, route: &str) -> Option<B
         strong: range(&roa.strong),
         heavy: conv(roa.heavy),
     })
+}
+
+// ---------- half-life ----------
+
+/// Hours in a half-life as the reference writes it: "9-14 hours", "~39
+/// minutes", "53–118 hours", "1.3 hours (±0.7)". Anything in brackets is a
+/// gloss and is ignored ("5-30 hours (average 9-12 hours)" is 5 to 30). `None`
+/// if there's no figure or no unit.
+pub fn half_life_hours(text: &str) -> Option<(f64, f64)> {
+    let main = text.split('(').next().unwrap_or("").to_lowercase();
+    let per = if main.contains("min") {
+        1.0 / 60.0
+    } else if main.contains("day") {
+        24.0
+    } else if main.contains("hour") || main.contains("hr") {
+        1.0
+    } else {
+        return None;
+    };
+    let nums: Vec<f64> = main
+        .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .filter_map(|t| t.parse::<f64>().ok())
+        .take(2)
+        .collect();
+    match nums.as_slice() {
+        [a] => Some((a * per, a * per)),
+        [a, b] => Some((a.min(*b) * per, a.max(*b) * per)),
+        _ => None,
+    }
+}
+
+/// The reference's half-life for a substance, from the route its doses were most
+/// often taken by when that route has one, else from any route that does (how
+/// long a drug stays in the body barely depends on how it got there).
+fn half_life_for(conn: &Connection, name: &str, route: &str) -> Option<HalfLife> {
+    let info = db::pw_lookup(conn, name).ok().flatten()?;
+    let with: Vec<_> = info.roas.iter().filter(|r| r.half_life.as_deref().is_some_and(|h| half_life_hours(h).is_some())).collect();
+    let roa = with.iter().find(|r| !route.is_empty() && r.name.eq_ignore_ascii_case(route)).or(with.first())?;
+    let text = roa.half_life.clone()?;
+    let (low_hours, high_hours) = half_life_hours(&text)?;
+    Some(HalfLife { text, route: roa.name.clone(), low_hours, high_hours })
 }
 
 // ---------- forms ----------
@@ -601,6 +659,8 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             .collect();
 
         let families = families_of(conn, &name);
+        let top_route = routes.first().map(|r| r.0.clone()).unwrap_or_default();
+        let half_life = half_life_for(conn, &name, &top_route);
         substances.push(SubstanceStats {
             key,
             name,
@@ -611,6 +671,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             series,
             routes,
             families,
+            half_life,
         });
     }
     substances.sort_by(|a, b| b.sessions.cmp(&a.sessions).then(b.doses.cmp(&a.doses)).then(a.name.cmp(&b.name)));
@@ -628,7 +689,8 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         pair_counts.into_iter().map(|((a, b), sessions)| PairCount { a, b, sessions }).collect();
     pairs.sort_by(|x, y| y.sessions.cmp(&x.sessions).then(x.a.cmp(&y.a)).then(x.b.cmp(&y.b)));
 
-    Ok(UsageStats { total_sessions: sessions.len(), total_doses: rows.len(), sessions, substances, pairs })
+    let bedtime = db::get_setting(conn, "bedtime")?;
+    Ok(UsageStats { total_sessions: sessions.len(), total_doses: rows.len(), sessions, substances, pairs, bedtime })
 }
 
 #[cfg(test)]
@@ -787,6 +849,38 @@ mod tests {
         let s = usage_stats(&c, None).unwrap();
         let series: Vec<_> = s.substances[0].series.iter().map(|u| (u.unit.as_str(), u.points.len(), u.bands.is_some())).collect();
         assert_eq!(series, vec![("g", 2, true), ("g (extract)", 1, false), ("mg (7-OH)", 1, false)]);
+    }
+
+    #[test]
+    fn half_lives_read_as_the_reference_writes_them() {
+        assert_eq!(half_life_hours("9-14 hours"), Some((9.0, 14.0)));
+        assert_eq!(half_life_hours("~5 hours"), Some((5.0, 5.0)));
+        assert_eq!(half_life_hours("53–118 hours"), Some((53.0, 118.0)));
+        assert_eq!(half_life_hours("20-50 minutes"), Some((20.0 / 60.0, 50.0 / 60.0)));
+        assert_eq!(half_life_hours("1.3 hours (±0.7)"), Some((1.3, 1.3)));
+        assert_eq!(half_life_hours("5-30 hours (average 9-12 hours)"), Some((5.0, 30.0)));
+        assert_eq!(half_life_hours("~1.69 hours (median)"), Some((1.69, 1.69)));
+        assert_eq!(half_life_hours("long"), None);
+        assert_eq!(half_life_hours("12"), None, "no unit, no guess");
+    }
+
+    #[test]
+    fn stats_carry_the_half_life_and_the_bedtime() {
+        let c = journal();
+        let info = serde_json::json!({
+            "name": "Caffeine", "common_names": [], "psychoactive": ["Stimulant"], "chemical": [],
+            "roas": [{ "name": "oral", "units": "mg", "light": {}, "common": {}, "strong": {}, "half_life": "~5 hours" }],
+            "interactions": []
+        });
+        c.execute("INSERT INTO pw_substances (name, data) VALUES ('Caffeine', ?1)", [info.to_string()]).unwrap();
+        let e = session(&c, "session", "2026-09-01T09:00:00Z");
+        dose(&c, e, "Caffeine", Some(100.0), "mg", "2026-09-01T09:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        let h = s.substances[0].half_life.as_ref().expect("caffeine's half-life");
+        assert_eq!((h.text.as_str(), h.low_hours, h.high_hours), ("~5 hours", 5.0, 5.0));
+        assert_eq!(s.bedtime, None, "not asked yet");
+        db::set_setting(&c, "bedtime", Some("23:30")).unwrap();
+        assert_eq!(usage_stats(&c, None).unwrap().bedtime.as_deref(), Some("23:30"));
     }
 
     #[test]

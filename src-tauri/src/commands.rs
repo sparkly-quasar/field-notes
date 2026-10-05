@@ -225,6 +225,40 @@ pub fn update_dose_in(db: &Db, id: i64, update: DoseUpdate) -> Result<Dose, Stri
     db.with(|c| db::update_dose(c, id, &update))
 }
 
+// ---------- bedtime ----------
+
+/// When the person usually goes to bed, for the time-of-day card: a local
+/// 24-hour time ("23:00"), "varies", "skip" (asked and not answered), or `None`
+/// to forget it (the card asks again). Kept in the journal so the phone and the
+/// computer agree.
+#[tauri::command]
+pub fn set_bedtime(db: State<'_, Db>, value: Option<String>) -> Result<(), String> {
+    set_bedtime_in(&db, value)
+}
+
+/// [`set_bedtime`] against any person's journal (the portal picks it by device).
+pub fn set_bedtime_in(db: &Db, value: Option<String>) -> Result<(), String> {
+    let value = value.map(|v| v.trim().to_lowercase());
+    if let Some(v) = &value {
+        if !is_bedtime(v) {
+            return Err("A bedtime is a time like 23:00, or \"varies\".".into());
+        }
+    }
+    db.with(|c| db::set_setting(c, "bedtime", value.as_deref()))
+}
+
+fn is_bedtime(v: &str) -> bool {
+    if v == "varies" || v == "skip" {
+        return true;
+    }
+    match v.split_once(':') {
+        Some((h, m)) => {
+            h.len() <= 2 && m.len() == 2 && h.parse::<u8>().is_ok_and(|h| h < 24) && m.parse::<u8>().is_ok_and(|m| m < 60)
+        }
+        None => false,
+    }
+}
+
 // ---------- capsule kinds ----------
 
 /// Saved capsule (pill, tab) kinds for a substance: "00 caps, 0.45 g".
@@ -2462,6 +2496,16 @@ mod tests {
                 .map(|t| ollama::ParsedTimeline { note: "peak".into(), at: t.map(String::from), ..Default::default() })
                 .collect(),
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_bedtime_is_a_time_or_varies() {
+        for ok in ["23:00", "0:30", "07:05", "varies", "skip"] {
+            assert!(is_bedtime(ok), "{ok}");
+        }
+        for bad in ["24:00", "11pm", "23:5", "23:60", "", "late"] {
+            assert!(!is_bedtime(bad), "{bad}");
         }
     }
 

@@ -64,6 +64,7 @@ pub const ROUTED: &[&str] = &[
     "list_unit_kinds",
     "save_unit_kind",
     "delete_unit_kind",
+    "set_bedtime",
     "check_combo",
     "canonical_name",
     "crisis_scan",

@@ -204,6 +204,14 @@ CREATE TABLE IF NOT EXISTS unit_kinds (
     UNIQUE (substance, label)
 );
 
+-- Small facts about the person the journal is for, kept with the journal so the
+-- phone and the computer agree: `bedtime` ("23:00", "varies", or "skip" once
+-- asked and skipped; absent until asked).
+CREATE TABLE IF NOT EXISTS journal_settings (
+    key            TEXT PRIMARY KEY,
+    value          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS timeline_events (
     id             INTEGER PRIMARY KEY,
     experience_id  INTEGER NOT NULL REFERENCES experiences(id) ON DELETE CASCADE,
@@ -872,6 +880,25 @@ pub fn delete_experience(conn: &Connection, id: i64) -> rusqlite::Result<()> {
 
 pub fn delete_dose(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM doses WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+// ---------- journal settings ----------
+
+pub fn get_setting(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT value FROM journal_settings WHERE key = ?1", [key], |r| r.get(0)).optional()
+}
+
+/// Set `key`, or clear it with `None`.
+pub fn set_setting(conn: &Connection, key: &str, value: Option<&str>) -> rusqlite::Result<()> {
+    match value {
+        Some(v) => conn.execute(
+            "INSERT INTO journal_settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, v],
+        )?,
+        None => conn.execute("DELETE FROM journal_settings WHERE key = ?1", [key])?,
+    };
     Ok(())
 }
 

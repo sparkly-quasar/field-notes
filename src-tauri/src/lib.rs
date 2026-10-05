@@ -261,6 +261,7 @@ pub fn run() {
             commands::list_unit_kinds,
             commands::save_unit_kind,
             commands::delete_unit_kind,
+            commands::set_bedtime,
             commands::delete_timeline_event,
             commands::delete_substance,
             commands::ai_status,

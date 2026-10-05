@@ -51,6 +51,7 @@ const ROUTED = new Set([
   "list_unit_kinds",
   "save_unit_kind",
   "delete_unit_kind",
+  "set_bedtime",
   "check_combo",
   "canonical_name",
   "crisis_scan",
@@ -267,6 +268,8 @@ export const listUnitKinds = (substance: string) => invoke<UnitKind[]>("list_uni
 export const saveUnitKind = (substance: string, kind: Omit<UnitKind, "id" | "substance">) =>
   invoke<UnitKind>("save_unit_kind", { substance, kind });
 export const deleteUnitKind = (id: number) => invoke<void>("delete_unit_kind", { id });
+/** "23:00", "varies", "skip", or null to forget it (the time-of-day card asks again). */
+export const setBedtime = (value: string | null) => invoke<void>("set_bedtime", { value });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
@@ -445,6 +448,8 @@ export interface StatsSubstance {
   /** Drug families it counts toward: psychedelics, entactogens, dissociatives,
    *  stimulants, depressants, opioids, cannabinoids, other (stats.rs). */
   families: string[];
+  /** The dose reference's half-life, when it has one. Missing from older servers. */
+  half_life?: { text: string; route: string; low_hours: number; high_hours: number } | null;
 }
 export interface StatsSession {
   experience_id: number;
@@ -459,6 +464,9 @@ export interface UsageStats {
   pairs: { a: string; b: string; sessions: number }[];
   total_sessions: number;
   total_doses: number;
+  /** "23:00" (local), "varies", "skip" (asked, not answered), or null (not asked
+   *  yet). Missing from older servers, which can't store one. */
+  bedtime?: string | null;
 }
 /** Read-only. `since` is an ISO time; omit for all time. */
 export const usageStats = (since: string | null) => invoke<UsageStats>("usage_stats", { since });

@@ -148,3 +148,42 @@ export const SPACING_NOTE: Record<string, string> = {
 export function spacingNotes(families: string[]): string[] {
   return [...new Set(families)].map((f) => SPACING_NOTE[f]).filter((n): n is string => !!n);
 }
+
+// ---------- bedtime ----------
+
+/** "23:00" → minutes after midnight, or null for "varies", "skip" or anything else. */
+export function bedMinutes(bedtime: string | null | undefined): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(bedtime ?? "");
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  return h < 24 && min < 60 ? h * 60 + min : null;
+}
+
+/** How long before bedtime `t` falls, in minutes on the viewer's clock (0 at
+ *  bedtime, up to a day before). A dose after bedtime counts as nearly a day
+ *  before the next one: this doesn't know when anyone actually slept. */
+export function minutesBeforeBed(t: number, bed: number): number {
+  const d = new Date(t);
+  const at = d.getHours() * 60 + d.getMinutes();
+  return (bed - at + 1440) % 1440;
+}
+
+/** Of these dose times, how many fell within `hours` before bedtime, counting
+ *  one taken exactly that long before: half of it is still there at bedtime. */
+export function closeToBed(times: number[], bed: number, hours: number): number {
+  const window = Math.min(hours, 24) * 60;
+  return times.filter((t) => minutesBeforeBed(t, bed) <= window).length;
+}
+
+/** Is this hour of the day (0–23) inside the `hours` before bedtime? For shading. */
+export function hourBeforeBed(hour: number, bed: number, hours: number): boolean {
+  const before = (bed - hour * 60 + 1440) % 1440;
+  return before > 0 && before <= Math.min(hours, 24) * 60;
+}
+
+/** "11:30 pm", in the viewer's own clock style. */
+export function fmtBedtime(bed: number): string {
+  const d = new Date(2026, 0, 1, Math.floor(bed / 60), bed % 60);
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
