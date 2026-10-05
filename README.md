@@ -134,6 +134,7 @@ show you how to get past it.
   ranges, spacing between experiences, how often, a calendar, and what you've taken
   together, plus **Trends**: what changed lately against the period before (how
   often, time between, amount per experience, redosing), each with a small chart.
+  Tap a day, bar, hour or dot to see the experiences behind it.
   Descriptive only: no streaks, scores or warnings, and a toggle hides
   substance names for screen-sharing.
 - **Updates** — automatic, a **Check for updates** button in Settings, and

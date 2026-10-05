@@ -10,6 +10,7 @@
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
   import Trends from "$lib/Trends.svelte";
+  import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
     niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
@@ -50,6 +51,11 @@
   let freqW = $state(600);
   let heatW = $state(600);
   let heatPage = $state(0);
+  /** What a tap opened: a frequency bar (its start), a calendar day (its
+   *  start), an hour of the day. Each card has its own. */
+  let pickBar = $state<number | null>(null);
+  let pickDay = $state<number | null>(null);
+  let pickHour = $state<number | null>(null);
 
   $effect(() => {
     try { localStorage.setItem(PREF, JSON.stringify({ range, pick, fam })); } catch {}
@@ -72,6 +78,7 @@
     range = r;
     selected = null;
     heatPage = 0;
+    pickBar = pickDay = pickHour = null;
     load();
   }
 
@@ -208,8 +215,24 @@
     sub ? sessions.filter((s) => s.rating != null).map((s) => s.rating as number) : [],
   );
 
+  /** The experiences in view, oldest first, for what a tap opens. */
+  const exps = $derived(
+    sessions
+      .map((s) => ({ id: s.experience_id, t: ts(s.started_at), title: s.title, subs: s.substances, rating: s.rating }))
+      .filter((e): e is PickExp => e.t != null)
+      .sort((a, b) => a.t - b.t),
+  );
+  const keyTap = (e: KeyboardEvent, fn: () => void) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); }
+  };
+
   // ---- frequency ----
   const freq = $derived(frequency(sessionTimes, windowFrom, now));
+  /** The tapped bar, if it's still on the chart (a filter can move "All time"). */
+  const barIdx = $derived(pickBar == null ? -1 : freq.findIndex((f) => f.start === pickBar));
+  const barExps = $derived(
+    barIdx < 0 ? [] : exps.filter((e) => e.t >= freq[barIdx].start && (barIdx === freq.length - 1 || e.t < freq[barIdx + 1].start)),
+  );
   const freqScale = $derived(niceScale(Math.max(1, ...freq.map((f) => f.count)), 3));
   const FH = 140;
 
@@ -251,6 +274,7 @@
     return out;
   });
   const heatMax = $derived(Math.max(1, ...days.values()));
+  const dayExps = $derived(pickDay == null ? [] : exps.filter((e) => dayKey(e.t) === dayKey(pickDay!)));
   function cellDay(week: number, dow: number) {
     const d = new Date(week);
     d.setDate(d.getDate() + dow);
@@ -258,13 +282,21 @@
   }
 
   // ---- time of day ----
-  const hours = $derived(
-    byHour((sub ? sub.series : (family ? famSubs : data?.substances ?? []).flatMap((x) => x.series))
+  const hourDoses = $derived(
+    (sub ? sub.series : (family ? famSubs : data?.substances ?? []).flatMap((x) => x.series))
       .flatMap((u) => u.points)
-      .map((p) => ts(p.taken_at))
-      .filter((t): t is number => t != null)),
+      .map((p) => ({ id: p.experience_id, t: ts(p.taken_at) }))
+      .filter((d): d is { id: number; t: number } => d.t != null),
   );
+  const hours = $derived(byHour(hourDoses.map((d) => d.t)));
   const hourMax = $derived(Math.max(1, ...hours));
+  /** Experiences with a dose in the tapped hour (listed newest first). */
+  const hourExps = $derived.by(() => {
+    if (pickHour == null) return [];
+    const ids = new Set(hourDoses.filter((d) => new Date(d.t).getHours() === pickHour).map((d) => d.id));
+    return exps.filter((e) => ids.has(e.id));
+  });
+  const fmtHour = (h: number) => new Date(2000, 0, 1, h % 24).toLocaleTimeString(undefined, { hour: "numeric" });
 
   const fmtDay = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   /** Axis dates carry the year whenever the window spans more than one, or
@@ -284,6 +316,8 @@
     return t == null ? s : new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   };
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const fmtBucketLong = (f: { start: number; unit: "week" | "month" }) =>
+    f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 </script>
 
 <div class="stats">
@@ -494,14 +528,20 @@
               <text x="22" y={12 + (1 - t / freqScale.max) * (FH - 32)} text-anchor="end" class="axis">{t}</text>
             {/each}
             {#each freq as f, i}
-              {@const bw = Math.max(2, (freqW - 30) / freq.length - 2)}
+              {@const slot = (freqW - 30) / freq.length}
+              {@const bw = Math.max(2, slot - 2)}
               {@const bh = (f.count / freqScale.max) * (FH - 32)}
-              {@const bx = 30 + i * ((freqW - 30) / freq.length)}
+              {@const bx = 30 + i * slot}
               {#if f.count}
-                <path class="bar" d={`M${bx},${FH - 24} v${-(bh - Math.min(4, bw / 2))} q0,${-Math.min(4, bw / 2)} ${Math.min(4, bw / 2)},${-Math.min(4, bw / 2)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, bw / 2)} v${bh - Math.min(4, bw / 2)} z`}>
-                  <title>{f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" })}: {plural(f.count, "experience")}</title>
-                </path>
+                <path class="bar" class:sel={barIdx === i} d={`M${bx},${FH - 24} v${-(bh - Math.min(4, bw / 2))} q0,${-Math.min(4, bw / 2)} ${Math.min(4, bw / 2)},${-Math.min(4, bw / 2)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, bw / 2)} v${bh - Math.min(4, bw / 2)} z`} />
               {/if}
+              <!-- the whole column is the target, so a thin bar is still easy to tap -->
+              <rect class="hit" x={bx} y="0" width={slot} height={FH - 24}
+                role="button" tabindex={f.count ? 0 : -1} aria-label="{fmtBucketLong(f)}: {plural(f.count, 'experience')}"
+                onclick={() => (pickBar = barIdx === i ? null : f.start)}
+                onkeydown={(e) => keyTap(e, () => (pickBar = barIdx === i ? null : f.start))}>
+                <title>{fmtBucketLong(f)}: {plural(f.count, "experience")}</title>
+              </rect>
             {/each}
             {#if freq.length}
               <text x="30" y={FH - 6} class="axis">{fmtBucket(freq[0].start, freq[0].unit)}</text>
@@ -509,6 +549,13 @@
             {/if}
           </svg>
         </div>
+        {#if barIdx >= 0}
+          <StatsPick heading={fmtBucketLong(freq[barIdx])} note={plural(barExps.length, "experience")}
+            items={barExps.map((e) => pickItem(e, label))} empty="No experiences in this {freq[barIdx].unit}."
+            {onOpen} onClose={() => (pickBar = null)} />
+        {:else if freq.some((f) => f.count)}
+          <p class="axisnote">Tap a bar to see its experiences.</p>
+        {/if}
       </section>
 
       <!-- calendar -->
@@ -536,7 +583,10 @@
                 {@const n = days.get(dayKey(t)) ?? 0}
                 {#if t <= now}
                   <rect x={20 + wi * (CELL + GAP)} y={18 + dow * (CELL + GAP)} width={CELL} height={CELL} rx="3"
-                    class={n ? "cell on" : "cell"} fill-opacity={n ? 0.35 + 0.65 * (n / heatMax) : 1}>
+                    class={n ? "cell on" : "cell"} class:sel={pickDay === t} fill-opacity={n ? 0.35 + 0.65 * (n / heatMax) : 1}
+                    role="button" tabindex={n ? 0 : -1} aria-label="{fmtDayYear(t)}: {n ? plural(n, 'experience') : 'none'}"
+                    onclick={() => (pickDay = pickDay === t ? null : t)}
+                    onkeydown={(e) => keyTap(e, () => (pickDay = pickDay === t ? null : t))}>
                     <title>{fmtDayYear(t)}: {n ? plural(n, "experience") : "none"}</title>
                   </rect>
                 {/if}
@@ -544,6 +594,14 @@
             {/each}
           </svg>
         </div>
+        {#if pickDay != null}
+          <StatsPick heading={new Date(pickDay).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+            note={dayExps.length ? plural(dayExps.length, "experience") : ""}
+            items={dayExps.map((e) => pickItem(e, label, true))} empty="No experiences on this day."
+            {onOpen} onClose={() => (pickDay = null)} />
+        {:else}
+          <p class="axisnote">Tap a day to see it.</p>
+        {/if}
       </section>
 
       <!-- combinations -->
@@ -569,14 +627,23 @@
       <!-- time of day -->
       <section class="card">
         <h3>Time of day{scope ? ` · ${scope}` : ""}</h3>
-        <div class="hours" role="img" aria-label="Doses by hour of day">
+        <div class="hours" class:picking={pickHour != null} role="group" aria-label="Doses by hour of day">
           {#each hours as n, h}
-            <span class="hcol" title={`${h}:00: ${plural(n, "dose")}`}>
+            <button class="hcol" class:sel={pickHour === h} title={`${h}:00: ${plural(n, "dose")}`}
+              aria-label="{fmtHour(h)}: {plural(n, 'dose')}" aria-pressed={pickHour === h} tabindex={n ? 0 : -1}
+              onclick={() => (pickHour = pickHour === h ? null : h)}>
               <span class="hbar" style:height={`${(n / hourMax) * 100}%`}></span>
-            </span>
+            </button>
           {/each}
         </div>
         <div class="hlabels"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span></span></div>
+        {#if pickHour != null}
+          <StatsPick heading="{fmtHour(pickHour)} to {fmtHour(pickHour + 1)}" note="{plural(hours[pickHour], 'dose')} in this hour"
+            items={hourExps.map((e) => pickItem(e, label)).reverse()} empty="No doses in this hour."
+            {onOpen} onClose={() => (pickHour = null)} />
+        {:else if hours.some(Boolean)}
+          <p class="axisnote">Tap an hour to see its experiences.</p>
+        {/if}
       </section>
     </div>
   {/if}
@@ -630,8 +697,10 @@
   .hit { fill: transparent; cursor: pointer; outline: none; }
   .hit:focus-visible { outline: none; stroke: var(--focus, var(--st-text)); stroke-width: 2; }
   .bar { fill: var(--st-accent); }
-  .cell { fill: var(--st-line); }
+  .bar.sel { stroke: var(--st-text); stroke-width: 2; }
+  .cell { fill: var(--st-line); cursor: pointer; outline: none; }
   .cell.on { fill: var(--st-accent); }
+  .cell.sel, .cell:focus-visible { stroke: var(--st-text); stroke-width: 2; }
   .axisnote, .note { color: var(--st-muted); font-size: 0.85rem; margin: 0.4rem 0 0; }
   .detail { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.5rem; padding: 0.5rem 0.7rem; border: 1px solid var(--st-line); border-radius: 10px; font-size: 0.92rem; }
   .tablewrap { max-height: 320px; overflow: auto; }
@@ -651,7 +720,9 @@
   .pairs li { display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--st-line); font-size: 0.92rem; }
   .pairs li > span:first-child { flex: 1; min-width: 0; }
   .hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 90px; align-items: end; }
-  .hcol { height: 100%; display: flex; align-items: flex-end; }
+  .hcol { height: 100%; display: flex; align-items: flex-end; padding: 0; margin: 0; border: 0; background: none; min-width: 0; cursor: pointer; }
+  .hcol:focus-visible { outline: 2px solid var(--focus, var(--st-text)); outline-offset: 1px; }
+  .hours.picking .hcol:not(.sel) .hbar { opacity: 0.35; }
   .hbar { display: block; width: 100%; background: var(--st-accent); border-radius: 3px 3px 0 0; min-height: 0; }
   .hlabels { display: grid; grid-template-columns: repeat(4, 1fr) 0; color: var(--st-muted); font-size: 11px; margin-top: 4px; }
 </style>

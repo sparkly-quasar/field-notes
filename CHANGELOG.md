@@ -11,6 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.24.0
+
+- **Tap a chart in Stats to see what's behind it.** Tap a day on the calendar
+  to see that day's experiences, a bar to see that week's or month's, or an
+  hour under Time of day to see the experiences with a dose then. Each one
+  opens straight into the journal. The Trends charts work the same way,
+  including the dots on Time between and Amount per experience. On Amount per
+  experience, a tap now shows the experience first instead of leaving Stats
+  straight away.
+
 ## v0.23.2
 
 - **Drinks logged by name count as alcohol.** Logging "Beer", "wine", "vodka",
