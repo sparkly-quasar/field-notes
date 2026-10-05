@@ -276,6 +276,11 @@ pub struct Dose {
     pub note: String,
     #[serde(flatten)]
     pub detail: DoseDetail,
+    /// What this amount tends to do, for the few substances whose effects change
+    /// with the amount (`field_notes_core::profiles`). Worked out when read,
+    /// never stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<field_notes_core::profiles::Profile>,
 }
 
 /// What a dose was, beyond its amount and unit (dose-aware Stats, step 2 in
@@ -328,7 +333,116 @@ fn dose_from_row(r: &rusqlite::Row) -> rusqlite::Result<Dose> {
             estimate: r.get("estimate")?,
             estimate_unit: r.get("estimate_unit")?,
         },
+        profile: None,
     })
+}
+
+/// `d` with its dose profile. Capsules with an amount each count as their
+/// weight in all.
+pub(crate) fn profiled(conn: &Connection, mut d: Dose) -> Dose {
+    d.profile = profile_for(
+        conn, &d.substance_name, d.amount, &d.unit, &d.route, &d.detail.form, d.detail.per_unit, &d.detail.per_unit_unit,
+    );
+    d
+}
+
+/// A dose as the profile context needs it: its name, when, and its profile.
+pub(crate) struct ProfiledDose {
+    pub name: String,
+    pub at_min: Option<f64>,
+    pub profile: Option<field_notes_core::profiles::Profile>,
+}
+
+/// The dose profile for a dose described by its parts (the wider check's doses
+/// arrive this way). Capsules with an amount each count as their weight in all.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn profile_for(
+    conn: &Connection,
+    name: &str,
+    amount: Option<f64>,
+    unit: &str,
+    route: &str,
+    form: &str,
+    per_unit: Option<f64>,
+    per_unit_unit: &str,
+) -> Option<field_notes_core::profiles::Profile> {
+    let counted = per_unit.is_some() && !crate::stats::is_mass_unit(unit);
+    let (amount, unit) = if counted { (amount.zip(per_unit).map(|(n, e)| n * e), per_unit_unit) } else { (amount, unit) };
+    field_notes_core::profiles::profile(&DbRef(conn), name, amount, unit, route, form)
+}
+
+/// What doses' amounts add to the checker (`field_notes_core::profiles`): each
+/// dose's own caution (diphenhydramine at deliriant amounts, DXM's third plateau
+/// and up), and for kratom, what it's doing alongside whatever else was taken
+/// within six hours of it. Used by an entry's own check and by the wider check
+/// across entries, so both say the same. Only ever adds: a profile never softens
+/// or removes a warning.
+pub(crate) fn profile_context(conn: &Connection, doses: &[ProfiledDose], warnings: &mut Vec<crate::interactions::Warning>) {
+    use crate::interactions::Warning;
+    let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+    for d in doses {
+        let Some(p) = &d.profile else { continue };
+        if let Some(c) = &p.caution {
+            if !warnings.iter().any(|w| w.message == *c && same(&w.a, &d.name)) {
+                warnings.push(Warning { severity: "caution", a: d.name.clone(), b: String::new(), message: c.clone(), advice: vec![] });
+            }
+        }
+        if !same(&d.name, "kratom") {
+            continue;
+        }
+        for o in doses {
+            if same(&o.name, "kratom") {
+                continue;
+            }
+            let near = match (d.at_min, o.at_min) {
+                (Some(a), Some(b)) => (a - b).abs() <= 360.0,
+                _ => true,
+            };
+            if !near {
+                continue;
+            }
+            let classes = classes_for(conn, &o.name);
+            let has = |c: &str| classes.iter().any(|x| x == c);
+            let (extra, severity) = match p.key.as_str() {
+                "opioid" if has("depressant") || has("opioid") || has("benzodiazepine") => (
+                    "At this amount kratom acts more like an opioid, which adds to the sedation and slowed breathing.",
+                    "caution",
+                ),
+                "stimulating" if has("stimulant") => (
+                    "At this amount kratom tends to be stimulating, so with another stimulant the effects add up: heart rate, anxiety and trouble sleeping.",
+                    "note",
+                ),
+                _ => continue,
+            };
+            let pair = |w: &Warning| (same(&w.a, &d.name) && same(&w.b, &o.name)) || (same(&w.b, &d.name) && same(&w.a, &o.name));
+            if warnings.iter().any(pair) {
+                for w in warnings.iter_mut().filter(|w| pair(w)) {
+                    if !w.message.contains(extra) {
+                        w.message = format!("{} {extra}", w.message.trim_end());
+                    }
+                }
+            } else {
+                warnings.push(Warning { severity, a: d.name.clone(), b: o.name.clone(), message: extra.into(), advice: vec![] });
+            }
+        }
+    }
+}
+
+/// [`profile_context`] for one entry's doses.
+fn add_profile_context(conn: &Connection, experience_id: i64, warnings: &mut Vec<crate::interactions::Warning>) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare("SELECT * FROM doses WHERE experience_id = ?1")?;
+    let doses: Vec<ProfiledDose> = stmt
+        .query_map([experience_id], dose_from_row)?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|d| {
+            let at_min = crate::stats::parse_ts(&d.taken_at).map(|t| t.timestamp() as f64 / 60.0);
+            let d = profiled(conn, d);
+            ProfiledDose { name: d.substance_name, at_min, profile: d.profile }
+        })
+        .collect();
+    profile_context(conn, &doses, warnings);
+    Ok(())
 }
 
 /// A named capsule (or pill, tab) for one substance and how much each holds.
@@ -600,7 +714,10 @@ pub fn get_experience(conn: &Connection, id: i64) -> rusqlite::Result<Experience
     let mut ds = conn.prepare("SELECT * FROM doses WHERE experience_id = ?1 ORDER BY taken_at")?;
     let doses: Vec<Dose> = ds
         .query_map([id], dose_from_row)?
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|d| profiled(conn, d))
+        .collect();
 
     let mut ts = conn.prepare("SELECT * FROM timeline_events WHERE experience_id = ?1 ORDER BY at")?;
     let timeline: Vec<TimelineEvent> = ts
@@ -658,8 +775,11 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
 
     name_after_first_dose(conn, input.experience_id, &input.substance_name)?;
 
-    // Every substance in this experience that overlapped another, checked together.
-    Ok((dose, session_warnings(conn, input.experience_id)?))
+    // Every substance in this experience that overlapped another, checked
+    // together, then what each dose's amount adds (dose profiles).
+    let mut warnings = session_warnings(conn, input.experience_id)?;
+    add_profile_context(conn, input.experience_id, &mut warnings)?;
+    Ok((profiled(conn, dose), warnings))
 }
 
 /// Give an untitled session the name of the first substance logged into it.
@@ -778,7 +898,10 @@ pub fn usage_by_substance(conn: &Connection) -> rusqlite::Result<Vec<SubstanceUs
         )?;
         let doses: Vec<Dose> = ds
             .query_map([&name], dose_from_row)?
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|d| profiled(conn, d))
+            .collect();
         out.push(SubstanceUsage { substance_name: name, times_used: times, doses });
     }
     Ok(out)
@@ -882,7 +1005,7 @@ pub fn update_dose(conn: &Connection, id: i64, u: &DoseUpdate) -> rusqlite::Resu
             params![id, d.form, d.per_unit, d.per_unit_unit, d.unit_label, d.estimate, d.estimate_unit],
         )?;
     }
-    conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], dose_from_row)
+    Ok(profiled(conn, conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], dose_from_row)?))
 }
 
 pub fn delete_experience(conn: &Connection, id: i64) -> rusqlite::Result<()> {
@@ -1577,6 +1700,78 @@ mod tests {
         fresh["form"] = "fresh".into();
         assert_ne!(fingerprint(&entry(fresh)), fingerprint(&entry(serde_json::json!({
             "taken_at": "2026-09-01 20:00:00", "substance_name": "LSD", "amount": 100, "unit": "µg" }))));
+    }
+
+    /// A session with the bundled reference, for dose profiles.
+    fn with_reference() -> (Connection, i64) {
+        let mut c = mem();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).expect("parse bundled");
+        pw_replace_all(&mut c, &all).unwrap();
+        let exp = create_experience(&c, &ExperienceInput {
+            kind: "session".into(),
+            title: "t".into(), intention: String::new(), setting: String::new(),
+            started_at: "2026-09-01T20:00:00Z".into(),
+        }).unwrap();
+        (c, exp.id)
+    }
+
+    fn take(c: &Connection, exp: i64, name: &str, amount: f64, unit: &str, at: &str) -> (Dose, Vec<crate::interactions::Warning>) {
+        log_dose(c, &DoseInput {
+            experience_id: exp,
+            substance_name: name.into(),
+            amount: Some(amount),
+            unit: unit.into(),
+            route: "oral".into(),
+            taken_at: at.into(),
+            ..Default::default()
+        }).unwrap()
+    }
+
+    #[test]
+    fn a_dose_says_what_its_amount_tends_to_do() {
+        let (c, exp) = with_reference();
+        let (d, _) = take(&c, exp, "Kratom", 2.0, "g", "2026-09-01T20:00:00Z");
+        assert_eq!(d.profile.as_ref().map(|p| p.key.as_str()), Some("stimulating"));
+        let (d, _) = take(&c, exp, "Kratom", 7.0, "g", "2026-09-01T21:00:00Z");
+        assert_eq!(d.profile.as_ref().map(|p| p.key.as_str()), Some("opioid"));
+        // Read back, every dose carries its own.
+        let keys: Vec<_> = get_experience(&c, exp).unwrap().doses.into_iter().map(|d| d.profile.map(|p| p.key)).collect();
+        assert_eq!(keys, vec![Some("stimulating".to_string()), Some("opioid".to_string())]);
+    }
+
+    #[test]
+    fn a_deliriant_amount_of_diphenhydramine_is_a_caution_on_its_own() {
+        let (c, exp) = with_reference();
+        let (_, w) = take(&c, exp, "Diphenhydramine", 50.0, "mg", "2026-09-01T20:00:00Z");
+        assert!(!w.iter().any(|w| w.b.is_empty()), "a sleep-aid dose adds nothing of its own: {w:?}");
+        let (_, w) = take(&c, exp, "Diphenhydramine", 400.0, "mg", "2026-09-01T21:00:00Z");
+        let own: Vec<_> = w.iter().filter(|w| w.b.is_empty()).collect();
+        assert_eq!(own.len(), 1, "{w:?}");
+        assert_eq!(own[0].severity, "caution");
+        assert!(own[0].message.contains("seizures"));
+    }
+
+    #[test]
+    fn opioid_range_kratom_adds_to_a_depressant_warning_never_softens_it() {
+        let (c, exp) = with_reference();
+        take(&c, exp, "Alcohol", 3.0, "drinks", "2026-09-01T20:00:00Z");
+        let (_, low) = take(&c, exp, "Kratom", 2.0, "g", "2026-09-01T20:30:00Z");
+        let (_, high) = take(&c, exp, "Kratom", 7.0, "g", "2026-09-01T21:00:00Z");
+        let pair = |ws: &Vec<crate::interactions::Warning>| {
+            ws.iter().find(|w| (w.a.eq_ignore_ascii_case("kratom") || w.b.eq_ignore_ascii_case("kratom")) && (w.a.eq_ignore_ascii_case("alcohol") || w.b.eq_ignore_ascii_case("alcohol"))).cloned()
+        };
+        let before = pair(&low).expect("kratom with alcohol is already flagged");
+        let after = pair(&high).expect("still flagged");
+        assert_eq!(after.severity, before.severity, "never softened");
+        assert!(after.message.contains("acts more like an opioid"), "{}", after.message);
+    }
+
+    #[test]
+    fn stimulant_range_kratom_with_a_stimulant_gets_a_note() {
+        let (c, exp) = with_reference();
+        take(&c, exp, "Amphetamine", 10.0, "mg", "2026-09-01T20:00:00Z");
+        let (_, w) = take(&c, exp, "Kratom", 2.0, "g", "2026-09-01T20:30:00Z");
+        assert!(w.iter().any(|w| w.message.contains("kratom tends to be stimulating")), "{w:?}");
     }
 
     #[test]

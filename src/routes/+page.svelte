@@ -2666,7 +2666,7 @@
                   {:else}
                     <span class="dtime">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span>
                     <span class="dname">{d.substance_name}</span>
-                    <span class="damt">{describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}</span>
+                    <span class="damt">{describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}{#if d.profile}<span class="muted" title={d.profile.note}> · {d.profile.label}</span>{/if}</span>
                     <span class="row-actions">
                       <button class="icon-btn" title="Edit dose" onclick={() => startEditDose(d)}>✎</button>
                       <button class="icon-btn" title="Delete dose" onclick={() => delDose(d.id)}>✕</button>
@@ -4381,7 +4381,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if selected.doses.length}
             <ul class="live-doses">
               {#each selected.doses as d}
-                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}</li>
+                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}{#if d.profile}<span class="muted" title={d.profile.note}> · {d.profile.label}</span>{/if}</li>
               {/each}
             </ul>
           {:else}

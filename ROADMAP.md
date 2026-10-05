@@ -1334,8 +1334,19 @@ still be visible.
    the day's strongest dose and outlines microdose-only days, and names
    microdosing runs (3+ microdose days, gaps of 4 days or less); frequency
    shows microdose-only experiences lighter; "days since the last full dose";
-   the computer's inline label says microdose and low dose. Dose profiles are
-   next.
+   the computer's inline label says microdose and low dose. *Dose profiles
+   built 2026-10-05, not yet released:* `field_notes_core::profiles` (kratom
+   leaf by amount, DXM plateaus, diphenhydramine sleep-aid/deliriant, ketamine
+   per route, alcohol in standard drinks), worked out for every dose read from
+   the journal (`Dose.profile`, never stored) and shown beside it on both
+   screens; given to the Companion with each dose. `db::profile_context` adds
+   to warnings, both an entry's own and the wider 12-hour check (whose doses
+   now carry amount, unit and form): diphenhydramine's deliriant range and
+   DXM's third plateau and up get a caution of their own; opioid-range kratom
+   appends to its depressant/opioid warnings; stimulant-range kratom with a
+   stimulant gets a note. Never removes or lowers anything. **The cautions'
+   and notes' wording waits for the clinician review** with the dependence
+   notes. The phone's offline checker doesn't add profile context yet.
 6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
    used. Then show sleep after late-dose nights vs. other nights, with counts
    and no p-values. No streaks or guilt; it must be easy to skip.

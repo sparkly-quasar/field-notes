@@ -130,6 +130,9 @@ export interface Dose {
   unit_label?: string;
   estimate?: number | null;
   estimate_unit?: string;
+  /** What this amount tends to do, for the few substances whose effects change
+   *  with the amount (profiles.rs): "more stimulating at this amount". */
+  profile?: { key: string; label: string; note: string; caution?: string } | null;
 }
 
 /**
@@ -409,6 +412,13 @@ export interface TimedDose {
   substance_name: string;
   route: string;
   at_min: number | null;
+  /** The amount and what the dose was, when known: they add dose-profile
+   *  context (kratom by amount, diphenhydramine's deliriant range). */
+  amount?: number | null;
+  unit?: string;
+  form?: string;
+  per_unit?: number | null;
+  per_unit_unit?: string;
 }
 /** With `doses`, pairs are checked by when they were taken: ones that never
  *  overlapped drop out, ones that met past a peak are softened. */

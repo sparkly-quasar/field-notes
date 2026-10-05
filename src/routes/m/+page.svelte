@@ -1738,6 +1738,7 @@
               {#if r.kind === "dose"}
                 <span class="dot dose" aria-hidden="true"></span><strong>{nameShown(r.dose.substance_name)}</strong>
                 {fmtAmt(r.dose)} <span class="muted">{r.dose.route}</span>
+                {#if r.dose.profile}<span class="sub">{r.dose.profile.label}</span>{/if}
                 {#if r.dose.note}<span class="sub">{r.dose.note}</span>{/if}
               {:else}
                 <span class="dot moment" aria-hidden="true"></span>{#if r.ev.mood}<strong>{r.ev.mood}</strong>{r.ev.note ? " · " : ""}{/if}<span class="moment-note">{r.ev.note}</span>

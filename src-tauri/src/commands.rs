@@ -71,6 +71,19 @@ pub struct TimedDoseIn {
     #[serde(default)]
     pub route: String,
     pub at_min: Option<f64>,
+    /// The amount and what the dose was, when known: they add dose-profile
+    /// context (kratom by amount, diphenhydramine's deliriant range). Older
+    /// callers leave them out, and get the same warnings as before.
+    #[serde(default)]
+    pub amount: Option<f64>,
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub form: String,
+    #[serde(default)]
+    pub per_unit: Option<f64>,
+    #[serde(default)]
+    pub per_unit_unit: String,
 }
 
 /// [`check_combo`] against any person's journal (the portal picks it by device).
@@ -84,7 +97,20 @@ pub fn check_combo_in(db: &Db, names: Vec<String>, doses: Option<Vec<TimedDoseIn
                 at_min: d.at_min,
             })
             .collect();
-        if let Ok(w) = db.with(|c| Ok(db::timed_warnings(c, &timed))) {
+        let with_context = db.with(|c| {
+            let mut w = db::timed_warnings(c, &timed);
+            let profiled: Vec<db::ProfiledDose> = doses
+                .iter()
+                .map(|d| db::ProfiledDose {
+                    name: d.substance_name.clone(),
+                    at_min: d.at_min,
+                    profile: db::profile_for(c, &d.substance_name, d.amount, &d.unit, &d.route, &d.form, d.per_unit, &d.per_unit_unit),
+                })
+                .collect();
+            db::profile_context(c, &profiled, &mut w);
+            Ok(w)
+        });
+        if let Ok(w) = with_context {
             return w;
         }
         // Locked: fall through to the untimed backstop over the same names.
@@ -572,7 +598,11 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
     for d in &detail.doses {
         let amt = d.amount.map(|a| a.to_string()).unwrap_or_else(|| "?".into());
         let route = if d.route.is_empty() { String::new() } else { format!(" {}", d.route) };
-        s.push_str(&format!("- {} {}{}{}\n", d.substance_name, amt, d.unit, route));
+        let form = if d.detail.form.is_empty() { String::new() } else { format!(" ({})", d.detail.form) };
+        // What the amount tends to do (dose profiles), so support fits the dose:
+        // a stimulating amount of kratom isn't a sedating one.
+        let profile = d.profile.as_ref().map(|p| format!(": {}", p.note)).unwrap_or_default();
+        s.push_str(&format!("- {} {}{}{}{}{}\n", d.substance_name, amt, d.unit, form, route, profile));
     }
 
     let names: Vec<String> = detail
@@ -893,6 +923,9 @@ fn run_companion_tool(
             }
             let desc = format!("Logged {amt} {}{}", dose.substance_name, if dose.route.is_empty() { String::new() } else { format!(" ({})", dose.route) });
             let mut result = format!("Logged: {desc}.");
+            if let Some(p) = &dose.profile {
+                result.push_str(&format!(" {}", p.note));
+            }
             if !warns.is_empty() {
                 result.push_str(" Interaction flags: ");
                 result.push_str(&warns.iter().map(|w| format!("[{}] {} + {}: {}", w.severity, w.a, w.b, w.message)).collect::<Vec<_>>().join("; "));
@@ -2547,6 +2580,34 @@ mod tests {
         for bad in ["24:00", "11pm", "23:5", "23:60", "", "late"] {
             assert!(!is_bedtime(bad), "{bad}");
         }
+    }
+
+    /// The check across entries says what an amount adds, as an entry's own does:
+    /// a quick-logged 7 g of kratom is its own entry, beside the evening's drinks.
+    #[test]
+    fn the_wider_check_counts_dose_profiles_too() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema_for_tests()).unwrap();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        db::pw_replace_all(&mut conn, &all).unwrap();
+        let dbh = Db::new(Some(conn), std::env::temp_dir().join("fn-wider-profile-unused.db"));
+        let dose = |name: &str, amount: Option<f64>, unit: &str, at_min: f64| TimedDoseIn {
+            substance_name: name.into(),
+            route: "oral".into(),
+            at_min: Some(at_min),
+            amount,
+            unit: unit.into(),
+            form: String::new(),
+            per_unit: None,
+            per_unit_unit: String::new(),
+        };
+        let names = vec!["Alcohol".to_string(), "Kratom".to_string()];
+        let w = check_combo_in(&dbh, names.clone(), Some(vec![dose("Alcohol", Some(3.0), "drinks", 0.0), dose("Kratom", Some(7.0), "g", 30.0)]));
+        assert!(w.iter().any(|w| w.message.contains("acts more like an opioid")), "{w:?}");
+        // Without amounts (an older caller), the same warnings as before.
+        let w = check_combo_in(&dbh, names, Some(vec![dose("Alcohol", None, "", 0.0), dose("Kratom", None, "", 30.0)]));
+        assert!(!w.iter().any(|w| w.message.contains("acts more like an opioid")));
+        assert!(!w.is_empty());
     }
 
     /// The Companion records a form the person said, and drops one it made up.
