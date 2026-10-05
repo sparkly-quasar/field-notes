@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.23.2
+
+- **Drinks logged by name count as alcohol.** Logging "Beer", "wine", "vodka",
+  a "shot" and so on is now treated as alcohol, so mixing it with a benzo,
+  opioid or other depressant gets a warning, and it shows up under
+  depressants in Stats.
+
 ## v0.23.1
 
 - **What your phone saves offline is better protected.** The first time
