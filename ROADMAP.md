@@ -1266,20 +1266,53 @@ still be visible.
    matching. Plain arithmetic, so it keeps the "no invented numbers" rule.
    Tab, drop, hit, cap and other count units stay unconverted, as
    `different_units_are_never_merged` already requires.
-2. **Time of day and sleep (version one).** Per substance, when doses are
+2. **Mushroom form: fresh, dried, powdered or edible** (owner's decision,
+   2026-10-05; see "Mushroom forms" below). Shipped early as a safety fix,
+   before tiers.
+3. **Time of day and sleep (version one).** Per substance, when doses are
    taken (`byHour` exists), with the hours before a usual bedtime shaded and
    "N of your doses were within X hours of bed." Use the reference's
    `half_life` where it exists: for stimulants the felt duration understates
    the effect on sleep (amphetamine's half-life runs about 10 to 12 hours, longer
    than it feels active). Say so when no half-life is known. Caffeine counts.
-3. **Routine detection, with a question** (see below).
-4. **Dose tiers and automatic microdosing** (see below), once routine doses are
-   filtered out.
-5. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
+   **Bedtime (recommended, owner to confirm):** asked once, inline, the first
+   time the view opens: a time, "It varies," or Skip. No assumed default
+   (delayed sleep phase is common with ADHD, and shift work exists). Saved as
+   a journal setting so the phone and computer agree, editable in Settings.
+   "It varies" shows dose times and the half-life wording without bedtime
+   shading.
+4. **Routine and as-needed doses** (see below).
+5. **Dose tiers and automatic microdosing** (see below), once routine and
+   as-needed doses are filtered out.
+6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
    used. Then show sleep after late-dose nights vs. other nights, with counts
    and no p-values. No streaks or guilt; it must be easy to skip.
 
-#### Routine doses
+#### Routine and as-needed doses
+
+Three kinds of dose: **experience** (the default), **routine** (regular, e.g. a
+daily prescription) and **as needed** (the owner's suggestion, 2026-10-05: PRN,
+shown as "As needed" in the app, never "PRN"). All three follow the rule above:
+the kind changes where a dose is shown, never whether it's tracked.
+
+**As needed** fits what routine detection can't catch: lorazepam for panic,
+zolpidem on bad nights, kratom for pain. It's irregular by nature, so no
+pattern reveals it, and it isn't an "experience" either.
+- **Asked, once, on the second logged dose** of a benzo, Z-drug, gabapentin,
+  pregabalin or kratom: *"How do you take this?"* As needed (for anxiety,
+  sleep, pain…) / Regularly / Neither. Any other substance can be marked from
+  its Stats page. Never asked for alcohol, GHB/GBL/1,4-B, phenibut or opioids
+  (manual only).
+- **As-needed doses get their own small view**: how often, and the amount per
+  dose over time. They get no tier.
+- **The signal to watch is drift**: as-needed use creeping toward daily is
+  exactly how benzo dependence tends to start, so the benzo/Z-drug rule
+  (near-daily beyond about 3 to 4 weeks) applies to as-needed doses too. E.g.
+  *"You've taken lorazepam on 22 of the last 28 days. Taken most days for weeks,
+  the body can come to rely on it; if you change how you take it, a gradual
+  taper is safer than stopping."*
+
+**Routine:**
 
 - **Detected, then the user is asked.** No tagging up front. Suggest routine
   only when: the same substance on 5+ of the last 7 to 10 days, amounts within
@@ -1293,10 +1326,11 @@ still be visible.
 - **Routine doses get no tier.** DoseWiki's bands are recreational: oral
   methylphenidate's threshold is 20 mg, so a typical prescribed 10 mg would
   read "below threshold."
-- **Never suggested** (the user can still mark them routine, e.g. prescribed
-  clonazepam, methadone or buprenorphine, medical cannabis): GHB, GBL, 1,4-B,
-  alcohol, benzodiazepines, Z-drugs, gabapentin, pregabalin, phenibut,
-  opioids, kratom. Use an explicit name list, not `psychoactive_class`
+- **Never suggested by pattern** (the user can still mark them routine, e.g.
+  prescribed clonazepam, methadone or buprenorphine, medical cannabis; benzos,
+  Z-drugs, gabapentinoids and kratom also get the as-needed question above):
+  GHB, GBL, 1,4-B, alcohol, benzodiazepines, Z-drugs, gabapentin, pregabalin,
+  phenibut, opioids, kratom. Use an explicit name list, not `psychoactive_class`
   (DoseWiki calls zolpidem an "Atypical Hallucinogen").
 - **Later, maybe:** a standing list of medications that doesn't need logging
   each day, which would make combination checks more reliable. Start with
@@ -1351,28 +1385,66 @@ anything.
   clinical. Where there are no bands, compare to the person's usual amount.
 - **No cross-substance equivalents, no combined "psychedelic load," and no
   tolerance meter with a percentage.**
-- **Microdosing is decided automatically, and only for psychedelics.**
-  Elsewhere a low dose is just a low dose. Two signals: the amount (at or
-  below threshold, or the low end of light), and a **schedule** (low doses two
-  or more times a week, e.g. Fadiman or Stamets). A schedule of low doses shows
-  as one microdosing period on the calendar. The cutoff is fuzzy: LSD oral
-  threshold is 10 µg and light runs 10 to 50, and common microdoses of 10 to 20
-  µg straddle that (Bershad et al. 2019 saw effects at 26 µg). Mushrooms: 0.25
-  g threshold, 0.1 to 0.3 g microdoses.
-- **Fresh vs. dried mushrooms and truffles.** The bands are for dried, and fresh
-  is roughly ten times weaker by weight, so 2 g fresh would read as a light to
-  common dose. That needs a fresh/dried choice in the dose form. It's a safety
-  issue in the other direction too.
+- **Microdosing is decided automatically, and only for psychedelics**
+  (owner's decision, 2026-10-05). Elsewhere a low dose is just a low dose. A
+  dose at or under its cutoff is labelled a microdose; low doses two or more
+  times a week (e.g. Fadiman, Stamets) show as one microdosing period on the
+  calendar. Above the cutoff but within the light band reads "low dose."
+
+**Proposed microdose cutoffs (proposed 2026-10-05, awaiting the owner's
+review).** These are Field Notes' own curated numbers, a new kind of shipped
+data next to DoseWiki's, so the app says so wherever they show: "Field Notes'
+microdose cutoff, based on published microdosing studies and common practice."
+Oral or sublingual unless noted. DoseWiki threshold and light band for comparison.
+
+| Substance | Microdose at or under | DoseWiki threshold · light | Basis |
+|---|---|---|---|
+| LSD | 20 µg | 10 · 10 to 50 µg | Lab microdosing studies use 5 to 20 µg (Hutten et al. 2020; Family et al. 2020); 26 µg was noticeable (Bershad et al. 2019) |
+| 1P-LSD, 1cP-LSD | 20 µg | 15 · 15 to 50 µg | Treated as roughly equal to LSD by weight |
+| ALD-52 | 20 µg | 30 · 25 to 75 µg | As for LSD |
+| AL-LAD | 30 µg | 20 · 20 to 75 µg | Weaker than LSD by weight |
+| Psilocybin mushrooms, dried or powdered | 0.3 g | 0.25 · 0.25 to 1 g | Common practice 0.1 to 0.3 g; 0.5 g (Cavanna et al. 2022) is closer to a low dose |
+| Psilocybin mushrooms, fresh | 3 g | (dried band × 10, approximate) | Fresh is about 90% water |
+| 4-AcO-DMT | 3 mg | 5 · 5 to 15 mg | Roughly as potent as psilocybin by weight; pure-psilocybin microdoses are about 1 to 3 mg |
+| 4-HO-MET | 2 mg | 2 · 10 mg (data look inconsistent) | At threshold |
+| Mescaline | 50 mg | 100 · 100 to 200 mg | About a fifth of a common dose; salt form (HCl, sulfate, freebase) changes this, so say "logged as" |
+| 2C-B | 3 mg | 2 · 2 to 15 mg | Low end; 5 to 10 mg is a "museum dose" for many |
+| Any other psychedelic with bands | its threshold | | Fallback |
+
+**Never labelled microdoses**, whatever the amount: DMT and ayahuasca (not dosed
+that way; ayahuasca strength varies too much and it has no bands), ibogaine
+(cardiac risk at any dose, logged in mg/kg), NBOMes (tiny safety margin, often
+sold as LSD), DOx compounds (very long-lasting, potent), LSA (seeds, too
+variable). Truffles aren't in the reference, so there's no automatic cutoff
+unless the owner adds one.
+
+#### Mushroom forms (owner's decision, 2026-10-05)
+
+A **form** on mushroom doses: **fresh, dried, powdered or edible**. Stored as a
+new nullable `doses.form` column (`db.rs` migration), shown only for psilocybin
+mushrooms and catalogue entries the user marks as mushrooms or truffles. It
+touches the dose forms on desktop and phone, the offline outbox, `quickLog`,
+the paste importer ("2g fresh", "dried"), the companion's `log_dose` tool, the
+PDF and the Obsidian export. Unset reads as dried, which is how most people
+mean a plain weight.
+
+| Form | Compared to the bands as | Notes |
+|---|---|---|
+| Dried | As logged | |
+| Powdered | As logged | Same strength per gram; mixing evens out batch variation. Capsules logged as "caps" need a "how much per capsule?" (asked once, remembered per substance) before they can be tiered |
+| Fresh | Weight ÷ 10, shown as "about 0.3 g dried" | Water content varies (roughly 85 to 92%), so always "about." Fresh weights read on a dried scale lead to taking far more than intended, which is the main safety reason for this |
+| Edible (chocolate, gummies, tea) | Only if the user enters how much dried mushroom went in; otherwise no tier | Once, factual: shop-bought "mushroom" edibles often aren't what the label says. Some contain Amanita muscaria (muscimol, a different drug with different interactions) or unlisted compounds; in 2024 one brand was recalled after illnesses and hospitalizations |
 - Spacing notes (`stats::SPACING_NOTE`) assume full doses: add "since your last
   full dose" next to "since any dose."
 
 #### Still open
 
-- Microdose cutoffs per substance: set by the owner, or proposed for the owner
-  to edit?
-- Fresh/dried for mushrooms: now (safety) or with tiers?
-- Bedtime: a setting, or asked once when the time-of-day view is first opened?
-- Group membership, especially kratom and where prescribed benzos sit.
+- **Microdose cutoffs:** proposed above; the owner reviews and edits them.
+- **Bedtime:** recommended above (asked once, saved as a setting); the owner
+  confirms.
+- **Group membership:** kratom and prescribed benzos are handled by the
+  as-needed kind (owner's suggestion). Still to confirm: whether prescription
+  opioids should get the as-needed question too, rather than manual only.
 - **Every note's final wording gets a check from someone with addiction
   medicine or psychiatry experience before it ships.** The thresholds above
   (2 to 4 weeks, 5 of 7 days, about 25%) are reasonable anchors, not measured
