@@ -61,6 +61,9 @@ pub const ROUTED: &[&str] = &[
     "delete_dose",
     "delete_timeline_event",
     "delete_substance",
+    "list_unit_kinds",
+    "save_unit_kind",
+    "delete_unit_kind",
     "check_combo",
     "canonical_name",
     "crisis_scan",
@@ -79,7 +82,8 @@ pub const ROUTED: &[&str] = &[
 const QUEUEABLE: &[&str] = &["create_experience", "log_dose", "add_timeline_event", "end_experience"];
 
 /// Reads whose last answer is kept for offline use.
-const CACHED: &[&str] = &["list_experiences", "get_experience", "list_substances", "usage_by_substance"];
+const CACHED: &[&str] =
+    &["list_experiences", "get_experience", "list_substances", "usage_by_substance", "list_unit_kinds"];
 
 /// After a failed attempt, go straight to the offline path for this long rather
 /// than making every click wait out a connect timeout. The background loop keeps
@@ -500,10 +504,18 @@ fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, 
 
     let rest = (|| {
         for dose in &d.doses {
-            send(base, token, "log_dose", json!({ "input": {
+            let mut input = json!({
                 "experience_id": sid, "substance_name": dose.substance_name, "amount": dose.amount,
                 "unit": dose.unit, "route": dose.route, "taken_at": dose.taken_at, "note": dose.note,
-            }}))?;
+            });
+            // Only when said: an older server would refuse nothing, but there's no
+            // reason to send it empty fields.
+            if !dose.detail.is_empty() {
+                if let (Some(o), Ok(Value::Object(d))) = (input.as_object_mut(), serde_json::to_value(&dose.detail)) {
+                    o.extend(d);
+                }
+            }
+            send(base, token, "log_dose", json!({ "input": input }))?;
         }
         for ev in &d.timeline {
             send(base, token, "add_timeline_event", json!({ "input": {
@@ -974,6 +986,12 @@ fn queue(conn: &mut Connection, cmd: &str, args: &Value) -> rusqlite::Result<Res
                 "route": input["route"].as_str().unwrap_or(""),
                 "taken_at": input["taken_at"].as_str().unwrap_or(&now),
                 "note": input["note"].as_str().unwrap_or(""),
+                "form": input["form"].as_str().unwrap_or(""),
+                "per_unit": input["per_unit"],
+                "per_unit_unit": input["per_unit_unit"].as_str().unwrap_or(""),
+                "unit_label": input["unit_label"].as_str().unwrap_or(""),
+                "estimate": input["estimate"],
+                "estimate_unit": input["estimate_unit"].as_str().unwrap_or(""),
             });
             // The same question the server answers on `log_dose`, over the same
             // evidence as far as this computer knows it: the session as last seen

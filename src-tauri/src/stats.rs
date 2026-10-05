@@ -114,10 +114,15 @@ pub struct DosePoint {
     /// In the series' unit.
     pub amount: Option<f64>,
     pub route: String,
-    /// What was written, when it was in another unit of mass (600 mg in a g
-    /// series). `None` when the amount is as logged.
+    /// What was written, when the amount shown differs from it: another unit
+    /// of mass (600 mg in a g series), fresh mushrooms ("3 g fresh"), a count of
+    /// capsules ("× 00 caps, 0.45 g each") or an edible. `None` when the amount is
+    /// as logged.
     pub logged_amount: Option<f64>,
     pub logged_unit: Option<String>,
+    /// The amount is an estimate: fresh mushrooms as dried, or an edible's
+    /// guessed content. Shown as "about".
+    pub approx: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -151,6 +156,7 @@ struct Row {
     route: String,
     taken_at: String,
     at: Option<DateTime<Utc>>,
+    detail: db::DoseDetail,
 }
 
 /// A unit's one spelling: "ug", "mcg" and "micrograms" are all "µg". Logged
@@ -168,6 +174,11 @@ fn canon_unit(u: &str) -> String {
 /// Units that are the same unit spelled differently.
 fn unit_eq(a: &str, b: &str) -> bool {
     canon_unit(a) == canon_unit(b)
+}
+
+/// Is `unit` a unit of mass (µg, mg, g, however spelled)?
+pub(crate) fn is_mass_unit(unit: &str) -> bool {
+    micrograms_per(unit).is_some()
 }
 
 /// Micrograms in one of `unit`, for units of mass. `None` for anything else
@@ -188,12 +199,16 @@ fn in_unit(amount: f64, from: &str, to: &str) -> Option<f64> {
     if unit_eq(from, to) {
         return Some(amount);
     }
-    let v = amount * micrograms_per(from)? / micrograms_per(to)?;
+    Some(round12(amount * micrograms_per(from)? / micrograms_per(to)?))
+}
+
+/// `v` to 12 significant digits, so arithmetic noise doesn't show.
+fn round12(v: f64) -> f64 {
     if v == 0.0 || !v.is_finite() {
-        return Some(v);
+        return v;
     }
     let scale = 10f64.powi(12 - v.abs().log10().ceil() as i32);
-    Some((v * scale).round() / scale)
+    (v * scale).round() / scale
 }
 
 /// The reference bands for a substance logged in `unit`, preferring the route the
@@ -221,12 +236,100 @@ fn bands_for(conn: &Connection, name: &str, unit: &str, route: &str) -> Option<B
     })
 }
 
+// ---------- forms ----------
+
+// The forms a dose can take (owner's decisions, 2026-10-05) are offered by the
+// dose forms from `FORMS` in `src/lib/quicklog.ts`: dried, fresh, powdered or
+// edible for mushrooms and truffles; leaf, extract or 7-oh for kratom. An empty
+// form means "not said": mushrooms read as dried, kratom as leaf. A test checks
+// that list still uses the names `measure` understands.
+
+/// Psilocybin mushrooms, by the name the dose groups under. Truffles aren't
+/// mushrooms here: they hold less water, so fresh-to-dried doesn't apply.
+fn is_mushroom(key: &str) -> bool {
+    !key.contains("truffle") && (key.contains("mushroom") || key.contains("shroom") || key.contains("mushies"))
+}
+
+/// Fresh psilocybin mushrooms are about 90% water, so a fresh weight is about
+/// ten times its dried weight. Water content varies (roughly 85 to 92%), which
+/// is why the result is always shown as "about".
+const FRESH_TO_DRIED: f64 = 10.0;
+
+/// How a dose sits on a dose axis: its amount in `unit`, and what was written
+/// when that differs.
+struct Measure {
+    unit: String,
+    amount: Option<f64>,
+    logged_amount: Option<f64>,
+    logged_unit: Option<String>,
+    approx: bool,
+}
+
+/// Where a dose goes, given its form and details:
+///
+/// - **Kratom extract and 7-OH** are their own series ("g (extract)", "mg
+///   (7-OH)"): far stronger per gram than leaf, so never on leaf's axis or ranges.
+/// - **An edible** with an estimate goes on the estimate's axis: grams of dried
+///   mushroom join the dried series; mg of psilocybin is its own series. Without
+///   one it's "(edible)", since a weight of chocolate says nothing.
+/// - **Capsules (pills, tabs) with an amount each** become that weight in all.
+/// - **Fresh mushrooms** become about a tenth of their weight, dried. Anything
+///   else fresh (truffles) is its own "(fresh)" series.
+/// - Everything else is as logged.
+fn measure(key: &str, r: &Row) -> Measure {
+    let d = &r.detail;
+    let as_logged = |unit: String| Measure { unit, amount: r.amount, logged_amount: None, logged_unit: None, approx: false };
+    match canon_unit(&d.form).as_str() {
+        "7-oh" => return as_logged(format!("{} (7-OH)", r.unit)),
+        "extract" => return as_logged(format!("{} (extract)", r.unit)),
+        "edible" => {
+            let logged_unit = Some(format!("{} edible", r.unit));
+            return match d.estimate {
+                Some(e) if is_mass_unit(&d.estimate_unit) || d.estimate_unit == "mg psilocybin" => Measure {
+                    unit: if d.estimate_unit == "mg psilocybin" { d.estimate_unit.clone() } else { canon_unit(&d.estimate_unit) },
+                    amount: Some(e),
+                    logged_amount: r.amount,
+                    logged_unit,
+                    approx: true,
+                },
+                _ => as_logged(format!("{} (edible)", r.unit)),
+            };
+        }
+        _ => {}
+    }
+    if let (Some(n), Some(each)) = (r.amount, d.per_unit) {
+        if !is_mass_unit(&r.unit) && is_mass_unit(&d.per_unit_unit) {
+            let label = if d.unit_label.trim().is_empty() { r.unit.trim() } else { d.unit_label.trim() };
+            return Measure {
+                unit: canon_unit(&d.per_unit_unit),
+                amount: Some(round12(n * each)),
+                logged_amount: Some(n),
+                logged_unit: Some(format!("× {label}, {each} {} each", d.per_unit_unit.trim())),
+                approx: false,
+            };
+        }
+    }
+    if canon_unit(&d.form) == "fresh" {
+        if is_mushroom(key) && is_mass_unit(&r.unit) {
+            return Measure {
+                unit: "g".into(),
+                amount: r.amount.and_then(|a| in_unit(a, &r.unit, "g")).map(|g| round12(g / FRESH_TO_DRIED)),
+                logged_amount: r.amount,
+                logged_unit: Some(format!("{} fresh", r.unit)),
+                approx: true,
+            };
+        }
+        return as_logged(format!("{} (fresh)", r.unit));
+    }
+    as_logged(r.unit.clone())
+}
+
 /// The unit of mass a substance's mass doses are shown in: the one logged most
 /// often, the earliest-logged on a tie.
-fn usual_mass_unit(doses: &[&Row]) -> String {
+fn usual_mass_unit(doses: &[(&Row, Measure)]) -> String {
     let mut counts: Vec<(String, usize)> = Vec::new();
-    for r in doses {
-        let u = canon_unit(&r.unit);
+    for (_, m) in doses {
+        let u = canon_unit(&m.unit);
         match counts.iter_mut().find(|(c, _)| *c == u) {
             Some((_, n)) => *n += 1,
             None => counts.push((u, 1)),
@@ -340,7 +443,8 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
     let names = db::name_index(conn)?;
     let mut stmt = conn.prepare(
         "SELECT d.id, d.experience_id, e.title, e.started_at, e.rating,
-                s.name, d.substance_name, d.amount, d.unit, d.route, d.taken_at
+                s.name, d.substance_name, d.amount, d.unit, d.route, d.taken_at,
+                d.form, d.per_unit, d.per_unit_unit, d.unit_label, d.estimate, d.estimate_unit
          FROM doses d
          JOIN experiences e ON e.id = d.experience_id
          LEFT JOIN substances s ON s.id = d.substance_id
@@ -365,6 +469,14 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
                 route: r.get::<_, String>(9)?.trim().to_string(),
                 at: parse_ts(&taken_at),
                 taken_at,
+                detail: db::DoseDetail {
+                    form: r.get(11)?,
+                    per_unit: r.get(12)?,
+                    per_unit_unit: r.get(13)?,
+                    unit_label: r.get(14)?,
+                    estimate: r.get(15)?,
+                    estimate_unit: r.get(16)?,
+                },
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -437,17 +549,18 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
         // and "µg" are one unit). Units of mass share one series, labelled µg,
         // mg or g after the unit logged most. Any other unit keeps the first
         // spelling seen, and is never converted.
-        let mut units: Vec<(String, Vec<&Row>)> = Vec::new();
-        let mass: Vec<&Row> = doses.iter().copied().filter(|r| micrograms_per(&r.unit).is_some()).collect();
+        let mut units: Vec<(String, Vec<(&Row, Measure)>)> = Vec::new();
+        let (mass, other): (Vec<_>, Vec<_>) =
+            doses.iter().map(|r| (*r, measure(&key, r))).partition(|(_, m)| is_mass_unit(&m.unit));
         if !mass.is_empty() {
             units.push((usual_mass_unit(&mass), mass));
         }
-        for r in doses.iter().filter(|r| micrograms_per(&r.unit).is_none()) {
-            match units.iter_mut().find(|(u, _)| unit_eq(u, &r.unit)) {
-                Some((_, v)) => v.push(r),
+        for (r, m) in other {
+            match units.iter_mut().find(|(u, _)| unit_eq(u, &m.unit)) {
+                Some((_, v)) => v.push((r, m)),
                 None => {
-                    let label = if unit_eq(&r.unit, "µg") { "µg".to_string() } else { r.unit.clone() };
-                    units.push((label, vec![r]))
+                    let label = if unit_eq(&m.unit, "µg") { "µg".to_string() } else { m.unit.clone() };
+                    units.push((label, vec![(r, m)]))
                 }
             }
         }
@@ -456,25 +569,29 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             .into_iter()
             .map(|(unit, rs)| {
                 let mut rc: HashMap<&str, usize> = HashMap::new();
-                for r in &rs {
+                for (r, _) in &rs {
                     *rc.entry(r.route.as_str()).or_default() += 1;
                 }
                 let top_route = rc.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(a.0))).map(|x| x.0).unwrap_or("");
                 UnitSeries {
                     bands: bands_for(conn, &name, &unit, top_route),
-                    without_amount: rs.iter().filter(|r| r.amount.is_none()).count(),
+                    without_amount: rs.iter().filter(|(_, m)| m.amount.is_none()).count(),
                     points: rs
                         .iter()
-                        .map(|r| {
-                            let converted = !unit_eq(&r.unit, &unit);
+                        .map(|(r, m)| {
+                            // A dose already re-described (fresh, capsules, edible)
+                            // keeps that; one only converted between units of mass
+                            // says what was written.
+                            let converted = m.logged_unit.is_none() && !unit_eq(&m.unit, &unit);
                             DosePoint {
                                 dose_id: r.dose_id,
                                 experience_id: r.experience_id,
                                 taken_at: r.taken_at.clone(),
-                                amount: r.amount.and_then(|a| in_unit(a, &r.unit, &unit)),
+                                amount: m.amount.and_then(|a| in_unit(a, &m.unit, &unit)),
                                 route: r.route.clone(),
-                                logged_amount: if converted { r.amount } else { None },
-                                logged_unit: converted.then(|| r.unit.clone()),
+                                logged_amount: if converted { m.amount } else { m.logged_amount },
+                                logged_unit: if converted { Some(m.unit.clone()) } else { m.logged_unit.clone() },
+                                approx: m.approx,
                             }
                         })
                         .collect(),
@@ -541,6 +658,145 @@ mod tests {
             params![exp, name, amount, unit, at],
         )
         .unwrap();
+    }
+
+    fn dose_with(c: &Connection, exp: i64, name: &str, amount: Option<f64>, unit: &str, at: &str, d: db::DoseDetail) {
+        c.execute(
+            "INSERT INTO doses (experience_id, substance_name, amount, unit, route, taken_at,
+                                form, per_unit, per_unit_unit, unit_label, estimate, estimate_unit)
+             VALUES (?1, ?2, ?3, ?4, 'oral', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![exp, name, amount, unit, at, d.form, d.per_unit, d.per_unit_unit, d.unit_label, d.estimate, d.estimate_unit],
+        )
+        .unwrap();
+    }
+
+    fn form(f: &str) -> db::DoseDetail {
+        db::DoseDetail { form: f.into(), ..Default::default() }
+    }
+
+    /// A point as shown: (amount, logged as, approx).
+    type Shown = (Option<f64>, Option<String>, bool);
+
+    /// (unit, points) for each series of the first substance.
+    fn shown(c: &Connection) -> Vec<(String, Vec<Shown>)> {
+        let s = usage_stats(c, None).unwrap();
+        s.substances[0]
+            .series
+            .iter()
+            .map(|u| {
+                let pts = u
+                    .points
+                    .iter()
+                    .map(|p| (p.amount, p.logged_unit.as_ref().map(|lu| format!("{} {lu}", p.logged_amount.unwrap_or(0.0))), p.approx))
+                    .collect();
+                (u.unit.clone(), pts)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fresh_mushrooms_count_as_about_a_tenth_of_their_weight_dried() {
+        let c = journal();
+        let e = session(&c, "session", "2026-09-01T20:00:00Z");
+        let e2 = session(&c, "session", "2026-09-08T20:00:00Z");
+        dose_with(&c, e, "Psilocybin Mushrooms", Some(3.0), "g", "2026-09-01T20:00:00Z", form("fresh"));
+        dose_with(&c, e2, "Psilocybin Mushrooms", Some(0.5), "g", "2026-09-08T20:00:00Z", db::DoseDetail::default());
+        assert_eq!(
+            shown(&c),
+            vec![("g".to_string(), vec![(Some(0.3), Some("3 g fresh".into()), true), (Some(0.5), None, false)])]
+        );
+    }
+
+    #[test]
+    fn fresh_truffles_are_not_converted() {
+        let c = journal();
+        let e = session(&c, "session", "2026-09-01T20:00:00Z");
+        dose_with(&c, e, "Magic truffles", Some(10.0), "g", "2026-09-01T20:00:00Z", form("fresh"));
+        assert_eq!(shown(&c)[0].0, "g (fresh)");
+    }
+
+    #[test]
+    fn capsules_with_an_amount_each_count_as_their_weight() {
+        let c = journal();
+        let e = session(&c, "session", "2026-09-01T20:00:00Z");
+        let e2 = session(&c, "session", "2026-09-08T20:00:00Z");
+        let e3 = session(&c, "session", "2026-09-15T20:00:00Z");
+        let caps = db::DoseDetail {
+            form: "powdered".into(),
+            per_unit: Some(0.45),
+            per_unit_unit: "g".into(),
+            unit_label: "00 caps".into(),
+            ..Default::default()
+        };
+        dose_with(&c, e, "Psilocybin Mushrooms", Some(2.0), "capsule", "2026-09-01T20:00:00Z", caps);
+        dose_with(&c, e2, "Psilocybin Mushrooms", Some(1.0), "g", "2026-09-08T20:00:00Z", form("dried"));
+        // "Not sure" how much is in each: counted, but not on the weight axis.
+        dose_with(&c, e3, "Psilocybin Mushrooms", Some(1.0), "capsule", "2026-09-15T20:00:00Z", db::DoseDetail::default());
+        assert_eq!(
+            shown(&c),
+            vec![
+                ("g".to_string(), vec![(Some(0.9), Some("2 × 00 caps, 0.45 g each".into()), false), (Some(1.0), None, false)]),
+                ("capsule".to_string(), vec![(Some(1.0), None, false)]),
+            ]
+        );
+    }
+
+    #[test]
+    fn edibles_go_on_their_estimate() {
+        let c = journal();
+        let est = |n: f64, u: &str| db::DoseDetail {
+            form: "edible".into(),
+            estimate: Some(n),
+            estimate_unit: u.into(),
+            ..Default::default()
+        };
+        for (i, d) in [est(1.5, "g"), est(10.0, "mg psilocybin"), form("edible")].into_iter().enumerate() {
+            let at = format!("2026-09-0{}T20:00:00Z", i + 1);
+            let e = session(&c, "session", &at);
+            dose_with(&c, e, "Psilocybin Mushrooms", Some(2.0), "piece", &at, d);
+        }
+        assert_eq!(
+            shown(&c),
+            vec![
+                ("g".to_string(), vec![(Some(1.5), Some("2 piece edible".into()), true)]),
+                ("mg psilocybin".to_string(), vec![(Some(10.0), Some("2 piece edible".into()), true)]),
+                ("piece (edible)".to_string(), vec![(Some(2.0), None, false)]),
+            ]
+        );
+    }
+
+    #[test]
+    fn kratom_extract_and_7oh_stay_off_the_leaf_ranges() {
+        let c = journal();
+        let info = serde_json::json!({
+            "name": "Kratom", "common_names": [], "psychoactive": ["Opioid"], "chemical": [],
+            "roas": [{ "name": "oral", "units": "g", "threshold": 0.5,
+                       "light": {"min": 0.5, "max": 1.5}, "common": {"min": 1.5, "max": 3.0},
+                       "strong": {"min": 3.0, "max": 6.0}, "heavy": 6.0 }],
+            "interactions": []
+        });
+        c.execute("INSERT INTO pw_substances (name, data) VALUES ('Kratom', ?1)", [info.to_string()]).unwrap();
+        for (i, (amt, unit, f)) in [(3.0, "g", "leaf"), (2.0, "g", ""), (1.0, "g", "extract"), (15.0, "mg", "7-oh")]
+            .into_iter()
+            .enumerate()
+        {
+            let at = format!("2026-09-0{}T09:00:00Z", i + 1);
+            let e = session(&c, "session", &at);
+            dose_with(&c, e, "Kratom", Some(amt), unit, &at, form(f));
+        }
+        let s = usage_stats(&c, None).unwrap();
+        let series: Vec<_> = s.substances[0].series.iter().map(|u| (u.unit.as_str(), u.points.len(), u.bands.is_some())).collect();
+        assert_eq!(series, vec![("g", 2, true), ("g (extract)", 1, false), ("mg (7-OH)", 1, false)]);
+    }
+
+    #[test]
+    fn the_dose_forms_offer_the_forms_stats_understands() {
+        let ts = include_str!("../../src/lib/quicklog.ts");
+        let start = ts.find("export const FORMS").expect("FORMS in quicklog.ts");
+        let block = &ts[start..start + ts[start..].find("};").expect("end of FORMS")];
+        for f in ["\"dried\"", "\"fresh\"", "\"powdered\"", "\"edible\"", "\"leaf\"", "\"extract\"", "\"7-oh\""] {
+            assert!(block.contains(f), "FORMS is missing {f}");
+        }
     }
 
     #[test]

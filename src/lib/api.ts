@@ -48,6 +48,9 @@ const ROUTED = new Set([
   "delete_dose",
   "delete_timeline_event",
   "delete_substance",
+  "list_unit_kinds",
+  "save_unit_kind",
+  "delete_unit_kind",
   "check_combo",
   "canonical_name",
   "crisis_scan",
@@ -116,6 +119,39 @@ export interface Dose {
   route: string;
   taken_at: string;
   note: string;
+  /** What the dose was. Missing from older servers, which reads as "not said". */
+  form?: string;
+  per_unit?: number | null;
+  per_unit_unit?: string;
+  unit_label?: string;
+  estimate?: number | null;
+  estimate_unit?: string;
+}
+
+/**
+ * What a dose was, beyond amount and unit: `DoseDetail` in db.rs. Every field
+ * defaults to "not said".
+ */
+export interface DoseDetail {
+  /** `FORMS` in quicklog.ts: dried, fresh, powdered, edible; leaf, extract, 7-oh. */
+  form?: string;
+  /** For a counted unit: how much one holds, kept on the dose as it was. */
+  per_unit?: number | null;
+  per_unit_unit?: string;
+  /** The capsule kind's name when logged ("00 caps"). */
+  unit_label?: string;
+  /** An edible's estimated content for the whole dose: "g" (dried mushroom) or "mg psilocybin". */
+  estimate?: number | null;
+  estimate_unit?: string;
+}
+
+/** A named capsule (pill, tab) for one substance: "00 caps, 0.45 g". */
+export interface UnitKind {
+  id: number;
+  substance: string;
+  label: string;
+  per_unit: number;
+  per_unit_unit: string;
 }
 
 export interface TimelineEvent {
@@ -170,7 +206,7 @@ export interface ExperienceInput {
   started_at: string;
 }
 
-export interface DoseInput {
+export interface DoseInput extends DoseDetail {
   experience_id: number;
   substance_name: string;
   amount: number | null;
@@ -212,6 +248,9 @@ export interface DoseUpdate {
   route?: string;
   taken_at: string;
   note?: string;
+  /** What the form shows now, replacing what the dose had. Nested, unlike a
+   *  new dose: an edit without it (an older phone) leaves the dose's detail be. */
+  detail?: DoseDetail;
 }
 
 export const updateExperience = (id: number, update: ExperienceUpdate) =>
@@ -224,6 +263,10 @@ export const updateTimelineEvent = (id: number, update: TimelineUpdate) =>
   invoke<TimelineEvent>("update_timeline_event", { id, update });
 export const deleteExperience = (id: number) => invoke<void>("delete_experience", { id });
 export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
+export const listUnitKinds = (substance: string) => invoke<UnitKind[]>("list_unit_kinds", { substance });
+export const saveUnitKind = (substance: string, kind: Omit<UnitKind, "id" | "substance">) =>
+  invoke<UnitKind>("save_unit_kind", { substance, kind });
+export const deleteUnitKind = (id: number) => invoke<void>("delete_unit_kind", { id });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
@@ -377,10 +420,12 @@ export interface StatsDosePoint {
   /** In the series' unit. */
   amount: number | null;
   route: string;
-  /** What was written, when it was another unit of mass (600 mg in a g series).
-   *  Missing from older servers. */
+  /** What was written, when the amount shown differs from it (600 mg in a g
+   *  series, "3 g fresh", "× 00 caps, 0.45 g each"). Missing from older servers. */
   logged_amount?: number | null;
   logged_unit?: string | null;
+  /** An estimate (fresh mushrooms as dried, an edible's guess): shown as "about". */
+  approx?: boolean;
 }
 export interface StatsUnitSeries {
   unit: string;

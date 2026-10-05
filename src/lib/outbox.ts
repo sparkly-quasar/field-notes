@@ -214,6 +214,14 @@ export function queue(s: State, cmd: string, args: Record<string, any>, check: S
         route: input.route ?? "",
         taken_at: input.taken_at ?? nowIso,
         note: input.note ?? "",
+        // What the dose was (form, per-capsule amount, an edible's estimate):
+        // `DoseDetail` in db.rs.
+        form: input.form ?? "",
+        per_unit: input.per_unit ?? null,
+        per_unit_unit: input.per_unit_unit ?? "",
+        unit_label: input.unit_label ?? "",
+        estimate: input.estimate ?? null,
+        estimate_unit: input.estimate_unit ?? "",
       };
       // The same question the computer answers on `log_dose`, over what this
       // phone knows: the experience as last seen, everything queued since, and

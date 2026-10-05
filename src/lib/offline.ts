@@ -487,6 +487,10 @@ async function answerHere<T>(cmd: string, args: Record<string, any>): Promise<T>
       keepStorage();
       return update((s) => ob.queue(s, cmd, args, check)) as T;
     }
+    case "list_unit_kinds":
+      // Saved capsule kinds live on the computer. Offline, the form still takes
+      // a typed amount per capsule, which the dose keeps.
+      return [] as T;
     case "create_experience":
     case "add_timeline_event":
     case "end_experience":

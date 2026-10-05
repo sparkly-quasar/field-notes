@@ -284,9 +284,11 @@
     return t == null ? s : new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   };
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-  /** " (logged as 600 mg)" when a dose was converted into the series' unit. */
+  /** " (logged as 600 mg)" when the amount shown isn't what was written. */
   const asLogged = (p: StatsDosePoint) =>
     p.logged_unit && p.logged_amount != null ? ` (logged as ${fmtNum(p.logged_amount)} ${p.logged_unit})` : "";
+  /** "about " for an estimate: fresh mushrooms as dried, an edible's guess. */
+  const about = (p: StatsDosePoint) => (p.approx ? "about " : "");
 </script>
 
 <div class="stats">
@@ -377,7 +379,7 @@
                   {#each [...current.series.points].reverse() as p}
                     <tr>
                       <td>{fmtWhen(p.taken_at)}</td>
-                      <td>{p.amount == null ? "not recorded" : `${fmtNum(p.amount)} ${current.series.unit}${asLogged(p)}`}</td>
+                      <td>{p.amount == null ? "not recorded" : `${about(p)}${fmtNum(p.amount)} ${current.series.unit}${asLogged(p)}`}</td>
                       <td>{p.route || "—"}</td>
                     </tr>
                   {/each}
@@ -403,7 +405,7 @@
                   <circle
                     cx={x(d.t)} cy={y(d.p.amount ?? 0)} r="14" class="hit"
                     role="button" tabindex="0"
-                    aria-label={`${fmtWhen(d.p.taken_at)}: ${fmtNum(d.p.amount ?? 0)} ${current.series.unit}${asLogged(d.p)}`}
+                    aria-label={`${fmtWhen(d.p.taken_at)}: ${about(d.p)}${fmtNum(d.p.amount ?? 0)} ${current.series.unit}${asLogged(d.p)}`}
                     onclick={() => (selected = d.p)}
                     onmouseenter={() => (selected = d.p)}
                     onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selected = d.p; } }}
@@ -415,7 +417,7 @@
             <p class="axisnote">{current.series.unit}{bands ? ` · shaded: dose reference ranges (${bands.route})` : ""}</p>
             {#if selected}
               <div class="detail">
-                <span><strong>{selected.amount == null ? "?" : fmtNum(selected.amount)} {current.series.unit}</strong>{asLogged(selected)}
+                <span><strong>{about(selected)}{selected.amount == null ? "?" : fmtNum(selected.amount)} {current.series.unit}</strong>{asLogged(selected)}
                   {selected.route ? ` · ${selected.route}` : ""} · {fmtWhen(selected.taken_at)}</span>
                 {#if onOpen}<button class="link" onclick={() => onOpen?.(selected!.experience_id)}>Open entry</button>{/if}
               </div>

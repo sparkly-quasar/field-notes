@@ -455,6 +455,9 @@ pub const EXPOSED: &[&str] = &[
     "delete_dose",
     "delete_timeline_event",
     "delete_substance",
+    "list_unit_kinds",
+    "save_unit_kind",
+    "delete_unit_kind",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
     // here at the end of "Sync journal to server".
     "remove_duplicate_entries",
@@ -623,6 +626,11 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         }
         "delete_experience" => done(commands::delete_experience_in(db, arg(&args, "id")?)),
         "delete_dose" => done(commands::delete_dose_in(db, arg(&args, "id")?)),
+        "list_unit_kinds" => done(commands::list_unit_kinds_in(db, arg(&args, "substance")?)),
+        "save_unit_kind" => {
+            done(commands::save_unit_kind_in(db, arg(&args, "substance")?, arg(&args, "kind")?))
+        }
+        "delete_unit_kind" => done(commands::delete_unit_kind_in(db, arg(&args, "id")?)),
         "delete_timeline_event" => done(commands::delete_timeline_event_in(db, arg(&args, "id")?)),
         "delete_substance" => done(commands::delete_substance_in(db, arg(&args, "id")?)),
         "remove_duplicate_entries" => done(commands::remove_duplicate_entries_in(db)),
@@ -1251,6 +1259,7 @@ mod tests {
                 route: "oral".into(),
                 taken_at: "2026-07-10T20:05:00Z".into(),
                 note: "tea".into(),
+                ..Default::default()
             },
         )
         .unwrap();

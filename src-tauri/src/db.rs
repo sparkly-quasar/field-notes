@@ -49,6 +49,25 @@ pub fn open(path: &Path, key: Option<&str>) -> rusqlite::Result<Connection> {
     if has_skip == 0 {
         conn.execute_batch("ALTER TABLE experiences ADD COLUMN writeup_skipped INTEGER NOT NULL DEFAULT 0")?;
     }
+    // Migration (v0.24): what a dose was (form, per-capsule amount, an edible's
+    // estimate). All default to "not said", so older doses read as before.
+    for (col, ty) in [
+        ("form", "TEXT NOT NULL DEFAULT ''"),
+        ("per_unit", "REAL"),
+        ("per_unit_unit", "TEXT NOT NULL DEFAULT ''"),
+        ("unit_label", "TEXT NOT NULL DEFAULT ''"),
+        ("estimate", "REAL"),
+        ("estimate_unit", "TEXT NOT NULL DEFAULT ''"),
+    ] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('doses') WHERE name = ?1",
+            [col],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!("ALTER TABLE doses ADD COLUMN {col} {ty}"))?;
+        }
+    }
     // One-time cleanup (v0.13.3): "Sync journal to server" in v0.12–v0.13.2 could
     // copy an entry the server already had, leaving it in the journal twice. The
     // first open after updating removes exact copies; later syncs check first.
@@ -161,7 +180,28 @@ CREATE TABLE IF NOT EXISTS doses (
     unit           TEXT NOT NULL DEFAULT 'mg',
     route          TEXT NOT NULL DEFAULT '',
     taken_at       TEXT NOT NULL,
-    note           TEXT NOT NULL DEFAULT ''
+    note           TEXT NOT NULL DEFAULT '',
+    -- What the dose was, beyond amount and unit (see `DoseDetail`). Added in
+    -- v0.24; older journals get them from the migration in `open`.
+    form           TEXT NOT NULL DEFAULT '',
+    per_unit       REAL,
+    per_unit_unit  TEXT NOT NULL DEFAULT '',
+    unit_label     TEXT NOT NULL DEFAULT '',
+    estimate       REAL,
+    estimate_unit  TEXT NOT NULL DEFAULT ''
+);
+
+-- Named capsules (or pills, tabs) and how much each holds, per substance: "00
+-- caps, 0.45 g". Picked when logging; the dose keeps its own copy of the amount,
+-- so editing or deleting a kind never changes a past dose.
+CREATE TABLE IF NOT EXISTS unit_kinds (
+    id             INTEGER PRIMARY KEY,
+    substance      TEXT NOT NULL,
+    label          TEXT NOT NULL,
+    per_unit       REAL NOT NULL,
+    per_unit_unit  TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (substance, label)
 );
 
 CREATE TABLE IF NOT EXISTS timeline_events (
@@ -214,6 +254,74 @@ pub struct Dose {
     pub route: String,
     pub taken_at: String,
     pub note: String,
+    #[serde(flatten)]
+    pub detail: DoseDetail,
+}
+
+/// What a dose was, beyond its amount and unit (dose-aware Stats, step 2 in
+/// ROADMAP.md). Every field defaults to "not said", which is how every dose
+/// logged before v0.24 reads. Flattened into [`Dose`], [`DoseInput`] and
+/// [`DoseUpdate`], so on the wire these are plain fields next to `unit`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoseDetail {
+    /// See `stats::FORMS`: fresh, dried, powdered or edible for mushrooms; leaf,
+    /// extract or 7-oh for kratom. Empty when not said (mushrooms then read as
+    /// dried, kratom as leaf).
+    pub form: String,
+    /// For a counted unit (capsule, pill, tab): how much one holds, as it was
+    /// when the dose was logged.
+    pub per_unit: Option<f64>,
+    pub per_unit_unit: String,
+    /// The capsule kind's name when it was logged ("00 caps"), if one was picked.
+    pub unit_label: String,
+    /// An edible's estimated content, for the whole dose: grams of dried
+    /// mushroom (`"g"`) or mg of psilocybin (`"mg psilocybin"`). Never converted
+    /// between the two.
+    pub estimate: Option<f64>,
+    pub estimate_unit: String,
+}
+
+impl DoseDetail {
+    pub fn is_empty(&self) -> bool {
+        *self == DoseDetail::default()
+    }
+}
+
+/// A `doses` row, from `SELECT *`.
+fn dose_from_row(r: &rusqlite::Row) -> rusqlite::Result<Dose> {
+    Ok(Dose {
+        id: r.get("id")?,
+        experience_id: r.get("experience_id")?,
+        substance_id: r.get("substance_id")?,
+        substance_name: r.get("substance_name")?,
+        amount: r.get("amount")?,
+        unit: r.get("unit")?,
+        route: r.get("route")?,
+        taken_at: r.get("taken_at")?,
+        note: r.get("note")?,
+        detail: DoseDetail {
+            form: r.get("form")?,
+            per_unit: r.get("per_unit")?,
+            per_unit_unit: r.get("per_unit_unit")?,
+            unit_label: r.get("unit_label")?,
+            estimate: r.get("estimate")?,
+            estimate_unit: r.get("estimate_unit")?,
+        },
+    })
+}
+
+/// A named capsule (or pill, tab) for one substance and how much each holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnitKind {
+    #[serde(default)]
+    pub id: i64,
+    /// The substance it's for, as its name means (`names.rs`), lowercased.
+    #[serde(default)]
+    pub substance: String,
+    pub label: String,
+    pub per_unit: f64,
+    pub per_unit_unit: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -299,7 +407,7 @@ fn default_kind() -> String {
     "session".into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct DoseInput {
     pub experience_id: i64,
     pub substance_name: String,
@@ -311,6 +419,8 @@ pub struct DoseInput {
     pub taken_at: String,
     #[serde(default)]
     pub note: String,
+    #[serde(flatten)]
+    pub detail: DoseDetail,
 }
 
 fn default_unit() -> String {
@@ -469,19 +579,7 @@ pub fn get_experience(conn: &Connection, id: i64) -> rusqlite::Result<Experience
 
     let mut ds = conn.prepare("SELECT * FROM doses WHERE experience_id = ?1 ORDER BY taken_at")?;
     let doses: Vec<Dose> = ds
-        .query_map([id], |r| {
-            Ok(Dose {
-                id: r.get("id")?,
-                experience_id: r.get("experience_id")?,
-                substance_id: r.get("substance_id")?,
-                substance_name: r.get("substance_name")?,
-                amount: r.get("amount")?,
-                unit: r.get("unit")?,
-                route: r.get("route")?,
-                taken_at: r.get("taken_at")?,
-                note: r.get("note")?,
-            })
-        })?
+        .query_map([id], dose_from_row)?
         .collect::<Result<_, _>>()?;
 
     let mut ts = conn.prepare("SELECT * FROM timeline_events WHERE experience_id = ?1 ORDER BY at")?;
@@ -525,27 +623,18 @@ pub fn log_dose(conn: &Connection, input: &DoseInput) -> rusqlite::Result<(Dose,
         .ok();
 
     conn.execute(
-        "INSERT INTO doses (experience_id, substance_id, substance_name, amount, unit, route, taken_at, note)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO doses (experience_id, substance_id, substance_name, amount, unit, route, taken_at, note,
+                            form, per_unit, per_unit_unit, unit_label, estimate, estimate_unit)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             input.experience_id, substance_id, input.substance_name, input.amount,
-            input.unit, input.route, input.taken_at, input.note
+            input.unit, input.route, input.taken_at, input.note,
+            input.detail.form, input.detail.per_unit, input.detail.per_unit_unit,
+            input.detail.unit_label, input.detail.estimate, input.detail.estimate_unit
         ],
     )?;
     let id = conn.last_insert_rowid();
-    let dose = conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], |r| {
-        Ok(Dose {
-            id: r.get("id")?,
-            experience_id: r.get("experience_id")?,
-            substance_id: r.get("substance_id")?,
-            substance_name: r.get("substance_name")?,
-            amount: r.get("amount")?,
-            unit: r.get("unit")?,
-            route: r.get("route")?,
-            taken_at: r.get("taken_at")?,
-            note: r.get("note")?,
-        })
-    })?;
+    let dose = conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], dose_from_row)?;
 
     name_after_first_dose(conn, input.experience_id, &input.substance_name)?;
 
@@ -668,19 +757,7 @@ pub fn usage_by_substance(conn: &Connection) -> rusqlite::Result<Vec<SubstanceUs
             "SELECT * FROM doses WHERE substance_name = ?1 COLLATE NOCASE ORDER BY taken_at DESC",
         )?;
         let doses: Vec<Dose> = ds
-            .query_map([&name], |r| {
-                Ok(Dose {
-                    id: r.get("id")?,
-                    experience_id: r.get("experience_id")?,
-                    substance_id: r.get("substance_id")?,
-                    substance_name: r.get("substance_name")?,
-                    amount: r.get("amount")?,
-                    unit: r.get("unit")?,
-                    route: r.get("route")?,
-                    taken_at: r.get("taken_at")?,
-                    note: r.get("note")?,
-                })
-            })?
+            .query_map([&name], dose_from_row)?
             .collect::<Result<_, _>>()?;
         out.push(SubstanceUsage { substance_name: name, times_used: times, doses });
     }
@@ -715,6 +792,12 @@ pub struct DoseUpdate {
     pub taken_at: String,
     #[serde(default)]
     pub note: String,
+    /// The whole detail as the form now shows it, under `"detail"`. Unlike a new
+    /// dose, where it's plain fields, an edit nests it: an edit from an older
+    /// phone or laptop has no `detail`, and then the dose keeps what it had
+    /// rather than losing it.
+    #[serde(default)]
+    pub detail: Option<DoseDetail>,
 }
 
 /// Mark an entry as not needing a write-up, or undo that.
@@ -772,19 +855,14 @@ pub fn update_dose(conn: &Connection, id: i64, u: &DoseUpdate) -> rusqlite::Resu
              taken_at=?7, note=?8 WHERE id=?1",
         params![id, substance_id, u.substance_name, u.amount, u.unit, u.route, u.taken_at, u.note],
     )?;
-    conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], |r| {
-        Ok(Dose {
-            id: r.get("id")?,
-            experience_id: r.get("experience_id")?,
-            substance_id: r.get("substance_id")?,
-            substance_name: r.get("substance_name")?,
-            amount: r.get("amount")?,
-            unit: r.get("unit")?,
-            route: r.get("route")?,
-            taken_at: r.get("taken_at")?,
-            note: r.get("note")?,
-        })
-    })
+    if let Some(d) = &u.detail {
+        conn.execute(
+            "UPDATE doses SET form=?2, per_unit=?3, per_unit_unit=?4, unit_label=?5, estimate=?6,
+                 estimate_unit=?7 WHERE id=?1",
+            params![id, d.form, d.per_unit, d.per_unit_unit, d.unit_label, d.estimate, d.estimate_unit],
+        )?;
+    }
+    conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], dose_from_row)
 }
 
 pub fn delete_experience(conn: &Connection, id: i64) -> rusqlite::Result<()> {
@@ -794,6 +872,65 @@ pub fn delete_experience(conn: &Connection, id: i64) -> rusqlite::Result<()> {
 
 pub fn delete_dose(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM doses WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+// ---------- capsule kinds ----------
+
+/// The key a capsule kind is stored under: the substance the name means, so
+/// "shrooms" and "Psilocybin Mushrooms" share their capsules.
+fn kind_key(conn: &Connection, substance: &str) -> rusqlite::Result<String> {
+    let s = substance.trim();
+    Ok(name_index(conn)?.canonical(s).unwrap_or_else(|| s.to_string()).to_lowercase())
+}
+
+pub fn list_unit_kinds(conn: &Connection, substance: &str) -> rusqlite::Result<Vec<UnitKind>> {
+    let key = kind_key(conn, substance)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, substance, label, per_unit, per_unit_unit FROM unit_kinds
+         WHERE substance = ?1 ORDER BY label COLLATE NOCASE",
+    )?;
+    let kinds = stmt
+        .query_map([key], |r| {
+            Ok(UnitKind {
+                id: r.get(0)?,
+                substance: r.get(1)?,
+                label: r.get(2)?,
+                per_unit: r.get(3)?,
+                per_unit_unit: r.get(4)?,
+            })
+        })?
+        .collect();
+    kinds
+}
+
+/// Add a kind, or change the amount of the one with this label.
+pub fn save_unit_kind(conn: &Connection, substance: &str, k: &UnitKind) -> rusqlite::Result<UnitKind> {
+    let key = kind_key(conn, substance)?;
+    let label = k.label.trim();
+    conn.execute(
+        "INSERT INTO unit_kinds (substance, label, per_unit, per_unit_unit) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (substance, label) DO UPDATE SET per_unit = excluded.per_unit,
+             per_unit_unit = excluded.per_unit_unit",
+        params![key, label, k.per_unit, k.per_unit_unit.trim()],
+    )?;
+    conn.query_row(
+        "SELECT id, substance, label, per_unit, per_unit_unit FROM unit_kinds WHERE substance = ?1 AND label = ?2",
+        params![key, label],
+        |r| {
+            Ok(UnitKind {
+                id: r.get(0)?,
+                substance: r.get(1)?,
+                label: r.get(2)?,
+                per_unit: r.get(3)?,
+                per_unit_unit: r.get(4)?,
+            })
+        },
+    )
+}
+
+pub fn delete_unit_kind(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM unit_kinds WHERE id = ?1", [id])?;
     Ok(())
 }
 
@@ -839,8 +976,18 @@ pub fn fingerprint(d: &serde_json::Value) -> String {
         v
     };
     let doses = rows("doses", &|x| {
-        [time(&x["taken_at"]), text(&x["substance_name"]).to_lowercase(), text(&x["amount"]),
-         text(&x["unit"]), text(&x["route"]), text(&x["note"])].join("\u{1f}")
+        let mut f = vec![time(&x["taken_at"]), text(&x["substance_name"]).to_lowercase(), text(&x["amount"]),
+                         text(&x["unit"]), text(&x["route"]), text(&x["note"])];
+        // Only when said, so a dose without them (every dose before v0.24, and
+        // every dose from an older server) fingerprints exactly as it always has.
+        let detail: Vec<String> = ["form", "per_unit", "per_unit_unit", "unit_label", "estimate", "estimate_unit"]
+            .iter()
+            .map(|k| text(&x[*k]))
+            .collect();
+        if detail.iter().any(|v| !v.is_empty()) {
+            f.extend(detail);
+        }
+        f.join("\u{1f}")
     });
     let timeline = rows("timeline", &|x| {
         [time(&x["at"]), text(&x["note"]), text(&x["mood"]), text(&x["intensity"])].join("\u{1f}")
@@ -1057,6 +1204,7 @@ mod tests {
             experience_id: exp.id, substance_name: "MDMA".into(), amount: Some(100.0),
             unit: "mg".into(), route: "oral".into(), taken_at: "2026-01-01T20:05:00Z".into(),
             note: String::new(),
+            ..Default::default()
         }).unwrap();
         assert!(w1.is_empty(), "single substance should not warn");
 
@@ -1064,6 +1212,7 @@ mod tests {
             experience_id: exp.id, substance_name: "sertraline".into(), amount: Some(50.0),
             unit: "mg".into(), route: "oral".into(), taken_at: "2026-01-01T21:00:00Z".into(),
             note: String::new(),
+            ..Default::default()
         }).unwrap();
         assert!(!w2.is_empty(), "MDMA + SSRI must produce a warning");
 
@@ -1096,6 +1245,7 @@ mod tests {
                 experience_id: exp, substance_name: name.into(), amount: Some(100.0),
                 unit: "mg".into(), route: "oral".into(), taken_at: at.into(),
                 note: String::new(),
+                ..Default::default()
             }).unwrap()
         };
 
@@ -1178,6 +1328,7 @@ mod tests {
             experience_id: note.id, substance_name: "MDMA".into(), amount: Some(100.0),
             unit: "mg".into(), route: "oral".into(), taken_at: "2026-07-02T10:00:00Z".into(),
             note: String::new(),
+            ..Default::default()
         });
         assert!(dose.is_err());
         let ev = add_timeline_event(&c, &TimelineInput {
@@ -1252,6 +1403,7 @@ mod tests {
             log_dose(&c, &DoseInput {
                 experience_id: e.id, substance_name: "Caffeine".into(), amount: Some(100.0),
                 unit: "mg".into(), route: String::new(), taken_at: at.into(), note: note.into(),
+                ..Default::default()
             }).unwrap();
             e.id
         };
@@ -1266,6 +1418,125 @@ mod tests {
         assert!(left.contains(&differs), "an entry with a word of its own is not a duplicate");
         assert_eq!(left.len(), 2);
         assert_eq!(remove_duplicate_experiences(&c).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_dose_keeps_what_it_was() {
+        let c = mem();
+        let exp = create_experience(&c, &ExperienceInput {
+            kind: "session".into(),
+            title: "t".into(), intention: String::new(), setting: String::new(),
+            started_at: "2026-09-01T20:00:00Z".into(),
+        }).unwrap();
+        let fresh = DoseDetail { form: "fresh".into(), ..Default::default() };
+        let (dose, _) = log_dose(&c, &DoseInput {
+            experience_id: exp.id,
+            substance_name: "Psilocybin Mushrooms".into(),
+            amount: Some(3.0),
+            unit: "g".into(),
+            taken_at: "2026-09-01T20:00:00Z".into(),
+            detail: fresh.clone(),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(dose.detail, fresh);
+        assert_eq!(get_experience(&c, exp.id).unwrap().doses[0].detail, fresh);
+
+        let caps = DoseDetail {
+            form: "powdered".into(),
+            per_unit: Some(0.45),
+            per_unit_unit: "g".into(),
+            unit_label: "00 caps".into(),
+            ..Default::default()
+        };
+        let edited = update_dose(&c, dose.id, &DoseUpdate {
+            substance_name: "Psilocybin Mushrooms".into(),
+            amount: Some(2.0),
+            unit: "capsule".into(),
+            route: String::new(),
+            taken_at: "2026-09-01T20:00:00Z".into(),
+            note: String::new(),
+            detail: Some(caps.clone()),
+        }).unwrap();
+        assert_eq!(edited.detail, caps);
+        // An edit that doesn't know about detail (an older phone) leaves it be.
+        let older: DoseUpdate = serde_json::from_value(serde_json::json!({
+            "substance_name": "Psilocybin Mushrooms", "amount": 3, "unit": "capsule",
+            "taken_at": "2026-09-01T20:00:00Z",
+        })).unwrap();
+        assert_eq!(update_dose(&c, dose.id, &older).unwrap().detail, caps);
+        // One that does can clear it.
+        let cleared: DoseUpdate = serde_json::from_value(serde_json::json!({
+            "substance_name": "LSD", "amount": 100, "unit": "µg",
+            "taken_at": "2026-09-01T20:00:00Z", "detail": {},
+        })).unwrap();
+        assert!(update_dose(&c, dose.id, &cleared).unwrap().detail.is_empty());
+        // On the wire the detail is plain fields next to `unit`.
+        let v = serde_json::to_value(&edited).unwrap();
+        assert_eq!(v["unit_label"], "00 caps");
+        assert_eq!(v["per_unit"], 0.45);
+    }
+
+    #[test]
+    fn an_older_journal_gets_the_dose_detail_columns() {
+        let dir = std::env::temp_dir().join(format!("fn-dose-detail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.db");
+        {
+            // The doses table as v0.23 made it.
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                "CREATE TABLE doses (
+                    id INTEGER PRIMARY KEY, experience_id INTEGER NOT NULL, substance_id INTEGER,
+                    substance_name TEXT NOT NULL, amount REAL, unit TEXT NOT NULL DEFAULT 'mg',
+                    route TEXT NOT NULL DEFAULT '', taken_at TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
+                 INSERT INTO doses (experience_id, substance_name, amount, unit, taken_at)
+                    VALUES (1, 'Kratom', 3, 'g', '2026-09-01 09:00:00');",
+            )
+            .unwrap();
+        }
+        let c = open(&path, None).unwrap();
+        let d = c.query_row("SELECT * FROM doses", [], dose_from_row).unwrap();
+        assert_eq!(d.substance_name, "Kratom");
+        assert!(d.detail.is_empty(), "an older dose reads as 'not said'");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn capsule_kinds_are_kept_per_substance() {
+        let c = mem();
+        let kind = |label: &str, per: f64| UnitKind {
+            id: 0, substance: String::new(), label: label.into(), per_unit: per, per_unit_unit: "g".into(),
+        };
+        save_unit_kind(&c, "Psilocybin Mushrooms", &kind("00 caps", 0.45)).unwrap();
+        save_unit_kind(&c, "Psilocybin Mushrooms", &kind("Microdose caps", 0.15)).unwrap();
+        save_unit_kind(&c, "Kratom", &kind("00 caps", 0.5)).unwrap();
+        // Saving a label again changes its amount rather than adding another.
+        save_unit_kind(&c, "psilocybin mushrooms", &kind("00 caps", 0.4)).unwrap();
+        let mine = list_unit_kinds(&c, "Psilocybin Mushrooms").unwrap();
+        let got: Vec<_> = mine.iter().map(|k| (k.label.as_str(), k.per_unit)).collect();
+        assert_eq!(got, vec![("00 caps", 0.4), ("Microdose caps", 0.15)]);
+        delete_unit_kind(&c, mine[0].id).unwrap();
+        assert_eq!(list_unit_kinds(&c, "Psilocybin Mushrooms").unwrap().len(), 1);
+        assert_eq!(list_unit_kinds(&c, "Kratom").unwrap()[0].per_unit, 0.5);
+    }
+
+    #[test]
+    fn a_dose_without_detail_fingerprints_as_it_always_has() {
+        let entry = |dose: serde_json::Value| serde_json::json!({
+            "kind": "session", "title": "t", "started_at": "2026-09-01 20:00:00", "doses": [dose], "timeline": [],
+        });
+        let old = serde_json::json!({ "taken_at": "2026-09-01 20:00:00", "substance_name": "LSD", "amount": 100, "unit": "µg" });
+        let new = serde_json::json!({
+            "taken_at": "2026-09-01 20:00:00", "substance_name": "LSD", "amount": 100, "unit": "µg",
+            "form": "", "per_unit": null, "per_unit_unit": "", "unit_label": "", "estimate": null, "estimate_unit": "",
+        });
+        assert_eq!(fingerprint(&entry(old.clone())), fingerprint(&entry(new)));
+        let mut fresh = old;
+        fresh["form"] = "fresh".into();
+        assert_ne!(fingerprint(&entry(fresh)), fingerprint(&entry(serde_json::json!({
+            "taken_at": "2026-09-01 20:00:00", "substance_name": "LSD", "amount": 100, "unit": "µg" }))));
     }
 
     #[test]
@@ -1305,6 +1576,7 @@ mod tests {
             let (_d, w) = log_dose(&c, &DoseInput {
                 experience_id: exp.id, substance_name: name.into(), amount: Some(50.0),
                 unit: "mg".into(), route: "oral".into(), taken_at: at.into(), note: String::new(),
+                ..Default::default()
             }).unwrap();
             last = w;
         }
@@ -1426,6 +1698,7 @@ mod tests {
         log_dose(c, &DoseInput {
             experience_id: exp, substance_name: name.into(), amount: None, unit: "mg".into(),
             route: route.into(), taken_at: at.into(), note: String::new(),
+            ..Default::default()
         }).unwrap().1
     }
 

@@ -225,6 +225,47 @@ pub fn update_dose_in(db: &Db, id: i64, update: DoseUpdate) -> Result<Dose, Stri
     db.with(|c| db::update_dose(c, id, &update))
 }
 
+// ---------- capsule kinds ----------
+
+/// Saved capsule (pill, tab) kinds for a substance: "00 caps, 0.45 g".
+#[tauri::command]
+pub fn list_unit_kinds(db: State<'_, Db>, substance: String) -> Result<Vec<db::UnitKind>, String> {
+    list_unit_kinds_in(&db, substance)
+}
+
+/// [`list_unit_kinds`] against any person's journal (the portal picks it by device).
+pub fn list_unit_kinds_in(db: &Db, substance: String) -> Result<Vec<db::UnitKind>, String> {
+    db.with(|c| db::list_unit_kinds(c, &substance))
+}
+
+#[tauri::command]
+pub fn save_unit_kind(db: State<'_, Db>, substance: String, kind: db::UnitKind) -> Result<db::UnitKind, String> {
+    save_unit_kind_in(&db, substance, kind)
+}
+
+/// [`save_unit_kind`] against any person's journal (the portal picks it by device).
+/// The amount must be a weight: that's what makes a capsule count comparable.
+pub fn save_unit_kind_in(db: &Db, substance: String, kind: db::UnitKind) -> Result<db::UnitKind, String> {
+    if kind.label.trim().is_empty() || substance.trim().is_empty() {
+        return Err("Name the capsule and the substance it's for.".into());
+    }
+    if !(kind.per_unit.is_finite() && kind.per_unit > 0.0) || !stats::is_mass_unit(&kind.per_unit_unit) {
+        return Err("How much is in each one? Give an amount in µg, mg or g.".into());
+    }
+    db.with(|c| db::save_unit_kind(c, &substance, &kind))
+}
+
+#[tauri::command]
+pub fn delete_unit_kind(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    delete_unit_kind_in(&db, id)
+}
+
+/// [`delete_unit_kind`] against any person's journal (the portal picks it by device).
+/// Past doses keep their own copy of the amount.
+pub fn delete_unit_kind_in(db: &Db, id: i64) -> Result<(), String> {
+    db.with(|c| db::delete_unit_kind(c, id))
+}
+
 #[tauri::command]
 pub fn update_timeline_event(db: State<'_, Db>, id: i64, update: TimelineUpdate) -> Result<TimelineEvent, String> {
     update_timeline_event_in(&db, id, update)
@@ -597,6 +638,7 @@ pub fn import_experience(
             route: d.route.clone(),
             taken_at: taken,
             note: d.note.clone(),
+            detail: Default::default(),
         }).map_err(err)?;
     }
 
@@ -760,6 +802,7 @@ fn run_companion_tool(
                     route: route.clone(),
                     taken_at: now,
                     note: note.clone(),
+                    detail: Default::default(),
                 })
             })?;
             let amt = dose.amount.map(|a| format!("{a} {}", dose.unit)).unwrap_or_else(|| dose.unit.clone());
