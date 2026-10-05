@@ -217,3 +217,44 @@ export function detailOf(d: DoseDetail): DoseDetail {
     estimate_unit: d.estimate_unit ?? "",
   };
 }
+
+/**
+ * Microdose cutoffs (owner-approved 2026-10-05): at or under these, a
+ * psychedelic dose is a microdose. `MICRODOSE` in stats.rs is the same list; a
+ * Rust test checks. Mushrooms are compared as dried (fresh by its estimate).
+ */
+export const MICRODOSE: [string, number, string][] = [
+  ["lsd", 20, "µg"],
+  ["1p-lsd", 20, "µg"],
+  ["1cp-lsd", 20, "µg"],
+  ["ald-52", 20, "µg"],
+  ["al-lad", 30, "µg"],
+  ["psilocybin mushrooms", 0.3, "g"],
+  ["psilocybin", 3, "mg"],
+  ["4-aco-dmt", 3, "mg"],
+  ["4-ho-met", 2, "mg"],
+  ["mescaline", 30, "mg"],
+  ["2c-b", 3, "mg"],
+];
+
+/** Never called a microdose: `never_micro` in stats.rs. */
+const NEVER_MICRO = ["dmt", "ayahuasca", "ibogaine", "lsa", "morning glory", "hawaiian baby woodrose", "hbwr",
+  "doc", "dob", "doi", "dom", "doet", "dopr", "dox"];
+
+/**
+ * The microdose cutoff for a substance, or null if it isn't microdosed: from
+ * the table, else a psychedelic's threshold in the reference's unit.
+ */
+export function microCutoff(
+  substance: string,
+  psychedelic: boolean,
+  threshold: number | null,
+  thresholdUnit: string,
+): { amount: number; unit: string } | null {
+  const s = substance.trim().toLowerCase();
+  if (NEVER_MICRO.includes(s) || s.includes("nbome")) return null;
+  const k = isMushroom(s) ? "psilocybin mushrooms" : s;
+  const row = MICRODOSE.find((r) => r[0] === k);
+  if (row) return { amount: row[1], unit: row[2] };
+  return psychedelic && threshold != null ? { amount: threshold, unit: thresholdUnit } : null;
+}

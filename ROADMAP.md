@@ -1324,7 +1324,18 @@ still be visible.
    review of their wording; "Sync journal to server" doesn't copy how
    substances are taken (each person's computer keeps its own).
 5. **Dose tiers and automatic microdosing** (see below), once routine and
-   as-needed doses are filtered out.
+   as-needed doses are filtered out. *Tiers and microdosing built 2026-10-05,
+   not yet released:* `stats::tier_of` gives every dose a tier against the
+   ranges for its own route ("logged as a common dose"), the approved microdose
+   cutoffs (`MICRODOSE`, mirrored in `dosedetail.ts`), "low dose" above a
+   cutoff but below common, and the psilocybin scale for mg of psilocybin.
+   Routine and as-needed doses get none. Stats: the dose table and details say
+   the tier (or "above/below your usual" with no ranges); the calendar shades by
+   the day's strongest dose and outlines microdose-only days, and names
+   microdosing runs (3+ microdose days, gaps of 4 days or less); frequency
+   shows microdose-only experiences lighter; "days since the last full dose";
+   the computer's inline label says microdose and low dose. Dose profiles are
+   next.
 6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
    used. Then show sleep after late-dose nights vs. other nights, with counts
    and no p-values. No streaks or guilt; it must be easy to skip.

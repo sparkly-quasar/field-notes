@@ -448,6 +448,11 @@ export interface StatsDosePoint {
   logged_unit?: string | null;
   /** An estimate (fresh mushrooms as dried, an edible's guess): shown as "about". */
   approx?: boolean;
+  /** Where the amount sits: micro, below, threshold, light, common, strong, heavy
+   *  (stats.rs `tier_of`). Null when there's nothing honest to compare with. */
+  tier?: string | null;
+  /** How to say it: "microdose", "low dose", "common", "high"... */
+  tier_label?: string | null;
 }
 export interface StatsUnitSeries {
   unit: string;

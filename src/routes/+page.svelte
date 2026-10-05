@@ -131,7 +131,7 @@
   import NameHint from "$lib/NameHint.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
-  import { describeAmount, detailOf, inUnit, measure } from "$lib/dosedetail";
+  import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
     enable as autostartEnable,
@@ -2320,7 +2320,15 @@
     else v = !u || !dUnit || sameUnit(u, dUnit) ? amt : null;
     if (v == null) return null;
     const differs = !!m && (m.approx || !sameUnit(m.unit, dUnit));
-    return { ...classifyDose(v, roa), as: differs ? `${m!.approx ? "about " : ""}${+v.toFixed(3)} ${u || m!.unit}` : "" };
+    const as = differs ? `${m!.approx ? "about " : ""}${+v.toFixed(3)} ${u || m!.unit}` : "";
+    // Psychedelics have a microdose (stats.rs `tier_of`): at or under the
+    // cutoff it's a microdose, and above it but not yet common, a low dose.
+    const cut = microCutoff(dSubstanceAs || dSubstance, dRef.psychoactive.some((p) => p.toLowerCase() === "psychedelic"), roa.threshold ?? null, u);
+    const vc = cut ? inUnit(v, u || m?.unit || dUnit, cut.unit) : null;
+    if (cut && vc != null && vc <= cut.amount) return { label: "microdose", level: "ok", as };
+    const c = classifyDose(v, roa);
+    if (cut && ["light", "threshold", "below threshold"].includes(c.label)) return { label: "low", level: "ok", as };
+    return { ...c, as };
   });
 
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
@@ -2685,7 +2693,7 @@
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
-                <div class="dose-class {doseClass.level}">{dAmount}{dUnit}{doseClass.as ? ` (${doseClass.as})` : ""} · <strong>{doseClass.label}</strong> dose{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
+                <div class="dose-class {doseClass.level}">{dAmount}{dUnit}{doseClass.as ? ` (${doseClass.as})` : ""} · {#if doseClass.label === "microdose"}a <strong>microdose</strong>{:else}<strong>{doseClass.label}</strong> dose{/if}{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
               {/if}
               <strong>{dRef.name}</strong> — reference doses
               {#each dRef.roas as r}

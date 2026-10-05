@@ -258,6 +258,65 @@
   const freqScale = $derived(niceScale(Math.max(1, ...freq.map((f) => f.count)), 3));
   const FH = 140;
 
+  // ---- tiers (dose-aware Stats, step 5) ----
+  // The doses in view: the picked substance, or everything not routine or as
+  // needed (which have their own view).
+  const scopedPoints = $derived(
+    (sub ? [sub] : family ? famSubs.filter((x) => !x.kind) : (data?.substances ?? []).filter((x) => !x.kind)).flatMap((x) =>
+      x.series.flatMap((u) => u.points),
+    ),
+  );
+  const RANK: Record<string, number> = { micro: 0, below: 1, threshold: 1, light: 1, common: 2, strong: 3, heavy: 4 };
+  /** Experiences where every dose in view was a microdose. */
+  const microExps = $derived.by(() => {
+    const by = new Map<number, boolean>();
+    for (const p of scopedPoints) by.set(p.experience_id, (by.get(p.experience_id) ?? true) && p.tier === "micro");
+    return new Set([...by].filter(([, all]) => all).map(([id]) => id));
+  });
+  const anyMicro = $derived(microExps.size > 0);
+  /** Per day: the strongest tier, and whether every dose was a microdose. */
+  const dayTier = $derived.by(() => {
+    const m = new Map<string, { rank: number | null; micro: boolean; label: string }>();
+    for (const p of scopedPoints) {
+      const t = ts(p.taken_at);
+      if (t == null) continue;
+      const k = dayKey(t);
+      const cur = m.get(k) ?? { rank: null, micro: true, label: "" };
+      const r = p.tier ? RANK[p.tier] ?? null : null;
+      if (r != null && (cur.rank == null || r > cur.rank)) {
+        cur.rank = r;
+        cur.label = p.tier_label ?? "";
+      }
+      cur.micro = cur.micro && p.tier === "micro";
+      m.set(k, cur);
+    }
+    return m;
+  });
+  const anyTier = $derived([...dayTier.values()].some((d) => d.rank != null && d.rank > 0));
+  /** Runs of microdose days no more than 4 days apart, 3 or more long: how a
+   *  schedule (every third day, four on and three off) reads. */
+  const microPeriods = $derived.by(() => {
+    const ds = [...new Set(scopedPoints.filter((p) => p.tier === "micro").map((p) => ts(p.taken_at)).filter((t): t is number => t != null).map((t) => startOfDay(t)))].sort((a, b) => a - b);
+    const out: { from: number; to: number; n: number }[] = [];
+    for (const d of ds) {
+      const last = out[out.length - 1];
+      if (last && d - last.to <= 4 * 86_400_000) {
+        last.to = d;
+        last.n++;
+      } else out.push({ from: d, to: d, n: 1 });
+    }
+    return out.filter((x) => x.n >= 3);
+  });
+  /** Days since the last dose that wasn't a microdose, when microdoses are mixed in. */
+  const lastFullT = $derived.by(() => {
+    if (!anyMicro) return null;
+    const t = scopedPoints.filter((p) => p.tier !== "micro").map((p) => ts(p.taken_at)).filter((x): x is number => x != null);
+    return t.length ? Math.max(...t) : null;
+  });
+  const freqMicro = $derived(
+    frequency(sessions.filter((s) => microExps.has(s.experience_id)).map((s) => ts(s.started_at)).filter((t): t is number => t != null), windowFrom, now),
+  );
+
   // ---- heatmap ----
   const days = $derived(perDay(sessionTimes));
   const CELL = 14;
@@ -389,6 +448,22 @@
     p.logged_unit && p.logged_amount != null ? ` (logged as ${fmtNum(p.logged_amount)} ${p.logged_unit})` : "";
   /** "about " for an estimate: fresh mushrooms as dried, an edible's guess. */
   const about = (p: StatsDosePoint) => (p.approx ? "about " : "");
+  /** " · logged as a strong dose": what was written, never what was received
+   *  (potency is unknown). With no ranges to compare with, against the person's
+   *  own usual amount instead, once there are enough doses to have one. */
+  function tierText(p: StatsDosePoint): string {
+    const l = p.tier_label;
+    if (l === "microdose") return " · logged as a microdose";
+    if (l === "below threshold") return " · logged below threshold";
+    if (l) return ` · logged as a ${l}${l.endsWith("dose") ? "" : " dose"}`;
+    if (!current || sub?.kind || p.amount == null) return "";
+    const amts = current.series.points.map((x) => x.amount).filter((a): a is number => a != null);
+    const usual = amts.length >= 5 ? median(amts) : null;
+    if (!usual) return "";
+    if (p.amount >= usual * 1.5) return " · above your usual";
+    if (p.amount <= usual / 1.5) return " · below your usual";
+    return "";
+  }
 </script>
 
 <div class="stats">
@@ -435,11 +510,17 @@
         {#if lastT != null}
           <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since the last {sub.kind ? "dose" : "experience"}</span></div>
         {/if}
+        {#if lastFullT != null && lastFullT !== lastT}
+          <div class="tile"><span class="big">{daysSince(lastFullT)}</span><span class="cap">{daysSince(lastFullT) === 1 ? "day" : "days"} since the last full dose</span></div>
+        {/if}
       </div>
     {:else if family}
       <div class="tiles">
         {#if famLastT != null}
           <div class="tile"><span class="big">{daysSince(famLastT)}</span><span class="cap">{daysSince(famLastT) === 1 ? "day" : "days"} since the last {FAMILY_ONE[family]}</span></div>
+        {/if}
+        {#if lastFullT != null && lastFullT !== famLastT}
+          <div class="tile"><span class="big">{daysSince(lastFullT)}</span><span class="cap">{daysSince(lastFullT) === 1 ? "day" : "days"} since the last full dose</span></div>
         {/if}
         <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{famDoses}</span><span class="cap">{famDoses === 1 ? "dose" : "doses"}</span></div>
@@ -512,7 +593,7 @@
                   {#each [...current.series.points].reverse() as p}
                     <tr>
                       <td>{fmtWhen(p.taken_at)}</td>
-                      <td>{p.amount == null ? "not recorded" : `${about(p)}${fmtNum(p.amount)} ${current.series.unit}${asLogged(p)}`}</td>
+                      <td>{p.amount == null ? "not recorded" : `${about(p)}${fmtNum(p.amount)} ${current.series.unit}${asLogged(p)}${tierText(p)}`}</td>
                       <td>{p.route || "—"}</td>
                     </tr>
                   {/each}
@@ -550,7 +631,7 @@
             <p class="axisnote">{current.series.unit}{bands ? ` · shaded: dose reference ranges (${bands.route})` : ""}</p>
             {#if selected}
               <div class="detail">
-                <span><strong>{about(selected)}{selected.amount == null ? "?" : fmtNum(selected.amount)} {current.series.unit}</strong>{asLogged(selected)}
+                <span><strong>{about(selected)}{selected.amount == null ? "?" : fmtNum(selected.amount)} {current.series.unit}</strong>{asLogged(selected)}{tierText(selected)}
                   {selected.route ? ` · ${selected.route}` : ""} · {fmtWhen(selected.taken_at)}</span>
                 {#if onOpen}<button class="link" onclick={() => onOpen?.(selected!.experience_id)}>Open entry</button>{/if}
               </div>
@@ -636,9 +717,14 @@
               {@const bh = (f.count / freqScale.max) * (FH - 32)}
               {@const bx = 30 + i * ((freqW - 30) / freq.length)}
               {#if f.count}
+                {@const nm = freqMicro[i]?.count ?? 0}
                 <path class="bar" d={`M${bx},${FH - 24} v${-(bh - Math.min(4, bw / 2))} q0,${-Math.min(4, bw / 2)} ${Math.min(4, bw / 2)},${-Math.min(4, bw / 2)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, bw / 2)} v${bh - Math.min(4, bw / 2)} z`}>
-                  <title>{f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" })}: {plural(f.count, "experience")}</title>
+                  <title>{f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" })}: {plural(f.count, "experience")}{nm ? `, ${nm} of them microdoses` : ""}</title>
                 </path>
+                {#if nm}
+                  <!-- the microdoses, from the bottom of the bar -->
+                  <rect class="bar micro" x={bx} y={FH - 24 - (nm / freqScale.max) * (FH - 32)} width={bw} height={(nm / freqScale.max) * (FH - 32)} />
+                {/if}
               {/if}
             {/each}
             {#if freq.length}
@@ -647,6 +733,7 @@
             {/if}
           </svg>
         </div>
+        {#if anyMicro}<p class="axisnote"><i class="sw micro"></i> Lighter: experiences that were only microdoses.</p>{/if}
       </section>
 
       <!-- calendar -->
@@ -672,16 +759,30 @@
               {#each Array(7) as _, dow}
                 {@const t = cellDay(w, dow)}
                 {@const n = days.get(dayKey(t)) ?? 0}
+                {@const dt = n ? dayTier.get(dayKey(t)) : undefined}
                 {#if t <= now}
+                  <!-- Shaded by the strongest dose that day when the reference has
+                       ranges for it, else by how many experiences; a day of only
+                       microdoses is an outline. -->
                   <rect x={20 + wi * (CELL + GAP)} y={18 + dow * (CELL + GAP)} width={CELL} height={CELL} rx="3"
-                    class={n ? "cell on" : "cell"} fill-opacity={n ? 0.35 + 0.65 * (n / heatMax) : 1}>
-                    <title>{fmtDayYear(t)}: {n ? plural(n, "experience") : "none"}</title>
+                    class={n ? (dt?.micro ? "cell micro" : "cell on") : "cell"}
+                    fill-opacity={!n || dt?.micro ? 1 : anyTier && dt?.rank != null ? 0.3 + 0.175 * dt.rank : 0.35 + 0.65 * (n / heatMax)}>
+                    <title>{fmtDayYear(t)}: {n ? plural(n, "experience") : "none"}{dt?.micro ? " · microdoses only" : dt?.label ? ` · strongest logged as ${dt.label}` : ""}</title>
                   </rect>
                 {/if}
               {/each}
             {/each}
           </svg>
         </div>
+        {#if anyTier || anyMicro}
+          <p class="axisnote">
+            {anyTier ? "Darker: a stronger dose that day, as logged, against the dose reference's ranges." : ""}
+            {anyMicro ? " Outlined: microdoses only." : ""}
+          </p>
+        {/if}
+        {#each microPeriods as mp}
+          <p class="note">Microdosing: {fmtDayYear(mp.from)} to {fmtDayYear(mp.to)}, {plural(mp.n, "day")} with microdoses.</p>
+        {/each}
       </section>
 
       <!-- combinations -->
@@ -822,6 +923,9 @@
   .bar { fill: var(--st-accent); }
   .cell { fill: var(--st-line); }
   .cell.on { fill: var(--st-accent); }
+  .cell.micro { fill: transparent; stroke: var(--st-accent); stroke-width: 1.5; }
+  .bar.micro { fill: color-mix(in srgb, var(--st-accent) 40%, var(--st-surface)); }
+  .sw.micro { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 2px; vertical-align: -0.05em; background: color-mix(in srgb, var(--st-accent) 40%, var(--st-surface)); }
   .axisnote, .note { color: var(--st-muted); font-size: 0.85rem; margin: 0.4rem 0 0; }
   .detail { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.5rem; padding: 0.5rem 0.7rem; border: 1px solid var(--st-line); border-radius: 10px; font-size: 0.92rem; }
   .tablewrap { max-height: 320px; overflow: auto; }

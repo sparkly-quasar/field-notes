@@ -78,3 +78,13 @@ test("units of mass convert; nothing else does", () => {
   assert.equal(inUnit(1, "tab", "µg"), null);
   assert.equal(inUnit(1, "ml", "g"), null);
 });
+
+test("microdose cutoffs: the table, a psychedelic's threshold, or never", async () => {
+  const { microCutoff } = await import("./dosedetail.ts");
+  assert.deepEqual(microCutoff("LSD", true, 10, "µg"), { amount: 20, unit: "µg" });
+  assert.deepEqual(microCutoff("shrooms", true, 0.25, "g"), { amount: 0.3, unit: "g" });
+  assert.deepEqual(microCutoff("2C-E", true, 2, "mg"), { amount: 2, unit: "mg" });
+  assert.equal(microCutoff("DMT", true, 10, "mg"), null);
+  assert.equal(microCutoff("25I-NBOMe", true, 50, "µg"), null);
+  assert.equal(microCutoff("Caffeine", false, 10, "mg"), null);
+});
