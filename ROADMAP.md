@@ -1275,7 +1275,7 @@ still be visible.
    `half_life` where it exists: for stimulants the felt duration understates
    the effect on sleep (amphetamine's half-life runs about 10 to 12 hours, longer
    than it feels active). Say so when no half-life is known. Caffeine counts.
-   **Bedtime (recommended, owner to confirm):** asked once, inline, the first
+   **Bedtime (owner approved):** asked once, inline, the first
    time the view opens: a time, "It varies," or Skip. No assumed default
    (delayed sleep phase is common with ADHD, and shift work exists). Saved as
    a journal setting so the phone and computer agree, editable in Settings.
@@ -1439,8 +1439,8 @@ mean a plain weight.
 
 **Pure psilocybin (mg).** The reference has no psilocybin entry (only
 mushrooms and psilocin), so mg of psilocybin from an edible estimate, or from
-a trial or clinic, needs Field Notes' own scale. Proposed from the clinical
-literature (owner to review): microdose up to 3 mg; low 3 to 10 mg; moderate
+a trial or clinic, needs Field Notes' own scale. Approved by the owner
+2026-10-05, from the clinical literature: microdose up to 3 mg; low 3 to 10 mg; moderate
 10 to 20 mg; high 20 to 30 mg (25 mg is the usual trial dose, and Goodwin et
 al. 2022 compared 1, 10 and 25 mg); very high over 30 mg. No mg-to-grams
 conversion: psilocybin content of dried mushrooms varies too much (roughly
@@ -1486,7 +1486,7 @@ Where profiles are used:
   and the profile is a label. Dependence patterns (daily total, gradual
   increase) count every dose whatever its profile.
 
-Proposed first entries (owner to review the ranges):
+First entries (approved by the owner 2026-10-05):
 
 | Substance | Profile | Notes |
 |---|---|---|
@@ -1505,12 +1505,11 @@ and no tier, and gets opioid wording in the checker.
 
 #### Still open
 
-- **Bedtime:** recommended above (asked once, saved as a setting); the owner
-  confirms.
-- **Psilocybin mg scale and the first dose profiles:** proposed above; owner to
-  review.
-- Settled 2026-10-05: microdose cutoffs (mescaline 30 mg); opioids can only be
-  marked as needed manually, never asked.
+- Settled 2026-10-05 (owner approved): microdose cutoffs (mescaline 30 mg);
+  opioids marked as needed manually only, never asked; bedtime asked once and
+  saved as a setting; the psilocybin mg scale; the five first dose profiles
+  (kratom, DXM, diphenhydramine, ketamine, alcohol) with the kratom ranges as
+  proposed.
 - **Every note's final wording gets a check from someone with addiction
   medicine or psychiatry experience before it ships.** The thresholds above
   (2 to 4 weeks, 5 of 7 days, about 25%) are reasonable anchors, not measured
