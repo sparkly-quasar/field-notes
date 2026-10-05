@@ -53,6 +53,43 @@ export function formsFor(substance: string): FormChoice[] {
   return [];
 }
 
+/**
+ * The form a written dose names ("2g fresh shrooms", "15mg 7-OH"), when it's one
+ * this substance has; "" when it names none. Tea isn't "edible": "2g in tea" is
+ * 2 g of mushrooms, brewed. Chocolate and gummies are, since their weight isn't
+ * the mushroom's.
+ */
+export function formIn(substance: string, text: string): string {
+  const offered = formsFor(substance).map((f) => f.value);
+  const t = text.toLowerCase();
+  const said = [
+    ["7-oh", /\b7[\s-]?oh\b|7-hydroxy/],
+    ["extract", /\bextracts?\b/],
+    ["leaf", /\bleaf\b/],
+    ["fresh", /\bfresh\b/],
+    ["dried", /\bdried\b|\bdry weight\b/],
+    ["powdered", /\bpowder(ed)?\b|\bground\b/],
+    ["edible", /\bedibles?\b|\bchoc(olate)?s?\b|\bgumm(y|ies)\b|\bcandy\b/],
+  ] as const;
+  for (const [form, re] of said) if (offered.includes(form) && re.test(t)) return form;
+  return "";
+}
+
+/** Words that name a form, as they'd sit in a substance's name ("Fresh shrooms"). */
+const FORM_WORDS = /\b(fresh|dried|powder(ed)?|edibles?|extracts?|leaf|7[\s-]?oh)\b/gi;
+
+/**
+ * A pasted dose's substance and form, with the form's word taken out of the
+ * name: "Fresh shrooms" is shrooms, fresh; "Kratom extract" is kratom, extract.
+ */
+export function withForm(substance: string, text: string): { substance: string; form: string } {
+  const bare = substance.replace(FORM_WORDS, " ").replace(/\s+/g, " ").trim();
+  const name = bare && formsFor(bare).length ? bare : substance;
+  const form = formIn(name, text);
+  if (!form) return { substance, form: "" };
+  return { substance: name === substance ? substance : name.charAt(0).toUpperCase() + name.slice(1), form };
+}
+
 /** Psilocybin mushrooms, which have a fresh-to-dried estimate. Matches
  *  `is_mushroom` in stats.rs. */
 export function isMushroom(substance: string): boolean {

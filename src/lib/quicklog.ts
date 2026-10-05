@@ -358,6 +358,8 @@ export interface TripLine {
   unit: string;
   route: string;
   intensity: number | null;
+  /** The form the line named ("fresh"), or "" (dosedetail.ts). */
+  form?: string;
 }
 
 export async function saveTripLog(title: string, lines: TripLine[], writeup = ""): Promise<QuickLogResult> {
@@ -380,6 +382,7 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
         unit: l.unit,
         route: l.route,
         taken_at: l.at,
+        form: l.form ?? "",
         // Keep the words around the dose when there were any worth keeping.
         note: l.text.split(/\s+/).length > 4 ? l.text : "",
       });

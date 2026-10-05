@@ -3,7 +3,7 @@
 // Stats (`measure` in stats.rs).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describeAmount, formsFor, inUnit, measure } from "./dosedetail.ts";
+import { describeAmount, formIn, formsFor, inUnit, measure, withForm } from "./dosedetail.ts";
 
 const M = "Psilocybin Mushrooms";
 
@@ -54,6 +54,23 @@ test("only mushrooms, truffles and kratom have forms", () => {
   assert.equal(formsFor("shrooms").length, 4);
   assert.equal(formsFor("Kratom").length, 3);
   assert.equal(formsFor("LSD").length, 0);
+});
+
+test("a pasted dose line names its form only where the substance has one", () => {
+  assert.equal(formIn(M, "2g fresh shrooms"), "fresh");
+  assert.equal(formIn(M, "1.5g dried cubes"), "dried");
+  assert.equal(formIn(M, "2 choc squares"), "edible");
+  assert.equal(formIn(M, "2g in tea"), "", "tea is the mushroom's weight");
+  assert.equal(formIn("Kratom", "15mg 7-OH tab"), "7-oh");
+  assert.equal(formIn("Kratom", "1g extract"), "extract");
+  assert.equal(formIn("LSD", "fresh tab"), "");
+});
+
+test("a form word in a pasted name comes out of the name", () => {
+  assert.deepEqual(withForm("Fresh shrooms", "2g fresh shrooms"), { substance: "Shrooms", form: "fresh" });
+  assert.deepEqual(withForm("Kratom extract", "3g kratom extract"), { substance: "Kratom", form: "extract" });
+  assert.deepEqual(withForm(M, "1.5g dried mushrooms"), { substance: M, form: "dried" });
+  assert.deepEqual(withForm("LSD", "1 tab"), { substance: "LSD", form: "" });
 });
 
 test("units of mass convert; nothing else does", () => {

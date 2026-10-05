@@ -735,6 +735,7 @@ fn journal_tools() -> serde_json::Value {
                 "amount": { "type": "number", "description": "amount taken; omit if unknown" },
                 "unit": { "type": "string", "description": "e.g. mg, g, ug, ml" },
                 "route": { "type": "string", "description": "e.g. oral, insufflated, sublingual" },
+                "form": { "type": "string", "description": "only if they said it: for mushrooms dried, fresh, powdered or edible; for kratom leaf, extract or 7-oh" },
                 "note": { "type": "string" }
             }, "required": ["substance"] }
         }},
@@ -769,6 +770,9 @@ fn now_iso(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
     conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get(0))
 }
 
+/// The forms the Companion may record: `FORMS` in `src/lib/dosedetail.ts`.
+const COMPANION_FORMS: &[&str] = &["dried", "fresh", "powdered", "edible", "leaf", "extract", "7-oh"];
+
 /// Execute one Companion tool call against the journal. Returns (result text for
 /// the model, optional human-readable action description, whether the journal changed).
 fn run_companion_tool(
@@ -792,6 +796,10 @@ fn run_companion_tool(
             let unit = { let u = s("unit"); if u.is_empty() { "mg".into() } else { u } };
             let route = s("route");
             let note = s("note");
+            // Only a form the dose forms offer (`FORMS` in dosedetail.ts); anything
+            // else a model says is dropped rather than saved.
+            let form = s("form").trim().to_lowercase().replace("7-hydroxymitragynine", "7-oh").replace("7oh", "7-oh");
+            let form = if COMPANION_FORMS.contains(&form.as_str()) { form } else { String::new() };
             let (dose, warns) = db.with(|c| {
                 let now = now_iso(c)?;
                 db::log_dose(c, &DoseInput {
@@ -802,10 +810,13 @@ fn run_companion_tool(
                     route: route.clone(),
                     taken_at: now,
                     note: note.clone(),
-                    detail: Default::default(),
+                    detail: db::DoseDetail { form: form.clone(), ..Default::default() },
                 })
             })?;
-            let amt = dose.amount.map(|a| format!("{a} {}", dose.unit)).unwrap_or_else(|| dose.unit.clone());
+            let mut amt = dose.amount.map(|a| format!("{a} {}", dose.unit)).unwrap_or_else(|| dose.unit.clone());
+            if !dose.detail.form.is_empty() {
+                amt = format!("{amt} {}", dose.detail.form);
+            }
             let desc = format!("Logged {amt} {}{}", dose.substance_name, if dose.route.is_empty() { String::new() } else { format!(" ({})", dose.route) });
             let mut result = format!("Logged: {desc}.");
             if !warns.is_empty() {
@@ -2452,6 +2463,27 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    /// The Companion records a form the person said, and drops one it made up.
+    #[test]
+    fn the_companion_logs_a_said_form_and_nothing_else() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema_for_tests()).unwrap();
+        let dbh = Db::new(Some(conn), std::env::temp_dir().join("fn-companion-form-unused.db"));
+        let id = dbh
+            .with(|c| db::create_experience(c, &serde_json::from_value(serde_json::json!({ "title": "t", "started_at": "2026-09-01T20:00:00Z" })).unwrap()))
+            .unwrap()
+            .id;
+        let log = |args: serde_json::Value| run_companion_tool(&dbh, &Knowledge(None), Some(id), "log_dose", &args).unwrap();
+        let (_, desc, changed) = log(serde_json::json!({ "substance": "Psilocybin Mushrooms", "amount": 3, "unit": "g", "form": "Fresh" }));
+        assert!(changed);
+        assert_eq!(desc.as_deref(), Some("Logged 3 g fresh Psilocybin Mushrooms"));
+        log(serde_json::json!({ "substance": "Kratom", "amount": 15, "unit": "mg", "form": "7-hydroxymitragynine" }));
+        log(serde_json::json!({ "substance": "LSD", "amount": 100, "unit": "ug", "form": "liquid gold" }));
+        let forms: Vec<String> =
+            dbh.with(|c| db::get_experience(c, id)).unwrap().doses.into_iter().map(|d| d.detail.form).collect();
+        assert_eq!(forms, vec!["fresh", "7-oh", ""]);
     }
 
     /// What was taken never raises the crisis banner, live or not; words do.

@@ -13,6 +13,7 @@
   import { listSubstances, pwNames, type Warning } from "$lib/api";
   import { parseTripLog, decodePasted, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
   import { saveTripLog, recallDoseShape, UNITS, type TripLine } from "$lib/quicklog";
+  import { formsFor } from "$lib/dosedetail";
 
   let {
     onsaved,
@@ -207,6 +208,7 @@
         unit: r.unit,
         route: r.route,
         intensity: r.intensity,
+        form: theirs(r) ? "" : r.form,
       }));
       const res = await saveTripLog(title, lines, writeup);
       onsaved(res);
@@ -297,6 +299,13 @@
               <input aria-label="Amount" inputmode="decimal" placeholder="Amount" value={r.amount ?? ""} oninput={(e) => amountInput(r, e.currentTarget.value)} />
               <select aria-label="Unit" bind:value={r.unit}>{#each UNITS as u}<option>{u}</option>{/each}</select>
               <select aria-label="Route" bind:value={r.route} onchange={() => (r.routeFrom = "written")}>{#each ROUTES as rt}<option>{rt}</option>{/each}</select>
+              {#if formsFor(r.substance).length}
+                <!-- "2g fresh shrooms": fresh mushrooms count as about a tenth of their weight dried. -->
+                <select aria-label="Form" bind:value={r.form}>
+                  <option value="">Form not said</option>
+                  {#each formsFor(r.substance) as f}<option value={f.value}>{f.label}</option>{/each}
+                </select>
+              {/if}
             </div>
             {#if r.routeFrom && ROUTE_FROM[r.routeFrom]}<p class="orig">{ROUTE_FROM[r.routeFrom]}</p>{/if}
             {#if theirs(r)}<p class="orig">Saved as a note: “{theirNote(r)}”</p>{:else if r.text}<p class="orig">“{r.text}”</p>{/if}

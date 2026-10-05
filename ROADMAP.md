@@ -1272,7 +1272,18 @@ still be visible.
    `different_units_are_never_merged` already requires.
 2. **Mushroom form: fresh, dried, powdered or edible** (owner's decision,
    2026-10-05; see "Mushroom forms" below). Shipped early as a safety fix,
-   before tiers.
+   before tiers. *Built 2026-10-05, not yet released:* `db::DoseDetail` (six
+   `doses` columns: form, per_unit, per_unit_unit, unit_label, estimate,
+   estimate_unit; flat on new doses, nested `detail` on edits so an older client
+   keeps it), saved capsule kinds (`unit_kinds`), `stats::measure`, and
+   `src/lib/dosedetail.ts` (the same rules for the forms, the inline dose label,
+   the journal, PDF and phone queue) with `DoseDetailFields.svelte` in every dose
+   form. The paste importer reads "2g fresh shrooms" and "3g kratom extract";
+   the Companion's `log_dose` takes a `form`. Not covered yet: forms are matched
+   by name (mushroom, shroom, truffle, kratom), not by catalogue entries marked
+   as mushrooms; "Sync journal to server" copies each dose's own capsule amount
+   but not the saved capsule kinds; the AI-read import ("import a trip report")
+   doesn't look for forms.
 3. **Time of day and sleep (version one).** Per substance, when doses are
    taken (`byHour` exists), with the hours before a usual bedtime shaded and
    "N of your doses were within X hours of bed." Use the reference's
