@@ -239,7 +239,7 @@ fn bands_for(conn: &Connection, name: &str, unit: &str, route: &str) -> Option<B
 // ---------- forms ----------
 
 // The forms a dose can take (owner's decisions, 2026-10-05) are offered by the
-// dose forms from `FORMS` in `src/lib/quicklog.ts`: dried, fresh, powdered or
+// dose forms from `FORMS` in `src/lib/dosedetail.ts`: dried, fresh, powdered or
 // edible for mushrooms and truffles; leaf, extract or 7-oh for kratom. An empty
 // form means "not said": mushrooms read as dried, kratom as leaf. A test checks
 // that list still uses the names `measure` understands.
@@ -791,8 +791,8 @@ mod tests {
 
     #[test]
     fn the_dose_forms_offer_the_forms_stats_understands() {
-        let ts = include_str!("../../src/lib/quicklog.ts");
-        let start = ts.find("export const FORMS").expect("FORMS in quicklog.ts");
+        let ts = include_str!("../../src/lib/dosedetail.ts");
+        let start = ts.find("export const FORMS").expect("FORMS in dosedetail.ts");
         let block = &ts[start..start + ts[start..].find("};").expect("end of FORMS")];
         for f in ["\"dried\"", "\"fresh\"", "\"powdered\"", "\"edible\"", "\"leaf\"", "\"extract\"", "\"7-oh\""] {
             assert!(block.contains(f), "FORMS is missing {f}");

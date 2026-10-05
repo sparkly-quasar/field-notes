@@ -22,6 +22,7 @@
     deleteTimelineEvent,
     deleteSubstance,
     type Dose,
+    type DoseDetail,
     aiStatus,
     aiRecommendedModels,
     aiInstall,
@@ -128,6 +129,8 @@
   } from "$lib/api";
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
+  import DoseDetailFields from "$lib/DoseDetailFields.svelte";
+  import { describeAmount, detailOf, inUnit, measure } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
     enable as autostartEnable,
@@ -253,6 +256,7 @@
   let qlSub = $state("");
   let qlAmt = $state("");
   let qlUnit = $state("mg");
+  let qlDetail = $state<DoseDetail>({});
   let qlRoute = $state("oral");
   let qlWhen = $state("");
   let qlWarnings = $state<Warning[]>([]);
@@ -264,6 +268,7 @@
   let dSubstance = $state("");
   let dAmount = $state("");
   let dUnit = $state("mg");
+  let dDetail = $state<DoseDetail>({});
   let dRoute = $state("oral");
   let dTime = $state("");
 
@@ -366,6 +371,7 @@
   let edSub = $state("");
   let edAmt = $state("");
   let edUnit = $state("mg");
+  let edDetail = $state<DoseDetail>({});
   let edRoute = $state("");
   let edTime = $state("");
 
@@ -482,6 +488,7 @@
   let qSub = $state("");
   let qAmt = $state("");
   let qUnit = $state("mg");
+  let qDetail = $state<DoseDetail>({});
   let qRoute = $state("oral");
   let qNote = $state("");
   let lsNote = $state("");
@@ -1034,12 +1041,14 @@
       route: qlRoute,
       at,
       intoId: qlInto,
+      detail: qlDetail,
     });
     rememberDoseShape(qlSub, { unit: qlUnit, route: qlRoute });
     qlWarnings = res.warnings;
     qlSaved = { id: res.id, title: res.title, at };
     qlInto = null;
     qlSub = qlAmt = "";
+    qlDetail = {};
     qlWhen = nowLocalInput();
     await loadJournal();
   }
@@ -1118,9 +1127,11 @@
       unit: dUnit,
       route: dRoute,
       taken_at: localInputToIso(dTime),
+      ...dDetail,
     });
     lastWarnings = res.warnings;
     dSubstance = dAmount = "";
+    dDetail = {};
     dTime = defaultDoseTime();
     await openExperienceKeepWarnings(selected.id);
     await loadJournal();
@@ -1259,6 +1270,7 @@
     edUnit = d.unit;
     edRoute = d.route;
     edTime = isoToLocalInput(d.taken_at);
+    edDetail = detailOf(d);
   }
 
   async function saveDose() {
@@ -1269,6 +1281,7 @@
       unit: edUnit,
       route: edRoute,
       taken_at: localInputToIso(edTime),
+      detail: detailOf(edDetail),
     });
     editingDoseId = null;
     await openExperienceKeepWarnings(selected.id);
@@ -1636,9 +1649,12 @@
       route: qRoute,
       taken_at: nowIso(),
       note: qNote,
+      ...qDetail,
     });
-    lastLogged = { id: res.dose.id, label: `${res.dose.substance_name}${res.dose.amount != null ? ` ${res.dose.amount} ${res.dose.unit}` : ""}` };
+    const r = res.dose;
+    lastLogged = { id: r.id, label: `${r.substance_name}${r.amount != null ? ` ${describeAmount(r.substance_name, r.amount, r.unit, r)}` : ""}` };
     qSub = ""; qAmt = ""; qNote = "";
+    qDetail = {};
     if (res.warnings.length) lastWarnings = res.warnings;
     await refreshSelected();
     await loadJournal();
@@ -2284,10 +2300,19 @@
     const roa = dRef.roas.find((r) => r.name.toLowerCase() === dRoute.trim().toLowerCase()) ?? dRef.roas[0];
     if (!roa) return null;
     if (roa.threshold == null && roa.light.min == null && roa.common.min == null) return null;
-    // Don't classify across mismatched units (e.g. entering g against mg ranges).
+    // What the dose works out to (fresh mushrooms as dried, capsules in all),
+    // in the reference's unit. Never across units that don't convert, and
+    // never for a form the ranges aren't for (kratom extract, 7-OH, an edible
+    // without an estimate).
     const u = roa.units ?? "";
-    if (u && dUnit && !sameUnit(u, dUnit)) return null;
-    return classifyDose(amt, roa);
+    const m = measure(dSubstanceAs || dSubstance, amt, dUnit, dDetail);
+    let v: number | null;
+    if (m) v = u ? inUnit(m.amount, m.unit, u) : m.amount;
+    else if (dDetail.form || dDetail.per_unit != null) return null;
+    else v = !u || !dUnit || sameUnit(u, dUnit) ? amt : null;
+    if (v == null) return null;
+    const differs = !!m && (m.approx || !sameUnit(m.unit, dUnit));
+    return { ...classifyDose(v, roa), as: differs ? `${m!.approx ? "about " : ""}${+v.toFixed(3)} ${u || m!.unit}` : "" };
   });
 
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
@@ -2621,10 +2646,11 @@
                       <button class="primary small-btn" onclick={saveDose}>Save</button>
                       <button class="ghost small-btn" onclick={() => (editingDoseId = null)}>Cancel</button>
                     </div>
+                    <DoseDetailFields substance={edSub} unit={edUnit} amount={edAmt} bind:detail={edDetail} suggest={false} />
                   {:else}
                     <span class="dtime">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span>
                     <span class="dname">{d.substance_name}</span>
-                    <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
+                    <span class="damt">{describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}</span>
                     <span class="row-actions">
                       <button class="icon-btn" title="Edit dose" onclick={() => startEditDose(d)}>✎</button>
                       <button class="icon-btn" title="Delete dose" onclick={() => delDose(d.id)}>✕</button>
@@ -2646,10 +2672,11 @@
             <button class="primary small-btn" onclick={submitDose}>Log dose</button>
           </div>
           <NameHint name={dSubstance} bind:saveAs={dSubstanceAs} />
+          <DoseDetailFields substance={dSubstanceAs || dSubstance} unit={dUnit} amount={dAmount} bind:detail={dDetail} />
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
-                <div class="dose-class {doseClass.level}">{dAmount}{dUnit} · <strong>{doseClass.label}</strong> dose{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
+                <div class="dose-class {doseClass.level}">{dAmount}{dUnit}{doseClass.as ? ` (${doseClass.as})` : ""} · <strong>{doseClass.label}</strong> dose{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
               {/if}
               <strong>{dRef.name}</strong> — reference doses
               {#each dRef.roas as r}
@@ -2788,6 +2815,7 @@
                 </select>
               </div>
               <NameHint name={qlSub} bind:saveAs={qlSubAs} />
+              <DoseDetailFields substance={qlSubAs || qlSub} unit={qlUnit} amount={qlAmt} bind:detail={qlDetail} />
               {#if qlUnit === "drink"}
                 <p class="muted small">{STANDARD_DRINK}</p>
               {:else if qlUnit === "hit"}
@@ -3408,7 +3436,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 {#each u.doses as d}
                   <li>
                     <span class="dtime">{fmtDate(d.taken_at)}</span>
-                    <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
+                    <span class="damt">{describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}</span>
                   </li>
                 {/each}
               </ul>
@@ -4335,7 +4363,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if selected.doses.length}
             <ul class="live-doses">
               {#each selected.doses as d}
-                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
+                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}</li>
               {/each}
             </ul>
           {:else}
@@ -4350,6 +4378,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             <input placeholder="Route" bind:value={qRoute} />
             <button class="primary" disabled={!qSub.trim()} onclick={logIntoSession}>Log dose</button>
           </div>
+          <DoseDetailFields substance={qSub} unit={qUnit} amount={qAmt} bind:detail={qDetail} />
           {#if lastLogged}
             <p class="small live-saved">✓ Logged {lastLogged.label}. <button class="link" onclick={undoLastLogged}>Undo</button></p>
           {/if}

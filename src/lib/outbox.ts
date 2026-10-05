@@ -18,6 +18,8 @@
 // Pure logic over a plain object, so it can be tested without a browser
 // (outbox.test.mjs); `offline.ts` stores it and talks to the network.
 
+import { describeAmount } from "./dosedetail.ts";
+
 /** Writes that may wait. Only ever *new* things, plus ending an experience. */
 export const QUEUEABLE = ["create_experience", "log_dose", "add_timeline_event", "end_experience"];
 
@@ -293,7 +295,7 @@ export function describe(item: Item): string {
     case "create_experience":
       return p.kind === "note" ? `New note${p.title ? `: ${p.title}` : ""}` : `New experience${p.title ? `: ${p.title}` : ""}`;
     case "log_dose":
-      return `Dose: ${p.substance_name}${p.amount != null ? ` ${p.amount} ${p.unit}` : ""}`;
+      return `Dose: ${p.substance_name}${p.amount != null ? ` ${describeAmount(p.substance_name ?? "", p.amount, p.unit ?? "mg", p)}` : ""}`;
     case "add_timeline_event":
       return `Moment${p.note ? `: ${String(p.note).slice(0, 40)}` : ""}`;
     case "end_experience":

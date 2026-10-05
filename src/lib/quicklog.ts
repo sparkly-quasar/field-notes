@@ -28,6 +28,7 @@ import {
   listExperiences,
   logDose,
   updateExperience,
+  type DoseDetail,
   type ExperienceSummary,
   type TimedDose,
   type Warning,
@@ -48,6 +49,8 @@ export interface QuickLogInput {
    * the rest of *its own* entry.
    */
   intoId?: number | null;
+  /** What the dose was: form, amount per capsule, an edible's estimate. */
+  detail?: DoseDetail;
 }
 
 export interface QuickLogResult {
@@ -87,6 +90,7 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
     unit: input.unit,
     route: input.route,
     taken_at: input.at,
+    ...(input.detail ?? {}),
   });
 
   if (fresh) {
@@ -269,51 +273,7 @@ export function recallDoseShape(substance: string): DoseShape | null {
 /** The units every dose form offers. One list, so the phone and desktop agree. */
 export const UNITS = ["mg", "µg", "g", "ml", "tab", "capsule", "pill", "piece", "drink", "hit"];
 
-/** Units that count things, which can say how much each one holds ("00 caps, 0.45 g"). */
-export const COUNTED_UNITS = ["capsule", "pill", "tab", "piece"];
-
-export interface FormChoice {
-  value: string;
-  label: string;
-}
-
-/**
- * The forms a dose can take, by substance (owner's decisions, 2026-10-05). Stats
- * reads them in `measure` (stats.rs): fresh mushrooms count as about a tenth of
- * their weight dried, an edible goes on its estimate, and kratom extract and
- * 7-OH stay off leaf's ranges. A Rust test checks these names.
- */
-export const FORMS: Record<"mushrooms" | "kratom", FormChoice[]> = {
-  mushrooms: [
-    { value: "dried", label: "Dried" },
-    { value: "fresh", label: "Fresh" },
-    { value: "powdered", label: "Powdered" },
-    { value: "edible", label: "Edible" },
-  ],
-  kratom: [
-    { value: "leaf", label: "Leaf powder" },
-    { value: "extract", label: "Extract" },
-    { value: "7-oh", label: "7-OH product" },
-  ],
-};
-
-/** Which forms to offer for a substance: mushrooms and truffles, or kratom. */
-export function formsFor(substance: string): FormChoice[] {
-  const s = substance.trim().toLowerCase();
-  if (/mushroom|shroom|mushies|truffle/.test(s)) return FORMS.mushrooms;
-  if (s === "kratom") return FORMS.kratom;
-  return [];
-}
-
-/** Psilocybin mushrooms, which have a fresh-to-dried estimate. Truffles hold less
- *  water, so theirs isn't converted. Matches `is_mushroom` in stats.rs. */
-export function isMushroom(substance: string): boolean {
-  const s = substance.trim().toLowerCase();
-  return !s.includes("truffle") && /mushroom|shroom|mushies/.test(s);
-}
-
-/** Fresh psilocybin mushrooms are about 90% water. `FRESH_TO_DRIED` in stats.rs. */
-export const FRESH_TO_DRIED = 10;
+export { COUNTED_UNITS, FORMS, formsFor, isMushroom } from "./dosedetail";
 
 /**
  * One standard drink, as the app counts it: the US definition (14 g of alcohol).
