@@ -1302,7 +1302,7 @@ pattern reveals it, and it isn't an "experience" either.
   pregabalin or kratom: *"How do you take this?"* As needed (for anxiety,
   sleep, pain…) / Regularly / Neither. Any other substance can be marked from
   its Stats page. Never asked for alcohol, GHB/GBL/1,4-B, phenibut or opioids
-  (manual only).
+  (manual only; owner's decision for opioids, 2026-10-05).
 - **As-needed doses get their own small view**: how often, and the amount per
   dose over time. They get no tier.
 - **The signal to watch is drift**: as-needed use creeping toward daily is
@@ -1391,8 +1391,8 @@ anything.
   times a week (e.g. Fadiman, Stamets) show as one microdosing period on the
   calendar. Above the cutoff but within the light band reads "low dose."
 
-**Proposed microdose cutoffs (proposed 2026-10-05, awaiting the owner's
-review).** These are Field Notes' own curated numbers, a new kind of shipped
+**Microdose cutoffs (proposed 2026-10-05, approved by the owner with mescaline
+changed to 30 mg).** These are Field Notes' own curated numbers, a new kind of shipped
 data next to DoseWiki's, so the app says so wherever they show: "Field Notes'
 microdose cutoff, based on published microdosing studies and common practice."
 Oral or sublingual unless noted. DoseWiki threshold and light band for comparison.
@@ -1407,7 +1407,7 @@ Oral or sublingual unless noted. DoseWiki threshold and light band for compariso
 | Psilocybin mushrooms, fresh | 3 g | (dried band × 10, approximate) | Fresh is about 90% water |
 | 4-AcO-DMT | 3 mg | 5 · 5 to 15 mg | Roughly as potent as psilocybin by weight; pure-psilocybin microdoses are about 1 to 3 mg |
 | 4-HO-MET | 2 mg | 2 · 10 mg (data look inconsistent) | At threshold |
-| Mescaline | 50 mg | 100 · 100 to 200 mg | About a fifth of a common dose; salt form (HCl, sulfate, freebase) changes this, so say "logged as" |
+| Mescaline | 30 mg (owner's figure) | 100 · 100 to 200 mg | Salt form (HCl, sulfate, freebase) changes this, so say "logged as" |
 | 2C-B | 3 mg | 2 · 2 to 15 mg | Low end; 5 to 10 mg is a "museum dose" for many |
 | Any other psychedelic with bands | its threshold | | Fallback |
 
@@ -1431,20 +1431,86 @@ mean a plain weight.
 | Form | Compared to the bands as | Notes |
 |---|---|---|
 | Dried | As logged | |
-| Powdered | As logged | Same strength per gram; mixing evens out batch variation. Capsules logged as "caps" need a "how much per capsule?" (asked once, remembered per substance) before they can be tiered |
+| Powdered | As logged | Same strength per gram; mixing evens out batch variation. Capsules: see "Capsules and other counted units" below |
 | Fresh | Weight ÷ 10, shown as "about 0.3 g dried" | Water content varies (roughly 85 to 92%), so always "about." Fresh weights read on a dried scale lead to taking far more than intended, which is the main safety reason for this |
-| Edible (chocolate, gummies, tea) | Only if the user enters how much dried mushroom went in; otherwise no tier | Once, factual: shop-bought "mushroom" edibles often aren't what the label says. Some contain Amanita muscaria (muscimol, a different drug with different interactions) or unlisted compounds; in 2024 one brand was recalled after illnesses and hospitalizations |
+| Edible (chocolate, gummies, tea) | Optional estimate, in the person's choice of **grams of dried mushroom** or **mg of psilocybin** (owner's decision), each against its own scale; never converted between them. "Don't know" means no tier | Once, factual: shop-bought "mushroom" edibles often aren't what the label says. Some contain Amanita muscaria (muscimol, a different drug with different interactions) or unlisted compounds; in 2024 one brand was recalled after illnesses and hospitalizations |
 - Spacing notes (`stats::SPACING_NOTE`) assume full doses: add "since your last
   full dose" next to "since any dose."
 
+**Pure psilocybin (mg).** The reference has no psilocybin entry (only
+mushrooms and psilocin), so mg of psilocybin from an edible estimate, or from
+a trial or clinic, needs Field Notes' own scale. Proposed from the clinical
+literature (owner to review): microdose up to 3 mg; low 3 to 10 mg; moderate
+10 to 20 mg; high 20 to 30 mg (25 mg is the usual trial dose, and Goodwin et
+al. 2022 compared 1, 10 and 25 mg); very high over 30 mg. No mg-to-grams
+conversion: psilocybin content of dried mushrooms varies too much (roughly
+0.2 to 2% by weight across studies) for it to mean anything.
+
+#### Capsules and other counted units (owner's request, 2026-10-05)
+
+People do keep capsules with different amounts: a home-filled size 00 can hold
+around 0.4 to 0.5 g of powder, smaller sizes and commercial microdose capsules
+much less, and two batches filled weeks apart can differ. So:
+
+- **Named capsule kinds per substance**, e.g. "Microdose caps, 0.15 g" and
+  "00 caps, 0.45 g." When logging capsules, pick a kind (last used is the
+  default), add one, or choose "Not sure," which logs the count without a tier.
+- **The dose stores the amount per capsule at the time it was logged**
+  (`doses.per_unit` and its unit, plus the kind's name). Editing or deleting a
+  kind later never changes past doses.
+- **Two kinds at once are two doses** (1 of A plus 2 of B), so totals stay right.
+- The same mechanism serves any counted unit with a known amount: kratom
+  capsules, gummies, chocolate squares. Pressed pills can use it too, always
+  as "logged as," since what a pill claims and what it holds can differ.
+
+#### Dose-dependent effects ("smart about dosage")
+
+Some substances do different things at different amounts. The reference's
+prose says so for kratom ("a stimulant at lower doses ... opioid-like depressant
+effects at higher doses") but gives no figure for where the switch happens, so
+this is **Field Notes' own curated table**, small, cited, and owner-reviewed,
+like the microdose cutoffs. A **dose profile** gives each amount range a short
+description.
+
+Where profiles are used:
+- **On the dose**, e.g. "Logged as 2 g of kratom leaf. At this amount kratom
+  usually feels more stimulating than sedating."
+- **The combination checker gets context added, never taken away.** In the
+  opioid-like range, kratom with alcohol, benzos or other depressants gets the
+  stronger respiratory wording; in the stimulant range, kratom with stimulants
+  gets a note. A low dose never downgrades a warning, and the checker stays
+  deterministic.
+- **The companion and live session** read the profile, e.g. which DXM plateau
+  the dose falls in, or that a diphenhydramine dose is in the deliriant range.
+- **Stats don't move doses between families.** Kratom stays in its families,
+  and the profile is a label. Dependence patterns (daily total, gradual
+  increase) count every dose whatever its profile.
+
+Proposed first entries (owner to review the ranges):
+
+| Substance | Profile | Notes |
+|---|---|---|
+| Kratom (leaf powder only) | Under about 3 g: more stimulating · about 3 to 5 g: mixed · over about 5 g: more opioid-like and sedating | The commonly cited split is about 1 to 5 g vs. 5 to 15 g (e.g. Prozialeck et al. 2012); DoseWiki already calls 3 to 6 g "strong." Product strength and the person both shift it |
+| DXM | Plateaus 1 to 4, mapped to the reference's bands | Long-established community framework; the 3rd and 4th plateaus matter for safety |
+| Diphenhydramine | Sleep-aid range vs. deliriant range | The deliriant range carries seizure and heart-rhythm risk: a safety note, not just a label |
+| Ketamine | Below dissociative vs. dissociative ("hole") range | Route matters a lot; per route |
+| Alcohol | Low amounts more stimulating, higher amounts sedating | In standard drinks, as logged |
+
+**Forms beyond mushrooms.** The `doses.form` column should take a list of forms
+per substance, not just mushrooms. **Kratom: leaf powder, extract, or 7-OH
+product.** Concentrated 7-hydroxymitragynine products are far stronger per gram
+and act like an opioid at any amount (the FDA recommended scheduling 7-OH in
+2025). The reference has no 7-OH entry, so a 7-OH product gets no leaf profile
+and no tier, and gets opioid wording in the checker.
+
 #### Still open
 
-- **Microdose cutoffs:** proposed above; the owner reviews and edits them.
 - **Bedtime:** recommended above (asked once, saved as a setting); the owner
   confirms.
-- **Group membership:** kratom and prescribed benzos are handled by the
-  as-needed kind (owner's suggestion). Still to confirm: whether prescription
-  opioids should get the as-needed question too, rather than manual only.
+- **Psilocybin mg scale and the first dose profiles:** proposed above; owner to
+  review.
+- Settled 2026-10-05: microdose cutoffs (mescaline 30 mg); opioids can only be
+  marked as needed manually, never asked.
 - **Every note's final wording gets a check from someone with addiction
   medicine or psychiatry experience before it ships.** The thresholds above
   (2 to 4 weeks, 5 of 7 days, about 25%) are reasonable anchors, not measured
