@@ -138,7 +138,6 @@
   // "days since"), never the rest: the dose chart, time of day, combinations and
   // amount trends count every dose. Picking one shows it on its own.
   const careKeys = $derived(new Set((data?.substances ?? []).filter((x) => x.kind).map((x) => x.key)));
-  const careSubs = $derived((data?.substances ?? []).filter((x) => x.kind));
   const KIND_LABEL: Record<string, string> = { "": "As experiences", routine: "Routine", as_needed: "As needed" };
 
   async function setKind(kind: string) {
@@ -587,15 +586,6 @@
         <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
       </div>
       <p class="note pickhint">Pick a family or a substance to narrow everything below to it.</p>
-    {/if}
-    {#if !sub && careSubs.length}
-      <p class="note pickhint">
-        {careSubs.slice(0, 3).map((x) => label(x.key)).join(", ")}{careSubs.length > 3 ? ` and ${careSubs.length - 3} more` : ""}
-        {careSubs.length === 1
-          ? careSubs[0].kind === "routine" ? "is part of your routine, so it isn't" : "is taken as needed, so it isn't"
-          : "are taken as routine or as needed, so they aren't"} counted as experiences here.
-        Every dose still counts in time of day, combinations and amounts. Pick one to see it on its own.
-      </p>
     {/if}
     {#if sub}
       <div class="kindrow" role="group" aria-label="How you take {label(sub.key)}">
