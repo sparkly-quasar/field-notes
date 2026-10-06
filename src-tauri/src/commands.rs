@@ -285,6 +285,57 @@ fn is_bedtime(v: &str) -> bool {
     }
 }
 
+// ---------- sleep (step 6) ----------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SleepCheckin {
+    /// The person asked to be asked.
+    pub enabled: bool,
+    /// Their rating for that night, if they've given one.
+    pub rating: Option<i64>,
+}
+
+/// Whether to ask "How did you sleep?" about `night` (the local date of the
+/// evening): only when the person turned it on, and haven't answered.
+#[tauri::command]
+pub fn sleep_checkin(db: State<'_, Db>, night: String) -> Result<SleepCheckin, String> {
+    sleep_checkin_in(&db, night)
+}
+
+/// [`sleep_checkin`] against any person's journal (the portal picks it by device).
+pub fn sleep_checkin_in(db: &Db, night: String) -> Result<SleepCheckin, String> {
+    db.with(|c| Ok(SleepCheckin { enabled: db::sleep_checkin_on(c)?, rating: db::sleep_rating(c, &night)? }))
+}
+
+/// Rate a night 1 to 5, or take it back with `None`.
+#[tauri::command]
+pub fn log_sleep(db: State<'_, Db>, night: String, rating: Option<i64>) -> Result<(), String> {
+    log_sleep_in(&db, night, rating)
+}
+
+/// [`log_sleep`] against any person's journal (the portal picks it by device).
+pub fn log_sleep_in(db: &Db, night: String, rating: Option<i64>) -> Result<(), String> {
+    if chrono::NaiveDate::parse_from_str(&night, "%Y-%m-%d").is_err() {
+        return Err("A night is a date like 2026-10-05.".into());
+    }
+    if rating.is_some_and(|r| !(1..=5).contains(&r)) {
+        return Err("A night is rated 1 to 5.".into());
+    }
+    db.with(|c| db::log_sleep(c, &night, rating))
+}
+
+/// Ask how the person slept each morning, or stop asking. Ratings already given
+/// stay.
+#[tauri::command]
+pub fn set_sleep_checkin(db: State<'_, Db>, on: bool) -> Result<(), String> {
+    set_sleep_checkin_in(&db, on)
+}
+
+/// [`set_sleep_checkin`] against any person's journal (the portal picks it by device).
+pub fn set_sleep_checkin_in(db: &Db, on: bool) -> Result<(), String> {
+    db.with(|c| db::set_setting(c, "sleep_checkin", on.then_some("on")))
+}
+
 // ---------- routine and as-needed (kinds.rs) ----------
 
 /// The question to ask about a substance just logged, if any: "is this part of

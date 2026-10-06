@@ -487,6 +487,9 @@ async function answerHere<T>(cmd: string, args: Record<string, any>): Promise<T>
       keepStorage();
       return update((s) => ob.queue(s, cmd, args, check)) as T;
     }
+    case "sleep_checkin":
+      // Asked again when the computer is back, that morning or the next.
+      return { enabled: false, rating: null } as T;
     case "kind_question":
       // Asked again after a later dose, when the computer is back.
       return null as T;

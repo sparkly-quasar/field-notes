@@ -1349,7 +1349,15 @@ still be visible.
    notes. The phone's offline checker doesn't add profile context yet.
 6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
    used. Then show sleep after late-dose nights vs. other nights, with counts
-   and no p-values. No streaks or guilt; it must be easy to skip.
+   and no p-values. No streaks or guilt; it must be easy to skip. *Built
+   2026-10-06, not yet released:* off until turned on from the time-of-day card
+   ("Ask me each morning", needs a bedtime); `sleep_log` (one 1-to-5 rating
+   per night, keyed by the evening's date) and the `sleep_checkin` setting;
+   `SleepCheckin.svelte` on the phone's Today and the computer's Journal,
+   4am to 2pm, until answered or skipped (Skip is per device, that morning
+   only). Stats compares rated nights in range after a dose within its
+   half-life (low end) of bedtime against the rest, every substance counted,
+   once there are 3 of each; averages and counts only.
 
 #### Routine and as-needed doses
 

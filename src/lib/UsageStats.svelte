@@ -8,12 +8,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
-  import { usageStats, setBedtime, setSubstanceKind, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
+  import { usageStats, setBedtime, setSleepCheckin, setSubstanceKind, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
   import Trends from "$lib/Trends.svelte";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
     niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
-    bedMinutes, closeToBed, hourBeforeBed, fmtBedtime,
+    bedMinutes, closeToBed, hourBeforeBed, fmtBedtime, sleepCompare,
   } from "$lib/stats";
 
   let {
@@ -410,6 +410,25 @@
       : Array(24).fill(false),
   );
   const bedHour = $derived(bed == null ? -1 : Math.floor(bed / 60));
+  // ---- sleep (step 6): only for someone who asked to be asked ----
+  async function toggleSleep(on: boolean) {
+    await setSleepCheckin(on);
+    if (data) data = { ...data, sleep_checkin: on };
+  }
+  /** Rated nights in this range, after a dose near bedtime against the rest.
+   *  Every substance with a half-life counts, routine ones too: coffee is
+   *  coffee. Nights outside the range are left out, since their doses aren't. */
+  const sleepCmp = $derived.by(() => {
+    if (bed == null || !data?.sleep?.length) return null;
+    const from = dayKey(windowFrom);
+    const nights = data.sleep.filter((n) => n.night >= from);
+    if (!nights.length) return null;
+    const doses = data.substances
+      .filter((x) => x.half_life)
+      .flatMap((x) => timesOf(x).map((t) => ({ t, hours: x.half_life!.low_hours })));
+    return { total: nights.length, ...sleepCompare(nights, doses, bed) };
+  });
+
   /** Without one picked: each substance with doses inside its half-life before bed. */
   const nearBed = $derived.by(() => {
     if (bed == null || sub) return [];
@@ -834,6 +853,24 @@
               Marked: bedtime, {fmtBedtime(bed)}{lateHours.some(Boolean) ? " · shaded: within one half-life before it" : ""}.
               <button class="link" onclick={changeBedtime}>Change</button>
             </p>
+            {#if data && "sleep_checkin" in data}
+              {#if data.sleep_checkin}
+                {#if sleepCmp}
+                  {#if sleepCmp.near.nights >= 3 && sleepCmp.other.nights >= 3}
+                    <ul class="nearbed">
+                      <li>After a dose near bedtime: <strong>{fmtNum(sleepCmp.near.average ?? 0)}</strong> out of 5, over {plural(sleepCmp.near.nights, "night")}</li>
+                      <li>Other nights: <strong>{fmtNum(sleepCmp.other.average ?? 0)}</strong> out of 5, over {plural(sleepCmp.other.nights, "night")}</li>
+                    </ul>
+                    <p class="note">How you rated your sleep, 1 (badly) to 5 (well). Few nights and many causes, so this is something to notice, not a finding.</p>
+                  {:else}
+                    <p class="note">{plural(sleepCmp.total, "night")} rated in this range. The comparison shows once there are at least 3 nights each with and without a dose near bedtime.</p>
+                  {/if}
+                {/if}
+                <p class="axisnote">Asking how you slept each morning. <button class="link" onclick={() => toggleSleep(false)}>Stop asking</button></p>
+              {:else}
+                <p class="axisnote">See how doses near bedtime line up with your sleep? <button class="link" onclick={() => toggleSleep(true)}>Ask me each morning</button></p>
+              {/if}
+            {/if}
           {:else}
             <p class="axisnote">
               {bedtime === "varies" ? "Bedtime varies, so doses aren't counted against it." : ""}

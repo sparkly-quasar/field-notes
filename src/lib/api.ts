@@ -52,6 +52,9 @@ const ROUTED = new Set([
   "save_unit_kind",
   "delete_unit_kind",
   "set_bedtime",
+  "sleep_checkin",
+  "log_sleep",
+  "set_sleep_checkin",
   "kind_question",
   "answer_kind_question",
   "set_substance_kind",
@@ -274,6 +277,17 @@ export const listUnitKinds = (substance: string) => invoke<UnitKind[]>("list_uni
 export const saveUnitKind = (substance: string, kind: Omit<UnitKind, "id" | "substance">) =>
   invoke<UnitKind>("save_unit_kind", { substance, kind });
 export const deleteUnitKind = (id: number) => invoke<void>("delete_unit_kind", { id });
+/** The morning question (step 6): asked only when turned on and unanswered. */
+export interface SleepCheckin {
+  enabled: boolean;
+  rating: number | null;
+}
+/** `night` = the local date of the evening, "2026-10-05". */
+export const sleepCheckin = (night: string) => invoke<SleepCheckin>("sleep_checkin", { night });
+/** Rate a night 1 to 5, or null to take it back. */
+export const logSleep = (night: string, rating: number | null) => invoke<void>("log_sleep", { night, rating });
+export const setSleepCheckin = (on: boolean) => invoke<void>("set_sleep_checkin", { on });
+
 /** "23:00", "varies", "skip", or null to forget it (the time-of-day card asks again). */
 export const setBedtime = (value: string | null) => invoke<void>("set_bedtime", { value });
 
@@ -504,6 +518,10 @@ export interface UsageStats {
   /** "23:00" (local), "varies", "skip" (asked, not answered), or null (not asked
    *  yet). Missing from older servers, which can't store one. */
   bedtime?: string | null;
+  /** The morning sleep question is on. Missing from older servers. */
+  sleep_checkin?: boolean;
+  /** Every rated night, oldest first. */
+  sleep?: { night: string; rating: number }[];
 }
 /** Read-only. `since` is an ISO time; omit for all time. */
 export const usageStats = (since: string | null) => invoke<UsageStats>("usage_stats", { since });

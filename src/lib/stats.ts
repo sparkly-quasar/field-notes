@@ -187,3 +187,46 @@ export function fmtBedtime(bed: number): string {
   const d = new Date(2026, 0, 1, Math.floor(bed / 60), bed % 60);
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
+
+// ---------- sleep (step 6) ----------
+
+/** The night a morning asks about: the local date of the evening before. */
+export function lastNight(now = Date.now()): string {
+  const d = new Date(now);
+  d.setDate(d.getDate() - 1);
+  return dayKey(d.getTime());
+}
+
+/** When bedtime fell on a night ("2026-10-05"): that evening at bedtime, or
+ *  the next morning's clock for a bedtime between midnight and noon. */
+export function bedOf(night: string, bed: number): number {
+  const [y, m, d] = night.split("-").map(Number);
+  return new Date(y, m - 1, d + (bed < 720 ? 1 : 0), Math.floor(bed / 60), bed % 60).getTime();
+}
+
+export interface SleepGroup {
+  nights: number;
+  average: number | null;
+}
+
+/**
+ * Sleep after nights with a dose near bedtime against the other nights. A dose
+ * is near bedtime when it was taken within its substance's half-life (`hours`,
+ * the low end) before that night's bedtime. Counts and averages only: few
+ * nights and many causes, so nothing here is a finding.
+ */
+export function sleepCompare(
+  nights: { night: string; rating: number }[],
+  doses: { t: number; hours: number }[],
+  bed: number,
+): { near: SleepGroup; other: SleepGroup } {
+  const near: number[] = [];
+  const other: number[] = [];
+  for (const n of nights) {
+    const b = bedOf(n.night, bed);
+    const late = doses.some((d) => d.t <= b && b - d.t <= Math.min(d.hours, 24) * 3_600_000);
+    (late ? near : other).push(n.rating);
+  }
+  const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null);
+  return { near: { nights: near.length, average: avg(near) }, other: { nights: other.length, average: avg(other) } };
+}

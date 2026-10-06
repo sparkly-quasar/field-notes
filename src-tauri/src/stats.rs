@@ -67,6 +67,10 @@ pub struct UsageStats {
     /// When the person usually goes to bed: "23:00" (local, 24-hour), "varies",
     /// "skip" (asked, not answered), or `None` (not asked yet). See `set_bedtime`.
     pub bedtime: Option<String>,
+    /// Whether the person asked to be asked how they slept each morning.
+    pub sleep_checkin: bool,
+    /// Every night they rated, oldest first (`db::sleep_nights`).
+    pub sleep: Vec<db::SleepNight>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -837,7 +841,18 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
     pairs.sort_by(|x, y| y.sessions.cmp(&x.sessions).then(x.a.cmp(&y.a)).then(x.b.cmp(&y.b)));
 
     let bedtime = db::get_setting(conn, "bedtime")?;
-    Ok(UsageStats { total_sessions: sessions.len(), total_doses: rows.len(), sessions, substances, pairs, bedtime })
+    let sleep_checkin = db::sleep_checkin_on(conn)?;
+    let sleep = db::sleep_nights(conn)?;
+    Ok(UsageStats {
+        total_sessions: sessions.len(),
+        total_doses: rows.len(),
+        sessions,
+        substances,
+        pairs,
+        bedtime,
+        sleep_checkin,
+        sleep,
+    })
 }
 
 #[cfg(test)]

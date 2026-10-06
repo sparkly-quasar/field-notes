@@ -32,3 +32,31 @@ test("the hours shaded are the ones leading up to bed", () => {
   assert.deepEqual(shaded, [18, 19, 20, 21, 22]);
   assert.deepEqual([...Array(24).keys()].filter((h) => hourBeforeBed(h, bedMinutes("01:00"), 3)), [0, 22, 23]);
 });
+
+test("a morning asks about the night before, and bedtime can fall after midnight", async () => {
+  const { lastNight, bedOf } = await import("./stats.ts");
+  assert.equal(lastNight(new Date(2026, 9, 6, 8, 0).getTime()), "2026-10-05");
+  assert.equal(bedOf("2026-10-05", 23 * 60), new Date(2026, 9, 5, 23, 0).getTime());
+  assert.equal(bedOf("2026-10-05", 60), new Date(2026, 9, 6, 1, 0).getTime(), "a 1am bedtime is the next morning");
+});
+
+test("sleep after a dose near bedtime, against other nights", async () => {
+  const { sleepCompare } = await import("./stats.ts");
+  const bed = 23 * 60;
+  const nights = [
+    { night: "2026-10-01", rating: 2 },
+    { night: "2026-10-02", rating: 4 },
+    { night: "2026-10-03", rating: 2 },
+    { night: "2026-10-04", rating: 5 },
+  ];
+  // Caffeine (5 hours) at 8pm on the 1st and 3rd; at 9am on the 4th, long gone by bed.
+  const doses = [
+    { t: new Date(2026, 9, 1, 20, 0).getTime(), hours: 5 },
+    { t: new Date(2026, 9, 3, 20, 0).getTime(), hours: 5 },
+    { t: new Date(2026, 9, 4, 9, 0).getTime(), hours: 5 },
+  ];
+  assert.deepEqual(sleepCompare(nights, doses, bed), {
+    near: { nights: 2, average: 2 },
+    other: { nights: 2, average: 4.5 },
+  });
+});

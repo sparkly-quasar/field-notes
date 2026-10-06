@@ -459,6 +459,9 @@ pub const EXPOSED: &[&str] = &[
     "save_unit_kind",
     "delete_unit_kind",
     "set_bedtime",
+    "sleep_checkin",
+    "log_sleep",
+    "set_sleep_checkin",
     "kind_question",
     "answer_kind_question",
     "set_substance_kind",
@@ -636,6 +639,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         }
         "delete_unit_kind" => done(commands::delete_unit_kind_in(db, arg(&args, "id")?)),
         "set_bedtime" => done(commands::set_bedtime_in(db, arg(&args, "value")?)),
+        "sleep_checkin" => done(commands::sleep_checkin_in(db, arg(&args, "night")?)),
+        "log_sleep" => done(commands::log_sleep_in(db, arg(&args, "night")?, arg(&args, "rating")?)),
+        "set_sleep_checkin" => done(commands::set_sleep_checkin_in(db, arg(&args, "on")?)),
         "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
         "answer_kind_question" => done(commands::answer_kind_question_in(
             db,

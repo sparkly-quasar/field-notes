@@ -131,6 +131,7 @@
   import NameHint from "$lib/NameHint.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
+  import SleepCheckin from "$lib/SleepCheckin.svelte";
   import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
@@ -2574,6 +2575,7 @@
 
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
+      {#if !selected}<SleepCheckin />{/if}
       {#if selected && selected.kind === "note"}
         <!-- A plain entry: a title, a body, a date. Deliberately quiet — no session chrome. -->
         <section class="card">

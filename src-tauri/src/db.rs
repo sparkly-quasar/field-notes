@@ -212,6 +212,15 @@ CREATE TABLE IF NOT EXISTS journal_settings (
     value          TEXT NOT NULL
 );
 
+-- How the person slept, when they've asked to be asked (step 6 of the
+-- dose-aware Stats plan): one 1-to-5 rating per night, `night` being the local
+-- date of the evening ("2026-10-05" is the night of the 5th into the 6th).
+CREATE TABLE IF NOT EXISTS sleep_log (
+    night          TEXT PRIMARY KEY,
+    rating         INTEGER NOT NULL,
+    logged_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- How each substance is taken (kinds.rs): '' as experiences, 'routine', or
 -- 'as_needed'; and what's been asked about it, so a question is never nagged.
 CREATE TABLE IF NOT EXISTS substance_kinds (
@@ -1037,6 +1046,45 @@ pub fn set_setting(conn: &Connection, key: &str, value: Option<&str>) -> rusqlit
     Ok(())
 }
 
+// ---------- sleep ----------
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SleepNight {
+    /// The local date of the evening.
+    pub night: String,
+    /// 1 (badly) to 5 (well).
+    pub rating: i64,
+}
+
+/// Is the morning question on? Off unless the person turned it on.
+pub fn sleep_checkin_on(conn: &Connection) -> rusqlite::Result<bool> {
+    Ok(get_setting(conn, "sleep_checkin")?.as_deref() == Some("on"))
+}
+
+pub fn sleep_rating(conn: &Connection, night: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row("SELECT rating FROM sleep_log WHERE night = ?1", [night], |r| r.get(0)).optional()
+}
+
+/// Rate a night, or take the rating back with `None`.
+pub fn log_sleep(conn: &Connection, night: &str, rating: Option<i64>) -> rusqlite::Result<()> {
+    match rating {
+        Some(r) => conn.execute(
+            "INSERT INTO sleep_log (night, rating) VALUES (?1, ?2)
+             ON CONFLICT (night) DO UPDATE SET rating = excluded.rating, logged_at = datetime('now')",
+            params![night, r],
+        )?,
+        None => conn.execute("DELETE FROM sleep_log WHERE night = ?1", [night])?,
+    };
+    Ok(())
+}
+
+/// Every rated night, oldest first.
+pub fn sleep_nights(conn: &Connection) -> rusqlite::Result<Vec<SleepNight>> {
+    let mut stmt = conn.prepare("SELECT night, rating FROM sleep_log ORDER BY night")?;
+    let nights = stmt.query_map([], |r| Ok(SleepNight { night: r.get(0)?, rating: r.get(1)? }))?.collect();
+    nights
+}
+
 // ---------- capsule kinds ----------
 
 /// The key a substance's own settings are stored under (capsule kinds, how it's
@@ -1772,6 +1820,22 @@ mod tests {
         take(&c, exp, "Amphetamine", 10.0, "mg", "2026-09-01T20:00:00Z");
         let (_, w) = take(&c, exp, "Kratom", 2.0, "g", "2026-09-01T20:30:00Z");
         assert!(w.iter().any(|w| w.message.contains("kratom tends to be stimulating")), "{w:?}");
+    }
+
+    #[test]
+    fn a_night_is_rated_once_and_can_be_taken_back() {
+        let c = mem();
+        assert!(!sleep_checkin_on(&c).unwrap(), "off until asked for");
+        set_setting(&c, "sleep_checkin", Some("on")).unwrap();
+        assert!(sleep_checkin_on(&c).unwrap());
+        log_sleep(&c, "2026-10-05", Some(2)).unwrap();
+        log_sleep(&c, "2026-10-05", Some(4)).unwrap();
+        log_sleep(&c, "2026-10-04", Some(3)).unwrap();
+        assert_eq!(sleep_rating(&c, "2026-10-05").unwrap(), Some(4));
+        let nights: Vec<_> = sleep_nights(&c).unwrap().into_iter().map(|n| (n.night, n.rating)).collect();
+        assert_eq!(nights, vec![("2026-10-04".to_string(), 3), ("2026-10-05".to_string(), 4)]);
+        log_sleep(&c, "2026-10-05", None).unwrap();
+        assert_eq!(sleep_rating(&c, "2026-10-05").unwrap(), None);
     }
 
     #[test]

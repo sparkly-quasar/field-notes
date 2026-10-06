@@ -112,6 +112,7 @@
   import NameHint from "$lib/NameHint.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
+  import SleepCheckin from "$lib/SleepCheckin.svelte";
   import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
@@ -1918,6 +1919,7 @@
     {:else}
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
+      <SleepCheckin />
       {#if backupNudge}
         <section class="pane" role="status">
           <p>
