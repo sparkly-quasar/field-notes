@@ -463,6 +463,7 @@ pub const EXPOSED: &[&str] = &[
     "log_sleep",
     "set_sleep_checkin",
     "kind_question",
+    "pattern_note",
     "answer_kind_question",
     "set_substance_kind",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
@@ -643,6 +644,7 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "log_sleep" => done(commands::log_sleep_in(db, arg(&args, "night")?, arg(&args, "rating")?)),
         "set_sleep_checkin" => done(commands::set_sleep_checkin_in(db, arg(&args, "on")?)),
         "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
+        "pattern_note" => done(commands::pattern_note_in(db, arg(&args, "substance")?)),
         "answer_kind_question" => done(commands::answer_kind_question_in(
             db,
             arg(&args, "substance")?,
@@ -922,6 +924,8 @@ mod tests {
         // answering, which cut `dev_portal` short.
         let _ = std::fs::remove_file(path.with_extension("server.json"));
         app.manage(crate::prefs::Prefs::load(path.with_extension("server.json")));
+        // Asked for by the phone's update card, the same way.
+        app.manage(crate::server_update::ServerUpdate::default());
         let _ = std::fs::remove_file(path.with_extension("devices.json"));
         let devices = Devices::load(path.with_extension("devices.json"));
         let (_, token) = devices.pair("Test phone").unwrap();

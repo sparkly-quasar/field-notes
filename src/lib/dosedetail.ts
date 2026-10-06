@@ -238,7 +238,7 @@ export const MICRODOSE: [string, number, string][] = [
 ];
 
 /** Never called a microdose: `never_micro` in stats.rs. */
-const NEVER_MICRO = ["dmt", "ayahuasca", "ibogaine", "lsa", "morning glory", "hawaiian baby woodrose", "hbwr",
+const NEVER_MICRO = ["lsa", "morning glory", "hawaiian baby woodrose", "hbwr",
   "doc", "dob", "doi", "dom", "doet", "dopr", "dox"];
 
 /**

@@ -107,6 +107,9 @@ pub struct SubstanceStats {
     /// How it's taken (kinds.rs): "" as experiences, "routine" or "as_needed".
     /// Routine and as-needed doses leave the experience views; nothing else.
     pub kind: String,
+    /// Dependence and withdrawal notes whose pattern holds now (patterns.rs),
+    /// for its Stats page. Worked out from the last 56 days whatever the range.
+    pub notes: Vec<crate::patterns::PatternNote>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,7 +232,7 @@ fn micrograms_per(unit: &str) -> Option<f64> {
 /// `amount` of `from` in `to`: as is when they're one unit, converted when both
 /// are units of mass, else `None`. Rounded to 12 significant digits so 0.6 g
 /// doesn't come out as 0.6000000000000001.
-fn in_unit(amount: f64, from: &str, to: &str) -> Option<f64> {
+pub(crate) fn in_unit(amount: f64, from: &str, to: &str) -> Option<f64> {
     if unit_eq(from, to) {
         return Some(amount);
     }
@@ -332,12 +335,15 @@ pub const MICRODOSE: &[(&str, f64, &str)] = &[
     ("2c-b", 3.0, "mg"),
 ];
 
-/// Never called a microdose, whatever the amount: DMT and ayahuasca aren't
-/// dosed that way, ibogaine carries cardiac risk at any dose, NBOMes have a
-/// tiny safety margin and are often sold as LSD, the DOx compounds are very
-/// long-lasting, and LSA is too variable.
+/// Never called a microdose, whatever the amount: NBOMes have a tiny safety
+/// margin and are often sold as LSD, the DOx compounds are very long-lasting,
+/// and LSA is too variable. DMT, ayahuasca and ibogaine can be microdosed
+/// (owner's review, 2026-10-06): DMT by its reference threshold, while
+/// ayahuasca (no ranges) and ibogaine (dosed per kilogram) can't be told
+/// from their amount, and ibogaine always carries its cardiac caution
+/// (profiles.rs).
 fn never_micro(key: &str) -> bool {
-    ["dmt", "ayahuasca", "ibogaine", "lsa", "morning glory", "hawaiian baby woodrose", "hbwr",
+    ["lsa", "morning glory", "hawaiian baby woodrose", "hbwr",
      "doc", "dob", "doi", "dom", "doet", "dopr", "dox"]
         .contains(&key)
         || key.contains("nbome")
@@ -811,6 +817,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
 
         let top_route = routes.first().map(|r| r.0.clone()).unwrap_or_default();
         let half_life = half_life_for(conn, &name, &top_route);
+        let notes = crate::patterns::notes_for(conn, &name, Utc::now())?;
         substances.push(SubstanceStats {
             key,
             name,
@@ -823,6 +830,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
             families,
             half_life,
             kind,
+            notes,
         });
     }
     substances.sort_by(|a, b| b.sessions.cmp(&a.sessions).then(b.doses.cmp(&a.doses)).then(a.name.cmp(&b.name)));
@@ -1078,10 +1086,11 @@ mod tests {
 
     #[test]
     fn some_psychedelics_are_never_called_microdoses() {
+        // DMT can be microdosed: a very small hit, by its threshold.
         let c = journal();
         reference(&c, "DMT", "Psychedelic", "mg", 10.0, 10.0, 20.0, 40.0, 60.0);
         doses_of(&c, "DMT", "mg", &[5.0]);
-        assert_eq!(tiers(&c), vec![(Some(5.0), Some("below threshold".into()))]);
+        assert_eq!(tiers(&c), vec![(Some(5.0), Some("microdose".into()))]);
         let c = journal();
         reference(&c, "25I-NBOMe", "Psychedelic", "µg", 50.0, 50.0, 500.0, 700.0, 1000.0);
         doses_of(&c, "25I-NBOMe", "µg", &[40.0]);

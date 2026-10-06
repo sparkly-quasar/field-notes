@@ -15,6 +15,7 @@ mod devices;
 pub(crate) use field_notes_core::interactions;
 mod keychain;
 mod kinds;
+mod patterns;
 pub mod knowledge;
 mod obsidian;
 mod owner_auth;
@@ -267,6 +268,7 @@ pub fn run() {
             commands::log_sleep,
             commands::set_sleep_checkin,
             commands::kind_question,
+            commands::pattern_note,
             commands::answer_kind_question,
             commands::set_substance_kind,
             commands::delete_timeline_event,

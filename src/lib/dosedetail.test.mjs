@@ -84,7 +84,7 @@ test("microdose cutoffs: the table, a psychedelic's threshold, or never", async 
   assert.deepEqual(microCutoff("LSD", true, 10, "µg"), { amount: 20, unit: "µg" });
   assert.deepEqual(microCutoff("shrooms", true, 0.25, "g"), { amount: 0.3, unit: "g" });
   assert.deepEqual(microCutoff("2C-E", true, 2, "mg"), { amount: 2, unit: "mg" });
-  assert.equal(microCutoff("DMT", true, 10, "mg"), null);
+  assert.deepEqual(microCutoff("DMT", true, 10, "mg"), { amount: 10, unit: "mg" }, "a very small hit");
   assert.equal(microCutoff("25I-NBOMe", true, 50, "µg"), null);
   assert.equal(microCutoff("Caffeine", false, 10, "mg"), null);
 });

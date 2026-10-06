@@ -150,6 +150,18 @@ pub fn profile(r: &impl Reference, name: &str, amount: Option<f64>, unit: &str, 
         });
     }
 
+    // Ibogaine slows the heart's recovery between beats (QT prolongation) at
+    // any dose, microdoses included (owner's review, 2026-10-06): every dose
+    // carries the caution, whatever its amount.
+    if is(&["ibogaine"]) {
+        return Some(p(
+            "cardiac",
+            "affects heart rhythm at any dose",
+            "Ibogaine affects heart rhythm at any amount, microdoses included.",
+            Some("Ibogaine can cause dangerous heart rhythms (it prolongs the QT interval) at any dose, microdoses included. It's riskier with a heart condition, other drugs that affect heart rhythm, or low potassium or magnesium. A heart check (ECG) first is the safer route; fainting, a racing or irregular heartbeat, or chest pain means emergency help."),
+        ));
+    }
+
     if is(&["ketamine"]) {
         let (roa, s) = ranges(r, "Ketamine", route, unit)?;
         let at = |x: Option<f64>| x.map(|v| v * s);
@@ -256,6 +268,15 @@ mod tests {
         assert_eq!(key("Alcohol", 1.0, "drink", "oral", "").as_deref(), Some("stimulating"));
         assert_eq!(key("Beer", 4.0, "drinks", "oral", "").as_deref(), Some("sedating"));
         assert_eq!(key("Alcohol", 30.0, "ml", "oral", ""), None);
+    }
+
+    #[test]
+    fn ibogaine_always_carries_its_cardiac_caution() {
+        for amount in [2.0, 20.0, 1000.0] {
+            let p = profile(&reference(), "Ibogaine", Some(amount), "mg", "oral", "").unwrap();
+            assert_eq!(p.key, "cardiac");
+            assert!(p.caution.unwrap().contains("QT"));
+        }
     }
 
     #[test]

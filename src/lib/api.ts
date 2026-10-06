@@ -56,6 +56,7 @@ const ROUTED = new Set([
   "log_sleep",
   "set_sleep_checkin",
   "kind_question",
+  "pattern_note",
   "answer_kind_question",
   "set_substance_kind",
   "check_combo",
@@ -301,6 +302,12 @@ export interface KindQuestion {
 }
 /** The question to ask about a substance just logged, or null. */
 export const kindQuestion = (substance: string) => invoke<KindQuestion | null>("kind_question", { substance });
+/** A dependence or withdrawal note (patterns.rs), shown once after logging. */
+export interface PatternNote {
+  key: string;
+  text: string;
+}
+export const patternNote = (substance: string) => invoke<PatternNote | null>("pattern_note", { substance });
 export const answerKindQuestion = (substance: string, ask: string, answer: string) =>
   invoke<void>("answer_kind_question", { substance, ask, answer });
 /** "" (as experiences), "routine" or "as_needed". */
@@ -496,6 +503,8 @@ export interface StatsSubstance {
   /** Drug families it counts toward: psychedelics, entactogens, dissociatives,
    *  stimulants, depressants, opioids, cannabinoids, other (stats.rs). */
   families: string[];
+  /** Dependence and withdrawal notes that hold now (patterns.rs). Missing from older servers. */
+  notes?: { key: string; text: string }[];
   /** How it's taken: "" (as experiences), "routine" or "as_needed" (kinds.rs).
    *  Missing from older servers, which read as "". */
   kind?: string;

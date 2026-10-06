@@ -573,6 +573,12 @@
           {/each}
         </div>
       </div>
+      {#if sub.notes?.length && !hiding()}
+        <section class="card care" aria-label="Worth knowing about {label(sub.key)}">
+          <h3>Worth knowing · {label(sub.key)}</h3>
+          {#each sub.notes as n}<p class="note">{n.text}</p>{/each}
+        </section>
+      {/if}
       {#if care}
         <section class="card care">
           <h3>{sub.kind === "routine" ? "Routine" : "As needed"} · {label(sub.key)}</h3>

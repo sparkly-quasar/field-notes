@@ -221,6 +221,15 @@ CREATE TABLE IF NOT EXISTS sleep_log (
     logged_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Which dependence notes (patterns.rs) have been shown after logging, so each
+-- appears once; it stays on the substance's Stats page while it holds.
+CREATE TABLE IF NOT EXISTS pattern_notes_seen (
+    substance      TEXT NOT NULL,
+    key            TEXT NOT NULL,
+    at             TEXT NOT NULL,
+    PRIMARY KEY (substance, key)
+);
+
 -- How each substance is taken (kinds.rs): '' as experiences, 'routine', or
 -- 'as_needed'; and what's been asked about it, so a question is never nagged.
 CREATE TABLE IF NOT EXISTS substance_kinds (
@@ -418,7 +427,7 @@ pub(crate) fn profile_context(conn: &Connection, doses: &[ProfiledDose], warning
                     "caution",
                 ),
                 "stimulating" if has("stimulant") => (
-                    "At this amount kratom tends to be stimulating, so with another stimulant the effects add up: heart rate, anxiety and trouble sleeping.",
+                    "At this amount kratom tends to be stimulating, though on its own it doesn't usually raise anxiety. With another stimulant, some people find it takes the edge off and need less of the stimulant; for others the effects add up: irritability, anxiety and trouble sleeping. If you combine them, start with less of each.",
                     "note",
                 ),
                 _ => continue,
@@ -1819,7 +1828,7 @@ mod tests {
         let (c, exp) = with_reference();
         take(&c, exp, "Amphetamine", 10.0, "mg", "2026-09-01T20:00:00Z");
         let (_, w) = take(&c, exp, "Kratom", 2.0, "g", "2026-09-01T20:30:00Z");
-        assert!(w.iter().any(|w| w.message.contains("kratom tends to be stimulating")), "{w:?}");
+        assert!(w.iter().any(|w| w.message.contains("kratom tends to be stimulating") && w.severity == "note"), "{w:?}");
     }
 
     #[test]

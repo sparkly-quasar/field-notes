@@ -69,6 +69,7 @@ pub const ROUTED: &[&str] = &[
     "log_sleep",
     "set_sleep_checkin",
     "kind_question",
+    "pattern_note",
     "answer_kind_question",
     "set_substance_kind",
     "check_combo",

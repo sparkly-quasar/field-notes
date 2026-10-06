@@ -10,11 +10,14 @@
   a week. `tick` asks again for the same substance after another dose.
 -->
 <script lang="ts">
-  import { answerKindQuestion, kindQuestion, type KindQuestion } from "$lib/api";
+  import { answerKindQuestion, kindQuestion, patternNote, type KindQuestion, type PatternNote } from "$lib/api";
 
   let { substance, tick = 0 }: { substance: string; tick?: number } = $props();
 
   let q = $state<KindQuestion | null>(null);
+  /** A dependence or withdrawal note whose pattern just showed up (patterns.rs):
+   *  shown once here, then kept on the substance's Stats page. */
+  let note = $state<PatternNote | null>(null);
   let said = $state("");
   let busy = $state(false);
 
@@ -22,8 +25,14 @@
     const s = substance.trim();
     void tick;
     q = null;
+    note = null;
     said = "";
     if (!s) return;
+    patternNote(s)
+      .then((n) => {
+        if (substance.trim() === s) note = n;
+      })
+      .catch(() => {});
     kindQuestion(s)
       .then((r) => {
         if (substance.trim() === s) q = r;
@@ -64,6 +73,12 @@
   }
 </script>
 
+{#if note}
+  <div class="kq note" role="note">
+    <p>{note.text}</p>
+    <button type="button" class="kq-ok" onclick={() => (note = null)}>Got it</button>
+  </div>
+{/if}
 {#if q}
   <div class="kq" role="group" aria-label="How you take {q.substance}">
     <p>{q.text}</p>
@@ -91,5 +106,10 @@
     font: inherit; font-size: var(--fs-sm, 0.9rem); cursor: pointer;
   }
   .kq-row button:first-child { background: var(--accent); color: var(--on-accent, var(--accent-ink, #fff)); }
+  .kq.note p { font-weight: 400; }
+  .kq-ok {
+    width: auto; min-height: 0; margin: 0; padding: 0.2rem 0; border: 0; background: none;
+    color: var(--accent); font: inherit; font-size: var(--fs-sm, 0.9rem); text-decoration: underline; cursor: pointer;
+  }
   .kq-said { margin: 0.5rem 0; font-size: var(--fs-sm, 0.88rem); color: var(--muted, var(--text-2)); }
 </style>

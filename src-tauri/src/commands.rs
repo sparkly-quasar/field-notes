@@ -350,6 +350,18 @@ pub fn kind_question_in(db: &Db, substance: String) -> Result<Option<crate::kind
     db.with(|c| crate::kinds::question(c, &substance, chrono::Utc::now()))
 }
 
+/// A dependence or withdrawal note for a substance just logged, the first time
+/// its pattern shows up (patterns.rs). Each appears once this way.
+#[tauri::command]
+pub fn pattern_note(db: State<'_, Db>, substance: String) -> Result<Option<crate::patterns::PatternNote>, String> {
+    pattern_note_in(&db, substance)
+}
+
+/// [`pattern_note`] against any person's journal (the portal picks it by device).
+pub fn pattern_note_in(db: &Db, substance: String) -> Result<Option<crate::patterns::PatternNote>, String> {
+    db.with(|c| crate::patterns::take_new(c, &substance, chrono::Utc::now()))
+}
+
 #[tauri::command]
 pub fn answer_kind_question(db: State<'_, Db>, substance: String, ask: String, answer: String) -> Result<(), String> {
     answer_kind_question_in(&db, substance, ask, answer)

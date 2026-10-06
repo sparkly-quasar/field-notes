@@ -1581,6 +1581,17 @@ and no tier, and gets opioid wording in the checker.
   saved as a setting; the psilocybin mg scale; the five first dose profiles
   (kratom, DXM, diphenhydramine, ketamine, alcohol) with the kratom ranges as
   proposed.
+- **Reviewed 2026-10-06** (the owner's "wording for clinical review" packet):
+  dependence notes built in `patterns.rs` with the reviewed triggers (GHB group
+  doses 4 hours apart or less for more than a day, or 21+ of 28 days; alcohol
+  5+ drinks on 4 of 7 days, 3 heavy days in a row, or drinks 4 to 10am on 3 of
+  14 days; benzodiazepines and Z-drugs 20+ of 28 days or the daily amount up by
+  half; gabapentinoids and phenibut 20+ of 28; kratom most days with the amount
+  up a quarter, or extract/7-OH most days; as needed 20+ of 28; the rebound note
+  after a week or more of nightly use then a night off). Each shows once after
+  logging, then stays on the substance's Stats page. DMT, ayahuasca and ibogaine
+  can be microdosed; ibogaine carries a cardiac caution at every dose. The
+  kratom-with-stimulants note says some people find it takes the edge off.
 - **Every note's final wording gets a check from someone with addiction
   medicine or psychiatry experience before it ships.** The thresholds above
   (2 to 4 weeks, 5 of 7 days, about 25%) are reasonable anchors, not measured
