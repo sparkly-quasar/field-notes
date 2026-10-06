@@ -370,6 +370,20 @@
     try { localStorage.setItem(NIGHT_KEY, on ? "1" : "0"); } catch {}
   }
   const toggleNight = () => setNight(!night);
+
+  /** The nav's last slot: Talk or Stats, the owner's pick, on this phone only. */
+  const NAV_SLOT_KEY = "fieldnotes.navSlot";
+  let navSlot = $state<"talk" | "stats">((() => {
+    try { return localStorage.getItem(NAV_SLOT_KEY) === "stats" ? "stats" : "talk"; } catch { return "talk"; }
+  })());
+  function setNavSlot(v: "talk" | "stats") {
+    navSlot = v;
+    try { localStorage.setItem(NAV_SLOT_KEY, v); } catch {}
+  }
+  function goStats() {
+    journalMode = "stats";
+    goTo("journal");
+  }
   /** While dim, also keep the screen from locking in someone's hand. Browsers can
    *  refuse; that's fine, it's a convenience. Re-requested when the page returns. */
   async function holdWake() {
@@ -1645,6 +1659,16 @@
     </p>
   {/if}
 
+  <h3 class="sec">Bottom bar</h3>
+  <p class="muted small">The last button in the bar along the bottom. On this phone only.</p>
+  <div class="seg" role="radiogroup" aria-label="Last button in the bottom bar">
+    <button role="radio" aria-checked={navSlot === "talk"} class:on={navSlot === "talk"} onclick={() => setNavSlot("talk")}>Talk</button>
+    <button role="radio" aria-checked={navSlot === "stats"} class:on={navSlot === "stats"} onclick={() => setNavSlot("stats")}>Stats</button>
+  </div>
+  {#if navSlot === "talk" && companionEnabled === false}
+    <p class="muted small">The Companion is off, so the Talk button is hidden. Pick Stats to fill the spot.</p>
+  {/if}
+
   <h3 class="sec">Without your computer</h3>
   <p class="muted small">
     {#if net.ready}The dose reference is saved on this phone, so Check and Look up work offline.{:else}The dose reference isn't saved on this phone yet; it saves itself while you're connected.{/if}
@@ -2386,10 +2410,12 @@
     {#if !locked}
     <nav aria-label="Sections">
       <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}><Icon name="today" />Today</button>
-      <button class:on={view === "journal"} aria-current={view === "journal" ? "page" : undefined} onclick={() => goTo("journal")}><Icon name="journal" />Journal</button>
+      <button class:on={view === "journal" && !(navSlot === "stats" && journalMode === "stats")} aria-current={view === "journal" ? "page" : undefined} onclick={() => { if (navSlot === "stats") journalMode = "entries"; goTo("journal"); }}><Icon name="journal" />Journal</button>
       <button class="plus" aria-label="New: log a dose, a moment, a trip report, or a note" onclick={() => (sheet = "new")}><span class="plus-glyph" aria-hidden="true">＋</span><span aria-hidden="true">New</span></button>
       <button class:on={view === "check"} aria-current={view === "check" ? "page" : undefined} onclick={() => goTo("check")}><Icon name="check" />Check</button>
-      {#if companionEnabled === true}
+      {#if navSlot === "stats"}
+        <button class:on={view === "journal" && journalMode === "stats"} aria-current={view === "journal" && journalMode === "stats" ? "page" : undefined} onclick={goStats}><Icon name="stats" />Stats</button>
+      {:else if companionEnabled === true}
         <button class:on={view === "talk"} aria-current={view === "talk" ? "page" : undefined} onclick={() => goTo("talk")}><Icon name="talk" />Talk</button>
       {/if}
     </nav>
