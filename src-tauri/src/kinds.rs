@@ -318,7 +318,7 @@ pub fn question(conn: &Connection, substance: &str, now: DateTime<Utc>) -> rusql
             ask: AS_NEEDED.into(),
             text: format!("How do you take {name}?"),
             choices: vec![
-                choice("as_needed", "As needed (for anxiety, sleep, pain…)"),
+                choice("as_needed", "As needed"),
                 choice("routine", "Regularly"),
                 choice("neither", "Neither"),
             ],
