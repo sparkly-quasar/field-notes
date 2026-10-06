@@ -1241,7 +1241,7 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.25.0** (2026-10-06): dose-aware Stats (below). v0.24.0: tap a chart in Stats to see its experiences. v0.22.2: share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
+**Current release: v0.26.0** (2026-10-06): choose Talk or Stats for the phone's last nav button. v0.25.0: dose-aware Stats (below). v0.24.0: tap a chart in Stats to see its experiences. v0.22.2: share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
 
 ### Dose-aware Stats: shipped in v0.25.0 (owner's discussion, 2026-10-05)
 

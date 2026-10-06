@@ -11,6 +11,15 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.26.0
+
+- **Stats or Talk in the phone's bottom bar.** In Settings on your phone,
+  under Bottom bar, choose whether the last button opens Talk or goes straight
+  to Stats. The choice is kept on that phone only.
+- **Shorter wording.** The question about how you take a substance now just
+  says "As needed", and Stats no longer shows the note about substances taken
+  as needed or as routine.
+
 ## v0.25.0
 
 - **Stats pays attention to the amount, not just the dose.** Each dose is
