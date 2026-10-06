@@ -11,6 +11,44 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.25.0
+
+- **Stats pays attention to the amount, not just the dose.** Each dose is
+  shown as what it was logged as against the dose reference's ranges ("logged
+  as a strong dose"), never as what you received, since potency is unknown.
+  The calendar shades each day by its strongest dose, and microdoses are
+  recognised on their own: an outline on the calendar, a lighter part of each
+  bar, and stretches of microdosing noted below.
+- **Kratom in mg and g is one series now.** Amounts in different mass units
+  (mg, g, µg) are combined, and the reference's ranges show even when you log
+  in a different unit from the reference's.
+- **Say what form a dose was in.** Mushrooms can be dried, fresh, powdered or
+  an edible, and kratom leaf powder, extract or a 7-OH product. Fresh
+  mushrooms count as about a tenth of their weight in dried, and an edible by
+  your own estimate in grams or mg of psilocybin. With no form chosen, dried
+  is assumed. Capsules are counted by how much is in each, and you can save
+  your usual capsules so you only enter that once.
+- **What an amount tends to do.** For a few substances whose effects change a
+  lot with the amount (kratom, DXM, diphenhydramine, ketamine, alcohol), a dose
+  carries a short note on what that amount usually does, and the combination
+  check takes it into account. Ibogaine always carries a heart-rhythm caution.
+  These only ever add to a warning; they never soften one.
+- **Routine and as-needed doses.** If you take something at the same time most
+  days, Field Notes may ask once whether it's part of your routine. For
+  benzodiazepines, sleeping pills, gabapentinoids and kratom it may ask
+  whether you take it as needed. Either way the doses stay in your journal,
+  the combination checks and that substance's Stats; they just aren't counted
+  as experiences. You can change this on the substance's Stats page. It never
+  asks about alcohol, GHB or opioids.
+- **Worth knowing.** When a pattern shows up that's linked to dependence or
+  withdrawal (daily GHB, daily drinking, regular benzodiazepine or kratom use,
+  and so on), a short note explains what it can mean. It shows once after the
+  dose, then stays on that substance's Stats page. No scores or streaks.
+- **Doses near bedtime.** Add your usual bedtime under Time of day to see which
+  doses were taken within one half-life of it. You can also choose to be asked
+  how you slept each morning, and compare nights after a dose near bedtime
+  with other nights. Both are off until you turn them on.
+
 ## v0.24.0
 
 - **Tap a chart in Stats to see what's behind it.** Tap a day on the calendar

@@ -8,12 +8,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
-  import { usageStats, type UsageStats, type StatsDosePoint } from "$lib/api";
+  import { usageStats, setBedtime, setSleepCheckin, setSubstanceKind, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
   import Trends from "$lib/Trends.svelte";
   import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
     niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
+    bedMinutes, closeToBed, hourBeforeBed, fmtBedtime, sleepCompare,
   } from "$lib/stats";
 
   let {
@@ -132,11 +133,30 @@
   /** With a family picked, the substance chips narrow to its members. */
   const shownChoices = $derived(family ? choices.filter((c) => famKeys.has(c.sub.key)) : choices);
 
+  // ---- routine and as-needed (kinds.rs) ----
+  // They leave the experience views (how often, the calendar, time between,
+  // "days since"), never the rest: the dose chart, time of day, combinations and
+  // amount trends count every dose. Picking one shows it on its own.
+  const careKeys = $derived(new Set((data?.substances ?? []).filter((x) => x.kind).map((x) => x.key)));
+  const careSubs = $derived((data?.substances ?? []).filter((x) => x.kind));
+  const KIND_LABEL: Record<string, string> = { "": "As experiences", routine: "Routine", as_needed: "As needed" };
+
+  async function setKind(kind: string) {
+    if (!sub || !data) return;
+    const key = sub.key;
+    await setSubstanceKind(sub.name, kind);
+    data = { ...data, substances: data.substances.map((x) => (x.key === key ? { ...x, kind } : x)) };
+  }
+
   // ---- time window ----
   const now = Date.now();
   const sessions = $derived(
     (data?.sessions ?? []).filter((s) =>
-      sub ? s.substances.includes(sub.key) : family ? s.substances.some((k) => famKeys.has(k)) : true,
+      sub
+        ? s.substances.includes(sub.key)
+        : family
+          ? s.substances.some((k) => famKeys.has(k) && !careKeys.has(k))
+          : s.substances.some((k) => !careKeys.has(k)),
     ),
   );
   const sessionTimes = $derived(
@@ -202,7 +222,7 @@
   // ---- and for a family: across sessions with anything in it, so LSD then
   // mushrooms nine days later is a nine-day gap. ----
   const famLastT = $derived.by(() => {
-    const t = famSubs.map((s) => ts(s.last_used)).filter((x): x is number => x != null);
+    const t = famSubs.filter((s) => !s.kind).map((s) => ts(s.last_used)).filter((x): x is number => x != null);
     return t.length ? Math.max(...t) : null;
   });
   const famDoses = $derived(famSubs.reduce((n, s) => n + s.doses, 0));
@@ -215,6 +235,30 @@
     sub ? sessions.filter((s) => s.rating != null).map((s) => s.rating as number) : [],
   );
 
+  /** For a routine or as-needed substance: days taken in the last four weeks and
+   *  the four before, its usual time, and its usual amount. Plain counts only;
+   *  any note about what a pattern means waits for the dependence notes, whose
+   *  wording is checked by a clinician first (ROADMAP.md). */
+  const care = $derived.by(() => {
+    if (!sub?.kind) return null;
+    const pts = sub.series.flatMap((u) => u.points);
+    const times = pts.map((p) => ts(p.taken_at)).filter((t): t is number => t != null);
+    const today = startOfDay(now);
+    const daysIn = (from: number, to: number) =>
+      new Set(times.filter((t) => t >= from && t < to).map((t) => dayKey(t))).size;
+    const lately = daysIn(today - 27 * 86_400_000, today + 86_400_000);
+    const before = daysIn(today - 55 * 86_400_000, today - 27 * 86_400_000);
+    const mins = times.map((t) => new Date(t).getHours() * 60 + new Date(t).getMinutes());
+    const usual = median(mins);
+    const main = sub.series[0];
+    const amount = median(main.points.map((p) => p.amount).filter((a): a is number => a != null));
+    return {
+      lately,
+      before,
+      time: usual == null ? null : new Date(2026, 0, 1, Math.floor(usual / 60), Math.round(usual % 60)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+      amount: amount == null ? null : `${fmtNum(amount)} ${main.unit}`,
+    };
+  });
   /** The experiences in view, oldest first, for what a tap opens. */
   const exps = $derived(
     sessions
@@ -235,6 +279,65 @@
   );
   const freqScale = $derived(niceScale(Math.max(1, ...freq.map((f) => f.count)), 3));
   const FH = 140;
+
+  // ---- tiers (dose-aware Stats, step 5) ----
+  // The doses in view: the picked substance, or everything not routine or as
+  // needed (which have their own view).
+  const scopedPoints = $derived(
+    (sub ? [sub] : family ? famSubs.filter((x) => !x.kind) : (data?.substances ?? []).filter((x) => !x.kind)).flatMap((x) =>
+      x.series.flatMap((u) => u.points),
+    ),
+  );
+  const RANK: Record<string, number> = { micro: 0, below: 1, threshold: 1, light: 1, common: 2, strong: 3, heavy: 4 };
+  /** Experiences where every dose in view was a microdose. */
+  const microExps = $derived.by(() => {
+    const by = new Map<number, boolean>();
+    for (const p of scopedPoints) by.set(p.experience_id, (by.get(p.experience_id) ?? true) && p.tier === "micro");
+    return new Set([...by].filter(([, all]) => all).map(([id]) => id));
+  });
+  const anyMicro = $derived(microExps.size > 0);
+  /** Per day: the strongest tier, and whether every dose was a microdose. */
+  const dayTier = $derived.by(() => {
+    const m = new Map<string, { rank: number | null; micro: boolean; label: string }>();
+    for (const p of scopedPoints) {
+      const t = ts(p.taken_at);
+      if (t == null) continue;
+      const k = dayKey(t);
+      const cur = m.get(k) ?? { rank: null, micro: true, label: "" };
+      const r = p.tier ? RANK[p.tier] ?? null : null;
+      if (r != null && (cur.rank == null || r > cur.rank)) {
+        cur.rank = r;
+        cur.label = p.tier_label ?? "";
+      }
+      cur.micro = cur.micro && p.tier === "micro";
+      m.set(k, cur);
+    }
+    return m;
+  });
+  const anyTier = $derived([...dayTier.values()].some((d) => d.rank != null && d.rank > 0));
+  /** Runs of microdose days no more than 4 days apart, 3 or more long: how a
+   *  schedule (every third day, four on and three off) reads. */
+  const microPeriods = $derived.by(() => {
+    const ds = [...new Set(scopedPoints.filter((p) => p.tier === "micro").map((p) => ts(p.taken_at)).filter((t): t is number => t != null).map((t) => startOfDay(t)))].sort((a, b) => a - b);
+    const out: { from: number; to: number; n: number }[] = [];
+    for (const d of ds) {
+      const last = out[out.length - 1];
+      if (last && d - last.to <= 4 * 86_400_000) {
+        last.to = d;
+        last.n++;
+      } else out.push({ from: d, to: d, n: 1 });
+    }
+    return out.filter((x) => x.n >= 3);
+  });
+  /** Days since the last dose that wasn't a microdose, when microdoses are mixed in. */
+  const lastFullT = $derived.by(() => {
+    if (!anyMicro) return null;
+    const t = scopedPoints.filter((p) => p.tier !== "micro").map((p) => ts(p.taken_at)).filter((x): x is number => x != null);
+    return t.length ? Math.max(...t) : null;
+  });
+  const freqMicro = $derived(
+    frequency(sessions.filter((s) => microExps.has(s.experience_id)).map((s) => ts(s.started_at)).filter((t): t is number => t != null), windowFrom, now),
+  );
 
   // ---- heatmap ----
   const days = $derived(perDay(sessionTimes));
@@ -298,6 +401,80 @@
   });
   const fmtHour = (h: number) => new Date(2000, 0, 1, h % 24).toLocaleTimeString(undefined, { hour: "numeric" });
 
+  // ---- bedtime (dose-aware Stats, step 3 in ROADMAP.md) ----
+  // Asked once, here, the first time this card is seen; kept in the journal so
+  // the phone and the computer agree. Each dose is counted against its own
+  // substance's half-life from the dose reference, using the low end of the
+  // range, so "close to bedtime" never overstates how much is left.
+  /** Older servers don't send a bedtime and can't store one: say nothing. */
+  const bedSupported = $derived(!!data && "bedtime" in data);
+  const bedtime = $derived(data?.bedtime ?? null);
+  const bed = $derived(bedMinutes(bedtime));
+  let bedEditing = $state(false);
+  let bedInput = $state("23:00");
+  let bedErr = $state("");
+  const asking = $derived(bedSupported && (bedtime == null || bedEditing));
+
+  async function answerBedtime(value: string) {
+    bedErr = "";
+    try {
+      await setBedtime(value);
+      if (data) data = { ...data, bedtime: value };
+      bedEditing = false;
+    } catch (e) {
+      bedErr = `Couldn't save that (${String(e).replace(/^Error: /, "")}).`;
+    }
+  }
+  function changeBedtime() {
+    if (bed != null) bedInput = bedtime!;
+    bedEditing = true;
+  }
+
+  const timesOf = (x: StatsSubstance) =>
+    x.series.flatMap((u) => u.points).map((p) => ts(p.taken_at)).filter((t): t is number => t != null);
+  const fmtHours = (h: number) =>
+    h < 1 ? `${Math.round(h * 60)} minutes` : `${fmtNum(Math.round(h * 10) / 10)} hour${h === 1 ? "" : "s"}`;
+  /** With one substance picked: the hours before bed that are within its half-life. */
+  const lateHours = $derived(
+    sub?.half_life && bed != null
+      ? Array.from({ length: 24 }, (_, h) => hourBeforeBed(h, bed, sub!.half_life!.low_hours))
+      : Array(24).fill(false),
+  );
+  const bedHour = $derived(bed == null ? -1 : Math.floor(bed / 60));
+  // ---- sleep (step 6): only for someone who asked to be asked ----
+  async function toggleSleep(on: boolean) {
+    await setSleepCheckin(on);
+    if (data) data = { ...data, sleep_checkin: on };
+  }
+  /** Rated nights in this range, after a dose near bedtime against the rest.
+   *  Every substance with a half-life counts, routine ones too: coffee is
+   *  coffee. Nights outside the range are left out, since their doses aren't. */
+  const sleepCmp = $derived.by(() => {
+    if (bed == null || !data?.sleep?.length) return null;
+    const from = dayKey(windowFrom);
+    const nights = data.sleep.filter((n) => n.night >= from);
+    if (!nights.length) return null;
+    const doses = data.substances
+      .filter((x) => x.half_life)
+      .flatMap((x) => timesOf(x).map((t) => ({ t, hours: x.half_life!.low_hours })));
+    return { total: nights.length, ...sleepCompare(nights, doses, bed) };
+  });
+
+  /** Without one picked: each substance with doses inside its half-life before bed. */
+  const nearBed = $derived.by(() => {
+    if (bed == null || sub) return [];
+    const list = family ? famSubs : (data?.substances ?? []);
+    return list
+      .filter((x) => x.half_life)
+      .map((x) => {
+        const times = timesOf(x);
+        return { key: x.key, n: closeToBed(times, bed, x.half_life!.low_hours), total: times.length, hours: x.half_life!.low_hours };
+      })
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n || a.key.localeCompare(b.key))
+      .slice(0, 5);
+  });
+
   const fmtDay = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   /** Axis dates carry the year whenever the window spans more than one, or
    *  "Oct 2 … Oct 1" reads as a single day. */
@@ -316,6 +493,27 @@
     return t == null ? s : new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   };
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  /** " (logged as 600 mg)" when the amount shown isn't what was written. */
+  const asLogged = (p: StatsDosePoint) =>
+    p.logged_unit && p.logged_amount != null ? ` (logged as ${fmtNum(p.logged_amount)} ${p.logged_unit})` : "";
+  /** "about " for an estimate: fresh mushrooms as dried, an edible's guess. */
+  const about = (p: StatsDosePoint) => (p.approx ? "about " : "");
+  /** " · logged as a strong dose": what was written, never what was received
+   *  (potency is unknown). With no ranges to compare with, against the person's
+   *  own usual amount instead, once there are enough doses to have one. */
+  function tierText(p: StatsDosePoint): string {
+    const l = p.tier_label;
+    if (l === "microdose") return " · logged as a microdose";
+    if (l === "below threshold") return " · logged below threshold";
+    if (l) return ` · logged as a ${l}${l.endsWith("dose") ? "" : " dose"}`;
+    if (!current || sub?.kind || p.amount == null) return "";
+    const amts = current.series.points.map((x) => x.amount).filter((a): a is number => a != null);
+    const usual = amts.length >= 5 ? median(amts) : null;
+    if (!usual) return "";
+    if (p.amount >= usual * 1.5) return " · above your usual";
+    if (p.amount <= usual / 1.5) return " · below your usual";
+    return "";
+  }
   const fmtBucketLong = (f: { start: number; unit: "week" | "month" }) =>
     f.unit === "week" ? `Week of ${fmtDay(f.start)}` : new Date(f.start).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 </script>
@@ -357,16 +555,24 @@
 
     {#if sub}
       <div class="tiles">
-        <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "experience" : "experiences"}</span></div>
+        {#if !sub.kind}
+          <div class="tile"><span class="big">{sub.sessions}</span><span class="cap">{sub.sessions === 1 ? "experience" : "experiences"}</span></div>
+        {/if}
         <div class="tile"><span class="big">{sub.doses}</span><span class="cap">{sub.doses === 1 ? "dose" : "doses"}</span></div>
         {#if lastT != null}
-          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since last experience</span></div>
+          <div class="tile"><span class="big">{daysSince(lastT)}</span><span class="cap">{daysSince(lastT) === 1 ? "day" : "days"} since the last {sub.kind ? "dose" : "experience"}</span></div>
+        {/if}
+        {#if lastFullT != null && lastFullT !== lastT}
+          <div class="tile"><span class="big">{daysSince(lastFullT)}</span><span class="cap">{daysSince(lastFullT) === 1 ? "day" : "days"} since the last full dose</span></div>
         {/if}
       </div>
     {:else if family}
       <div class="tiles">
         {#if famLastT != null}
           <div class="tile"><span class="big">{daysSince(famLastT)}</span><span class="cap">{daysSince(famLastT) === 1 ? "day" : "days"} since the last {FAMILY_ONE[family]}</span></div>
+        {/if}
+        {#if lastFullT != null && lastFullT !== famLastT}
+          <div class="tile"><span class="big">{daysSince(lastFullT)}</span><span class="cap">{daysSince(lastFullT) === 1 ? "day" : "days"} since the last full dose</span></div>
         {/if}
         <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{famDoses}</span><span class="cap">{famDoses === 1 ? "dose" : "doses"}</span></div>
@@ -376,11 +582,48 @@
       {/if}
     {:else}
       <div class="tiles">
-        <div class="tile"><span class="big">{data.total_sessions}</span><span class="cap">{data.total_sessions === 1 ? "experience" : "experiences"}</span></div>
+        <div class="tile"><span class="big">{sessions.length}</span><span class="cap">{sessions.length === 1 ? "experience" : "experiences"}</span></div>
         <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
         <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
       </div>
       <p class="note pickhint">Pick a family or a substance to narrow everything below to it.</p>
+    {/if}
+    {#if !sub && careSubs.length}
+      <p class="note pickhint">
+        {careSubs.slice(0, 3).map((x) => label(x.key)).join(", ")}{careSubs.length > 3 ? ` and ${careSubs.length - 3} more` : ""}
+        {careSubs.length === 1
+          ? careSubs[0].kind === "routine" ? "is part of your routine, so it isn't" : "is taken as needed, so it isn't"
+          : "are taken as routine or as needed, so they aren't"} counted as experiences here.
+        Every dose still counts in time of day, combinations and amounts. Pick one to see it on its own.
+      </p>
+    {/if}
+    {#if sub}
+      <div class="kindrow" role="group" aria-label="How you take {label(sub.key)}">
+        <span class="note">How you take it</span>
+        <div class="seg small">
+          {#each ["", "routine", "as_needed"] as k}
+            <button class:on={(sub.kind ?? "") === k} aria-pressed={(sub.kind ?? "") === k} onclick={() => setKind(k)}>{KIND_LABEL[k]}</button>
+          {/each}
+        </div>
+      </div>
+      {#if sub.notes?.length && !hiding()}
+        <section class="card care" aria-label="Worth knowing about {label(sub.key)}">
+          <h3>Worth knowing · {label(sub.key)}</h3>
+          {#each sub.notes as n}<p class="note">{n.text}</p>{/each}
+        </section>
+      {/if}
+      {#if care}
+        <section class="card care">
+          <h3>{sub.kind === "routine" ? "Routine" : "As needed"} · {label(sub.key)}</h3>
+          <div class="facts">
+            <div><span class="big">{care.lately}</span><span class="cap">of the last 28 days</span></div>
+            <div><span class="big">{care.before}</span><span class="cap">of the 28 before</span></div>
+            {#if care.time}<div><span class="big">{care.time}</span><span class="cap">usual time</span></div>{/if}
+            {#if care.amount}<div><span class="big">{care.amount}</span><span class="cap">usual amount</span></div>{/if}
+          </div>
+          <p class="note">Days it was taken. These doses aren't counted as experiences elsewhere in Stats, but every chart for {label(sub.key)} below includes them, and combination checks always do.</p>
+        </section>
+      {/if}
     {/if}
 
     {#key range}
@@ -408,7 +651,7 @@
                   {#each [...current.series.points].reverse() as p}
                     <tr>
                       <td>{fmtWhen(p.taken_at)}</td>
-                      <td>{p.amount == null ? "not recorded" : `${fmtNum(p.amount)} ${current.series.unit}`}</td>
+                      <td>{p.amount == null ? "not recorded" : `${about(p)}${fmtNum(p.amount)} ${current.series.unit}${asLogged(p)}${tierText(p)}`}</td>
                       <td>{p.route || "—"}</td>
                     </tr>
                   {/each}
@@ -434,7 +677,7 @@
                   <circle
                     cx={x(d.t)} cy={y(d.p.amount ?? 0)} r="14" class="hit"
                     role="button" tabindex="0"
-                    aria-label={`${fmtWhen(d.p.taken_at)}: ${fmtNum(d.p.amount ?? 0)} ${current.series.unit}`}
+                    aria-label={`${fmtWhen(d.p.taken_at)}: ${about(d.p)}${fmtNum(d.p.amount ?? 0)} ${current.series.unit}${asLogged(d.p)}`}
                     onclick={() => (selected = d.p)}
                     onmouseenter={() => (selected = d.p)}
                     onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selected = d.p; } }}
@@ -446,7 +689,7 @@
             <p class="axisnote">{current.series.unit}{bands ? ` · shaded: dose reference ranges (${bands.route})` : ""}</p>
             {#if selected}
               <div class="detail">
-                <span><strong>{selected.amount == null ? "?" : fmtNum(selected.amount)} {current.series.unit}</strong>
+                <span><strong>{about(selected)}{selected.amount == null ? "?" : fmtNum(selected.amount)} {current.series.unit}</strong>{asLogged(selected)}{tierText(selected)}
                   {selected.route ? ` · ${selected.route}` : ""} · {fmtWhen(selected.taken_at)}</span>
                 {#if onOpen}<button class="link" onclick={() => onOpen?.(selected!.experience_id)}>Open entry</button>{/if}
               </div>
@@ -511,7 +754,7 @@
           {#if SPACING_NOTE[family] && !hiding()}<p class="note guide">{SPACING_NOTE[family]}</p>{/if}
           <h4>In this family (experiences)</h4>
           <ul class="bars">
-            {#each famSubs as s}
+            {#each famSubs.filter((x) => !x.kind) as s}
               <li><span class="lbl">{label(s.key)}</span><span class="track"><span class="fill" style:width={`${(s.sessions / Math.max(1, sessions.length)) * 100}%`}></span></span><span class="n" title={plural(s.sessions, "session")}>{s.sessions}</span></li>
             {/each}
           </ul>
@@ -533,14 +776,19 @@
               {@const bh = (f.count / freqScale.max) * (FH - 32)}
               {@const bx = 30 + i * slot}
               {#if f.count}
+                {@const nm = freqMicro[i]?.count ?? 0}
                 <path class="bar" class:sel={barIdx === i} d={`M${bx},${FH - 24} v${-(bh - Math.min(4, bw / 2))} q0,${-Math.min(4, bw / 2)} ${Math.min(4, bw / 2)},${-Math.min(4, bw / 2)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, bw / 2)} v${bh - Math.min(4, bw / 2)} z`} />
+                {#if nm}
+                  <!-- the microdoses, from the bottom of the bar -->
+                  <rect class="bar micro" x={bx} y={FH - 24 - (nm / freqScale.max) * (FH - 32)} width={bw} height={(nm / freqScale.max) * (FH - 32)} />
+                {/if}
               {/if}
               <!-- the whole column is the target, so a thin bar is still easy to tap -->
               <rect class="hit" x={bx} y="0" width={slot} height={FH - 24}
                 role="button" tabindex={f.count ? 0 : -1} aria-label="{fmtBucketLong(f)}: {plural(f.count, 'experience')}"
                 onclick={() => (pickBar = barIdx === i ? null : f.start)}
                 onkeydown={(e) => keyTap(e, () => (pickBar = barIdx === i ? null : f.start))}>
-                <title>{fmtBucketLong(f)}: {plural(f.count, "experience")}</title>
+                <title>{fmtBucketLong(f)}: {plural(f.count, "experience")}{freqMicro[i]?.count ? `, ${freqMicro[i].count} of them microdoses` : ""}</title>
               </rect>
             {/each}
             {#if freq.length}
@@ -549,6 +797,7 @@
             {/if}
           </svg>
         </div>
+        {#if anyMicro}<p class="axisnote"><i class="sw micro"></i> Lighter: experiences that were only microdoses.</p>{/if}
         {#if barIdx >= 0}
           <StatsPick heading={fmtBucketLong(freq[barIdx])} note={plural(barExps.length, "experience")}
             items={barExps.map((e) => pickItem(e, label))} empty="No experiences in this {freq[barIdx].unit}."
@@ -581,19 +830,33 @@
               {#each Array(7) as _, dow}
                 {@const t = cellDay(w, dow)}
                 {@const n = days.get(dayKey(t)) ?? 0}
+                {@const dt = n ? dayTier.get(dayKey(t)) : undefined}
                 {#if t <= now}
+                  <!-- Shaded by the strongest dose that day when the reference has
+                       ranges for it, else by how many experiences; a day of only
+                       microdoses is an outline. -->
                   <rect x={20 + wi * (CELL + GAP)} y={18 + dow * (CELL + GAP)} width={CELL} height={CELL} rx="3"
-                    class={n ? "cell on" : "cell"} class:sel={pickDay === t} fill-opacity={n ? 0.35 + 0.65 * (n / heatMax) : 1}
+                    class={n ? (dt?.micro ? "cell micro" : "cell on") : "cell"} class:sel={pickDay === t}
+                    fill-opacity={!n || dt?.micro ? 1 : anyTier && dt?.rank != null ? 0.3 + 0.175 * dt.rank : 0.35 + 0.65 * (n / heatMax)}
                     role="button" tabindex={n ? 0 : -1} aria-label="{fmtDayYear(t)}: {n ? plural(n, 'experience') : 'none'}"
                     onclick={() => (pickDay = pickDay === t ? null : t)}
                     onkeydown={(e) => keyTap(e, () => (pickDay = pickDay === t ? null : t))}>
-                    <title>{fmtDayYear(t)}: {n ? plural(n, "experience") : "none"}</title>
+                    <title>{fmtDayYear(t)}: {n ? plural(n, "experience") : "none"}{dt?.micro ? " · microdoses only" : dt?.label ? ` · strongest logged as ${dt.label}` : ""}</title>
                   </rect>
                 {/if}
               {/each}
             {/each}
           </svg>
         </div>
+        {#if anyTier || anyMicro}
+          <p class="axisnote">
+            {anyTier ? "Darker: a stronger dose that day, as logged, against the dose reference's ranges." : ""}
+            {anyMicro ? " Outlined: microdoses only." : ""}
+          </p>
+        {/if}
+        {#each microPeriods as mp}
+          <p class="note">Microdosing: {fmtDayYear(mp.from)} to {fmtDayYear(mp.to)}, {plural(mp.n, "day")} with microdoses.</p>
+        {/each}
         {#if pickDay != null}
           <StatsPick heading={new Date(pickDay).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
             note={dayExps.length ? plural(dayExps.length, "experience") : ""}
@@ -629,8 +892,9 @@
         <h3>Time of day{scope ? ` · ${scope}` : ""}</h3>
         <div class="hours" class:picking={pickHour != null} role="group" aria-label="Doses by hour of day">
           {#each hours as n, h}
-            <button class="hcol" class:sel={pickHour === h} title={`${h}:00: ${plural(n, "dose")}`}
-              aria-label="{fmtHour(h)}: {plural(n, 'dose')}" aria-pressed={pickHour === h} tabindex={n ? 0 : -1}
+            <button class="hcol" class:sel={pickHour === h} class:late={lateHours[h]} class:bed={bedHour === h}
+              title={`${h}:00: ${plural(n, "dose")}${bedHour === h ? " · bedtime" : ""}`}
+              aria-label="{fmtHour(h)}: {plural(n, 'dose')}{bedHour === h ? ', bedtime' : ''}" aria-pressed={pickHour === h} tabindex={n ? 0 : -1}
               onclick={() => (pickHour = pickHour === h ? null : h)}>
               <span class="hbar" style:height={`${(n / hourMax) * 100}%`}></span>
             </button>
@@ -643,6 +907,76 @@
             {onOpen} onClose={() => (pickHour = null)} />
         {:else if hours.some(Boolean)}
           <p class="axisnote">Tap an hour to see its experiences.</p>
+        {/if}
+
+        {#if asking}
+          <div class="bedq">
+            <p class="note">When do you usually go to bed? Doses close to bedtime are marked against how long each substance stays in the body.</p>
+            <div class="bedrow">
+              <input type="time" aria-label="Usual bedtime" bind:value={bedInput} />
+              <button class="primary-s" onclick={() => bedInput && answerBedtime(bedInput)}>Save</button>
+              <button class="link" onclick={() => answerBedtime("varies")}>It varies</button>
+              <button class="link" onclick={() => (bedEditing ? (bedEditing = false) : answerBedtime("skip"))}>{bedEditing ? "Cancel" : "Not now"}</button>
+            </div>
+            {#if bedErr}<p class="note">{bedErr}</p>{/if}
+          </div>
+        {:else if bedSupported}
+          {#if bed != null}
+            <p class="axisnote">
+              Marked: bedtime, {fmtBedtime(bed)}{lateHours.some(Boolean) ? " · shaded: within one half-life before it" : ""}.
+              <button class="link" onclick={changeBedtime}>Change</button>
+            </p>
+            {#if data && "sleep_checkin" in data}
+              {#if data.sleep_checkin}
+                {#if sleepCmp}
+                  {#if sleepCmp.near.nights >= 3 && sleepCmp.other.nights >= 3}
+                    <ul class="nearbed">
+                      <li>After a dose near bedtime: <strong>{fmtNum(sleepCmp.near.average ?? 0)}</strong> out of 5, over {plural(sleepCmp.near.nights, "night")}</li>
+                      <li>Other nights: <strong>{fmtNum(sleepCmp.other.average ?? 0)}</strong> out of 5, over {plural(sleepCmp.other.nights, "night")}</li>
+                    </ul>
+                    <p class="note">How you rated your sleep, 1 (badly) to 5 (well). Few nights and many causes, so this is something to notice, not a finding.</p>
+                  {:else}
+                    <p class="note">{plural(sleepCmp.total, "night")} rated in this range. The comparison shows once there are at least 3 nights each with and without a dose near bedtime.</p>
+                  {/if}
+                {/if}
+                <p class="axisnote">Asking how you slept each morning. <button class="link" onclick={() => toggleSleep(false)}>Stop asking</button></p>
+              {:else}
+                <p class="axisnote">See how doses near bedtime line up with your sleep? <button class="link" onclick={() => toggleSleep(true)}>Ask me each morning</button></p>
+              {/if}
+            {/if}
+          {:else}
+            <p class="axisnote">
+              {bedtime === "varies" ? "Bedtime varies, so doses aren't counted against it." : ""}
+              <button class="link" onclick={changeBedtime}>{bedtime === "varies" ? "Set one" : "Add a bedtime"}</button>
+            </p>
+          {/if}
+          {#if sub}
+            {#if sub.half_life}
+              {#if bed != null}
+                <p class="note">
+                  {closeToBed(timesOf(sub), bed, sub.half_life.low_hours)} of {plural(timesOf(sub).length, "dose")} were within
+                  {fmtHours(sub.half_life.low_hours)} of bedtime.
+                </p>
+              {/if}
+              <p class="note">
+                {label(sub.key)}'s half-life is {sub.half_life.text} (dose reference): about half of a dose is still in the
+                body that long after it's taken{sub.families.includes("stimulants") ? ", which is often longer than it feels active" : ""}.
+              </p>
+            {:else}
+              <p class="note">The dose reference has no half-life for {label(sub.key)}, so this can't say how long a dose stays in the body.</p>
+            {/if}
+          {:else if bed != null}
+            {#if nearBed.length}
+              <ul class="nearbed">
+                {#each nearBed as x}
+                  <li><strong>{label(x.key)}</strong>: {x.n} of {plural(x.total, "dose")} within {fmtHours(x.hours)} of bedtime</li>
+                {/each}
+              </ul>
+              <p class="note">Each counted against its own half-life (the low end, from the dose reference): about half a dose is still in the body that long after it's taken.</p>
+            {:else}
+              <p class="note">No doses with a known half-life were taken within one half-life of bedtime.</p>
+            {/if}
+          {/if}
         {/if}
       </section>
     </div>
@@ -700,6 +1034,9 @@
   .bar.sel { stroke: var(--st-text); stroke-width: 2; }
   .cell { fill: var(--st-line); cursor: pointer; outline: none; }
   .cell.on { fill: var(--st-accent); }
+  .cell.micro { fill: transparent; stroke: var(--st-accent); stroke-width: 1.5; }
+  .bar.micro { fill: color-mix(in srgb, var(--st-accent) 40%, var(--st-surface)); }
+  .sw.micro { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 2px; vertical-align: -0.05em; background: color-mix(in srgb, var(--st-accent) 40%, var(--st-surface)); }
   .cell.sel, .cell:focus-visible { stroke: var(--st-text); stroke-width: 2; }
   .axisnote, .note { color: var(--st-muted); font-size: 0.85rem; margin: 0.4rem 0 0; }
   .detail { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.5rem; padding: 0.5rem 0.7rem; border: 1px solid var(--st-line); border-radius: 10px; font-size: 0.92rem; }
@@ -724,5 +1061,26 @@
   .hcol:focus-visible { outline: 2px solid var(--focus, var(--st-text)); outline-offset: 1px; }
   .hours.picking .hcol:not(.sel) .hbar { opacity: 0.35; }
   .hbar { display: block; width: 100%; background: var(--st-accent); border-radius: 3px 3px 0 0; min-height: 0; }
+  /* Within a half-life before bed: tinted behind the bar, so the count still reads. */
+  .hcol.late { background: color-mix(in srgb, var(--caution, #d9a441) 18%, transparent); border-radius: 3px; }
+  .hcol.bed { box-shadow: inset 2px 0 0 var(--st-text); }
+  .bedq { margin-top: 0.6rem; }
+  .bedrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+  .bedrow input {
+    width: auto; margin: 0; font: inherit; min-height: var(--tap-min, 2rem); padding: 0.3rem 0.6rem;
+    border: 1px solid var(--field-border, var(--st-line)); border-radius: 8px;
+    background: var(--field, transparent); color: var(--st-text);
+  }
+  .primary-s {
+    width: auto; margin: 0; min-height: var(--tap-min, 2rem); padding: 0.3rem 0.9rem; border: 0; border-radius: 8px;
+    background: var(--st-accent); color: var(--on-accent, var(--accent-ink, #0c0e12)); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .axisnote .link { min-height: 0; padding: 0; margin-left: 0.25rem; }
+  .kindrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; margin: 0 0 0.8rem; }
+  .kindrow .note { margin: 0; }
+  .seg.small button { padding: 0.35rem 0.7rem; min-height: 34px; font-size: 0.85rem; }
+  .care { margin-bottom: 0.8rem; }
+  .nearbed { margin: 0.5rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; }
+  .nearbed li + li { margin-top: 0.2rem; }
   .hlabels { display: grid; grid-template-columns: repeat(4, 1fr) 0; color: var(--st-muted); font-size: 11px; margin-top: 4px; }
 </style>

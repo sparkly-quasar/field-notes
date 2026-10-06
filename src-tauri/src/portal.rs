@@ -455,6 +455,17 @@ pub const EXPOSED: &[&str] = &[
     "delete_dose",
     "delete_timeline_event",
     "delete_substance",
+    "list_unit_kinds",
+    "save_unit_kind",
+    "delete_unit_kind",
+    "set_bedtime",
+    "sleep_checkin",
+    "log_sleep",
+    "set_sleep_checkin",
+    "kind_question",
+    "pattern_note",
+    "answer_kind_question",
+    "set_substance_kind",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
     // here at the end of "Sync journal to server".
     "remove_duplicate_entries",
@@ -623,6 +634,26 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         }
         "delete_experience" => done(commands::delete_experience_in(db, arg(&args, "id")?)),
         "delete_dose" => done(commands::delete_dose_in(db, arg(&args, "id")?)),
+        "list_unit_kinds" => done(commands::list_unit_kinds_in(db, arg(&args, "substance")?)),
+        "save_unit_kind" => {
+            done(commands::save_unit_kind_in(db, arg(&args, "substance")?, arg(&args, "kind")?))
+        }
+        "delete_unit_kind" => done(commands::delete_unit_kind_in(db, arg(&args, "id")?)),
+        "set_bedtime" => done(commands::set_bedtime_in(db, arg(&args, "value")?)),
+        "sleep_checkin" => done(commands::sleep_checkin_in(db, arg(&args, "night")?)),
+        "log_sleep" => done(commands::log_sleep_in(db, arg(&args, "night")?, arg(&args, "rating")?)),
+        "set_sleep_checkin" => done(commands::set_sleep_checkin_in(db, arg(&args, "on")?)),
+        "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
+        "pattern_note" => done(commands::pattern_note_in(db, arg(&args, "substance")?)),
+        "answer_kind_question" => done(commands::answer_kind_question_in(
+            db,
+            arg(&args, "substance")?,
+            arg(&args, "ask")?,
+            arg(&args, "answer")?,
+        )),
+        "set_substance_kind" => {
+            done(commands::set_substance_kind_in(db, arg(&args, "substance")?, arg(&args, "kind")?))
+        }
         "delete_timeline_event" => done(commands::delete_timeline_event_in(db, arg(&args, "id")?)),
         "delete_substance" => done(commands::delete_substance_in(db, arg(&args, "id")?)),
         "remove_duplicate_entries" => done(commands::remove_duplicate_entries_in(db)),
@@ -888,6 +919,13 @@ mod tests {
         app.manage(Knowledge(None));
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
+        // The phone asks for these preferences on every load (discreet mode);
+        // without them each load panicked a worker until the portal stopped
+        // answering, which cut `dev_portal` short.
+        let _ = std::fs::remove_file(path.with_extension("server.json"));
+        app.manage(crate::prefs::Prefs::load(path.with_extension("server.json")));
+        // Asked for by the phone's update card, the same way.
+        app.manage(crate::server_update::ServerUpdate::default());
         let _ = std::fs::remove_file(path.with_extension("devices.json"));
         let devices = Devices::load(path.with_extension("devices.json"));
         let (_, token) = devices.pair("Test phone").unwrap();
@@ -1251,6 +1289,7 @@ mod tests {
                 route: "oral".into(),
                 taken_at: "2026-07-10T20:05:00Z".into(),
                 note: "tea".into(),
+                ..Default::default()
             },
         )
         .unwrap();

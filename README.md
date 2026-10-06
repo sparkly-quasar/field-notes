@@ -135,8 +135,12 @@ show you how to get past it.
   together, plus **Trends**: what changed lately against the period before (how
   often, time between, amount per experience, redosing), each with a small chart.
   Tap a day, bar, hour or dot to see the experiences behind it.
-  Descriptive only: no streaks, scores or warnings, and a toggle hides
-  substance names for screen-sharing.
+  **Dose-aware**: each dose shown as what it was logged as against the
+  reference's ranges, microdoses recognised, mushroom forms (fresh, capsules,
+  edibles), notes on what an amount tends to do, routine and as-needed doses,
+  doses near bedtime and an optional morning sleep check-in, and a short note
+  when a pattern linked to dependence or withdrawal shows up.
+  No streaks or scores, and a toggle hides substance names for screen-sharing.
 - **Updates** — automatic, a **Check for updates** button in Settings, and
   (opt-in, set at the computer) a paired phone can install an update on the
   computer it connects to.

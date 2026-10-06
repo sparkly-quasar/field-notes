@@ -74,6 +74,7 @@
     type Substance,
     type SubstanceUsage,
     type Dose,
+    type DoseDetail,
     type TimelineEvent,
     type Warning,
     type CrisisResult,
@@ -109,6 +110,10 @@
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
   import NameHint from "$lib/NameHint.svelte";
+  import DoseDetailFields from "$lib/DoseDetailFields.svelte";
+  import KindQuestion from "$lib/KindQuestion.svelte";
+  import SleepCheckin from "$lib/SleepCheckin.svelte";
+  import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
@@ -194,6 +199,9 @@
   let dSub = $state("");
   let dAmt = $state("");
   let dUnit = $state("mg");
+  let dDetail = $state<DoseDetail>({});
+  /** The substance just logged, for KindQuestion; `n` asks again after another dose. */
+  let dAsk = $state({ s: "", n: 0 });
   let dRoute = $state("oral");
   let dWhen = $state("");
   /** What just saved, with its warnings — shown in the sheet, next to the button pressed. */
@@ -225,6 +233,7 @@
   let eSub = $state("");
   let eAmt = $state("");
   let eUnit = $state("mg");
+  let eDetail = $state<DoseDetail>({});
   let eRoute = $state("oral");
   let eWhen = $state("");
   let eNote = $state("");
@@ -877,8 +886,10 @@
     s += ` → ${hhmm(e.ended_at)}${sameDay(e.started_at, e.ended_at) ? "" : " (+1 day)"}`;
     return `${s} · ${d}`;
   }
-  const fmtAmt = (d: { amount: number | null; unit: string }) =>
-    `${d.amount == null ? "?" : +d.amount.toFixed(2)} ${d.unit}`;
+  /** "3 g fresh (about 0.3 g dried)": what was written, and what it works out to
+   *  when that differs (dosedetail.ts). */
+  const fmtAmt = (d: { amount: number | null; unit: string; substance_name?: string } & DoseDetail) =>
+    describeAmount(d.substance_name ?? "", d.amount, d.unit, d);
 
   /** Doses and moments live in two tables but tell one story — merge into time order. */
   type Row =
@@ -970,18 +981,21 @@
       // quickLog for every dose, not just new entries: it widens the interaction
       // check to anything else taken within 12 hours, and stretches an entry whose
       // times no longer cover what's in it.
-      const res = await quickLog({ substance, amount, unit: dUnit, route: dRoute, at, intoId: target?.id ?? null });
+      const detail = dDetail;
+      const res = await quickLog({ substance, amount, unit: dUnit, route: dRoute, at, intoId: target?.id ?? null, detail });
       rememberDoseShape(substance, { unit: dUnit, route: dRoute });
       warnFor = { ...warnFor, [res.id]: res.warnings };
       receipt = {
         id: res.id,
         title: res.title,
-        line: `${substance} ${fmtAmt({ amount, unit: dUnit })} · ${hhmm(at)} ${fmtDay(at)}`,
+        line: `${substance} ${fmtAmt({ amount, unit: dUnit, substance_name: substance, ...detail })} · ${hhmm(at)} ${fmtDay(at)}`,
         warnings: res.warnings,
         doseId: res.doseId,
         fresh: res.fresh,
       };
+      dAsk = { s: substance, n: dAsk.n + 1 };
       dSub = dAmt = "";
+      dDetail = {};
       await refresh();
       target = await getExperience(res.id);
       if (!target.ended_at) dWhen = nowLocalInput();
@@ -1146,6 +1160,7 @@
     eRoute = d.route ?? "oral";
     eWhen = isoToLocalInput(d.taken_at);
     eNote = d.note ?? "";
+    eDetail = detailOf(d);
     sheet = "editDose";
   }
 
@@ -1160,6 +1175,7 @@
         route: eRoute,
         taken_at: at,
         note: eNote,
+        detail: detailOf(eDetail),
       });
       const owner = recent.find((r) => r.id === editDose!.experience_id);
       if (owner?.ended_at) await stretchToCover(editDose.experience_id, at);
@@ -1723,6 +1739,7 @@
               {#if r.kind === "dose"}
                 <span class="dot dose" aria-hidden="true"></span><strong>{nameShown(r.dose.substance_name)}</strong>
                 {fmtAmt(r.dose)} <span class="muted">{r.dose.route}</span>
+                {#if r.dose.profile}<span class="sub">{r.dose.profile.label}</span>{/if}
                 {#if r.dose.note}<span class="sub">{r.dose.note}</span>{/if}
               {:else}
                 <span class="dot moment" aria-hidden="true"></span>{#if r.ev.mood}<strong>{r.ev.mood}</strong>{r.ev.note ? " · " : ""}{/if}<span class="moment-note">{r.ev.note}</span>
@@ -1902,6 +1919,7 @@
     {:else}
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
+      <SleepCheckin />
       {#if backupNudge}
         <section class="pane" role="status">
           <p>
@@ -2441,6 +2459,7 @@
               <p class="receipt-line"><span><strong>✓ Saved</strong> · {receipt.line}</span>
                 {#if receipt.doseId != null}<button class="ghost small" onclick={undoLastLog}>Undo</button>{/if}</p>
               {@render warnings(receipt.warnings)}
+              <KindQuestion substance={dAsk.s} tick={dAsk.n} />
             </div>
           {/if}
 
@@ -2468,6 +2487,7 @@
               <select id="d-route" bind:value={dRoute} onchange={() => { if (!recallDoseShape(dSub)) dUnit = defaultUnitFor(dSub, dRoute) ?? dUnit; }}>{#each ROUTES as r}<option>{r}</option>{/each}</select>
             </div>
           </div>
+          <DoseDetailFields substance={dSubAs || dSub} unit={dUnit} amount={dAmt.replace(",", ".")} bind:detail={dDetail} />
           {#if dUnit === "drink"}
             <div class="chips" role="group" aria-label="Add a drink">
               {#each DRINK_PICKS as p}
@@ -2601,6 +2621,7 @@
               <select id="e-route" bind:value={eRoute}>{#each ROUTES as r}<option>{r}</option>{/each}</select>
             </div>
           </div>
+          <DoseDetailFields substance={eSub} unit={eUnit} amount={eAmt.replace(",", ".")} bind:detail={eDetail} suggest={false} />
           <label for="e-when">When</label>
           <DateTimeField id="e-when" bind:value={eWhen} variant="phone" />
           <label for="e-note">Note (optional)</label>

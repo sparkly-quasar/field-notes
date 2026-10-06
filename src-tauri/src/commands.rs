@@ -71,6 +71,19 @@ pub struct TimedDoseIn {
     #[serde(default)]
     pub route: String,
     pub at_min: Option<f64>,
+    /// The amount and what the dose was, when known: they add dose-profile
+    /// context (kratom by amount, diphenhydramine's deliriant range). Older
+    /// callers leave them out, and get the same warnings as before.
+    #[serde(default)]
+    pub amount: Option<f64>,
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub form: String,
+    #[serde(default)]
+    pub per_unit: Option<f64>,
+    #[serde(default)]
+    pub per_unit_unit: String,
 }
 
 /// [`check_combo`] against any person's journal (the portal picks it by device).
@@ -84,7 +97,20 @@ pub fn check_combo_in(db: &Db, names: Vec<String>, doses: Option<Vec<TimedDoseIn
                 at_min: d.at_min,
             })
             .collect();
-        if let Ok(w) = db.with(|c| Ok(db::timed_warnings(c, &timed))) {
+        let with_context = db.with(|c| {
+            let mut w = db::timed_warnings(c, &timed);
+            let profiled: Vec<db::ProfiledDose> = doses
+                .iter()
+                .map(|d| db::ProfiledDose {
+                    name: d.substance_name.clone(),
+                    at_min: d.at_min,
+                    profile: db::profile_for(c, &d.substance_name, d.amount, &d.unit, &d.route, &d.form, d.per_unit, &d.per_unit_unit),
+                })
+                .collect();
+            db::profile_context(c, &profiled, &mut w);
+            Ok(w)
+        });
+        if let Ok(w) = with_context {
             return w;
         }
         // Locked: fall through to the untimed backstop over the same names.
@@ -223,6 +249,184 @@ pub fn update_dose(db: State<'_, Db>, id: i64, update: DoseUpdate) -> Result<Dos
 /// [`update_dose`] against any person's journal (the portal picks it by device).
 pub fn update_dose_in(db: &Db, id: i64, update: DoseUpdate) -> Result<Dose, String> {
     db.with(|c| db::update_dose(c, id, &update))
+}
+
+// ---------- bedtime ----------
+
+/// When the person usually goes to bed, for the time-of-day card: a local
+/// 24-hour time ("23:00"), "varies", "skip" (asked and not answered), or `None`
+/// to forget it (the card asks again). Kept in the journal so the phone and the
+/// computer agree.
+#[tauri::command]
+pub fn set_bedtime(db: State<'_, Db>, value: Option<String>) -> Result<(), String> {
+    set_bedtime_in(&db, value)
+}
+
+/// [`set_bedtime`] against any person's journal (the portal picks it by device).
+pub fn set_bedtime_in(db: &Db, value: Option<String>) -> Result<(), String> {
+    let value = value.map(|v| v.trim().to_lowercase());
+    if let Some(v) = &value {
+        if !is_bedtime(v) {
+            return Err("A bedtime is a time like 23:00, or \"varies\".".into());
+        }
+    }
+    db.with(|c| db::set_setting(c, "bedtime", value.as_deref()))
+}
+
+fn is_bedtime(v: &str) -> bool {
+    if v == "varies" || v == "skip" {
+        return true;
+    }
+    match v.split_once(':') {
+        Some((h, m)) => {
+            h.len() <= 2 && m.len() == 2 && h.parse::<u8>().is_ok_and(|h| h < 24) && m.parse::<u8>().is_ok_and(|m| m < 60)
+        }
+        None => false,
+    }
+}
+
+// ---------- sleep (step 6) ----------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SleepCheckin {
+    /// The person asked to be asked.
+    pub enabled: bool,
+    /// Their rating for that night, if they've given one.
+    pub rating: Option<i64>,
+}
+
+/// Whether to ask "How did you sleep?" about `night` (the local date of the
+/// evening): only when the person turned it on, and haven't answered.
+#[tauri::command]
+pub fn sleep_checkin(db: State<'_, Db>, night: String) -> Result<SleepCheckin, String> {
+    sleep_checkin_in(&db, night)
+}
+
+/// [`sleep_checkin`] against any person's journal (the portal picks it by device).
+pub fn sleep_checkin_in(db: &Db, night: String) -> Result<SleepCheckin, String> {
+    db.with(|c| Ok(SleepCheckin { enabled: db::sleep_checkin_on(c)?, rating: db::sleep_rating(c, &night)? }))
+}
+
+/// Rate a night 1 to 5, or take it back with `None`.
+#[tauri::command]
+pub fn log_sleep(db: State<'_, Db>, night: String, rating: Option<i64>) -> Result<(), String> {
+    log_sleep_in(&db, night, rating)
+}
+
+/// [`log_sleep`] against any person's journal (the portal picks it by device).
+pub fn log_sleep_in(db: &Db, night: String, rating: Option<i64>) -> Result<(), String> {
+    if chrono::NaiveDate::parse_from_str(&night, "%Y-%m-%d").is_err() {
+        return Err("A night is a date like 2026-10-05.".into());
+    }
+    if rating.is_some_and(|r| !(1..=5).contains(&r)) {
+        return Err("A night is rated 1 to 5.".into());
+    }
+    db.with(|c| db::log_sleep(c, &night, rating))
+}
+
+/// Ask how the person slept each morning, or stop asking. Ratings already given
+/// stay.
+#[tauri::command]
+pub fn set_sleep_checkin(db: State<'_, Db>, on: bool) -> Result<(), String> {
+    set_sleep_checkin_in(&db, on)
+}
+
+/// [`set_sleep_checkin`] against any person's journal (the portal picks it by device).
+pub fn set_sleep_checkin_in(db: &Db, on: bool) -> Result<(), String> {
+    db.with(|c| db::set_setting(c, "sleep_checkin", on.then_some("on")))
+}
+
+// ---------- routine and as-needed (kinds.rs) ----------
+
+/// The question to ask about a substance just logged, if any: "is this part of
+/// your routine?" or "how do you take this?". Asked rarely, and never nagged.
+#[tauri::command]
+pub fn kind_question(db: State<'_, Db>, substance: String) -> Result<Option<crate::kinds::KindQuestion>, String> {
+    kind_question_in(&db, substance)
+}
+
+/// [`kind_question`] against any person's journal (the portal picks it by device).
+pub fn kind_question_in(db: &Db, substance: String) -> Result<Option<crate::kinds::KindQuestion>, String> {
+    db.with(|c| crate::kinds::question(c, &substance, chrono::Utc::now()))
+}
+
+/// A dependence or withdrawal note for a substance just logged, the first time
+/// its pattern shows up (patterns.rs). Each appears once this way.
+#[tauri::command]
+pub fn pattern_note(db: State<'_, Db>, substance: String) -> Result<Option<crate::patterns::PatternNote>, String> {
+    pattern_note_in(&db, substance)
+}
+
+/// [`pattern_note`] against any person's journal (the portal picks it by device).
+pub fn pattern_note_in(db: &Db, substance: String) -> Result<Option<crate::patterns::PatternNote>, String> {
+    db.with(|c| crate::patterns::take_new(c, &substance, chrono::Utc::now()))
+}
+
+#[tauri::command]
+pub fn answer_kind_question(db: State<'_, Db>, substance: String, ask: String, answer: String) -> Result<(), String> {
+    answer_kind_question_in(&db, substance, ask, answer)
+}
+
+/// [`answer_kind_question`] against any person's journal (the portal picks it by device).
+pub fn answer_kind_question_in(db: &Db, substance: String, ask: String, answer: String) -> Result<(), String> {
+    db.with(|c| Ok(crate::kinds::answer(c, &substance, &ask, &answer, chrono::Utc::now())))?
+}
+
+/// Mark how a substance is taken, by hand: "" (as experiences), "routine" or
+/// "as_needed". Any substance, any kind; it changes where doses show in Stats,
+/// never whether they count.
+#[tauri::command]
+pub fn set_substance_kind(db: State<'_, Db>, substance: String, kind: String) -> Result<(), String> {
+    set_substance_kind_in(&db, substance, kind)
+}
+
+/// [`set_substance_kind`] against any person's journal (the portal picks it by device).
+pub fn set_substance_kind_in(db: &Db, substance: String, kind: String) -> Result<(), String> {
+    if !["", crate::kinds::ROUTINE, crate::kinds::AS_NEEDED].contains(&kind.as_str()) {
+        return Err(format!("Not a way of taking something: {kind}"));
+    }
+    db.with(|c| crate::kinds::set_kind(c, &substance, &kind))
+}
+
+// ---------- capsule kinds ----------
+
+/// Saved capsule (pill, tab) kinds for a substance: "00 caps, 0.45 g".
+#[tauri::command]
+pub fn list_unit_kinds(db: State<'_, Db>, substance: String) -> Result<Vec<db::UnitKind>, String> {
+    list_unit_kinds_in(&db, substance)
+}
+
+/// [`list_unit_kinds`] against any person's journal (the portal picks it by device).
+pub fn list_unit_kinds_in(db: &Db, substance: String) -> Result<Vec<db::UnitKind>, String> {
+    db.with(|c| db::list_unit_kinds(c, &substance))
+}
+
+#[tauri::command]
+pub fn save_unit_kind(db: State<'_, Db>, substance: String, kind: db::UnitKind) -> Result<db::UnitKind, String> {
+    save_unit_kind_in(&db, substance, kind)
+}
+
+/// [`save_unit_kind`] against any person's journal (the portal picks it by device).
+/// The amount must be a weight: that's what makes a capsule count comparable.
+pub fn save_unit_kind_in(db: &Db, substance: String, kind: db::UnitKind) -> Result<db::UnitKind, String> {
+    if kind.label.trim().is_empty() || substance.trim().is_empty() {
+        return Err("Name the capsule and the substance it's for.".into());
+    }
+    if !(kind.per_unit.is_finite() && kind.per_unit > 0.0) || !stats::is_mass_unit(&kind.per_unit_unit) {
+        return Err("How much is in each one? Give an amount in µg, mg or g.".into());
+    }
+    db.with(|c| db::save_unit_kind(c, &substance, &kind))
+}
+
+#[tauri::command]
+pub fn delete_unit_kind(db: State<'_, Db>, id: i64) -> Result<(), String> {
+    delete_unit_kind_in(&db, id)
+}
+
+/// [`delete_unit_kind`] against any person's journal (the portal picks it by device).
+/// Past doses keep their own copy of the amount.
+pub fn delete_unit_kind_in(db: &Db, id: i64) -> Result<(), String> {
+    db.with(|c| db::delete_unit_kind(c, id))
 }
 
 #[tauri::command]
@@ -457,7 +661,11 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
     for d in &detail.doses {
         let amt = d.amount.map(|a| a.to_string()).unwrap_or_else(|| "?".into());
         let route = if d.route.is_empty() { String::new() } else { format!(" {}", d.route) };
-        s.push_str(&format!("- {} {}{}{}\n", d.substance_name, amt, d.unit, route));
+        let form = if d.detail.form.is_empty() { String::new() } else { format!(" ({})", d.detail.form) };
+        // What the amount tends to do (dose profiles), so support fits the dose:
+        // a stimulating amount of kratom isn't a sedating one.
+        let profile = d.profile.as_ref().map(|p| format!(": {}", p.note)).unwrap_or_default();
+        s.push_str(&format!("- {} {}{}{}{}{}\n", d.substance_name, amt, d.unit, form, route, profile));
     }
 
     let names: Vec<String> = detail
@@ -597,6 +805,7 @@ pub fn import_experience(
             route: d.route.clone(),
             taken_at: taken,
             note: d.note.clone(),
+            detail: Default::default(),
         }).map_err(err)?;
     }
 
@@ -693,6 +902,7 @@ fn journal_tools() -> serde_json::Value {
                 "amount": { "type": "number", "description": "amount taken; omit if unknown" },
                 "unit": { "type": "string", "description": "e.g. mg, g, ug, ml" },
                 "route": { "type": "string", "description": "e.g. oral, insufflated, sublingual" },
+                "form": { "type": "string", "description": "only if they said it: for mushrooms dried, fresh, powdered or edible; for kratom leaf, extract or 7-oh" },
                 "note": { "type": "string" }
             }, "required": ["substance"] }
         }},
@@ -727,6 +937,9 @@ fn now_iso(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
     conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get(0))
 }
 
+/// The forms the Companion may record: `FORMS` in `src/lib/dosedetail.ts`.
+const COMPANION_FORMS: &[&str] = &["dried", "fresh", "powdered", "edible", "leaf", "extract", "7-oh"];
+
 /// Execute one Companion tool call against the journal. Returns (result text for
 /// the model, optional human-readable action description, whether the journal changed).
 fn run_companion_tool(
@@ -750,6 +963,10 @@ fn run_companion_tool(
             let unit = { let u = s("unit"); if u.is_empty() { "mg".into() } else { u } };
             let route = s("route");
             let note = s("note");
+            // Only a form the dose forms offer (`FORMS` in dosedetail.ts); anything
+            // else a model says is dropped rather than saved.
+            let form = s("form").trim().to_lowercase().replace("7-hydroxymitragynine", "7-oh").replace("7oh", "7-oh");
+            let form = if COMPANION_FORMS.contains(&form.as_str()) { form } else { String::new() };
             let (dose, warns) = db.with(|c| {
                 let now = now_iso(c)?;
                 db::log_dose(c, &DoseInput {
@@ -760,11 +977,18 @@ fn run_companion_tool(
                     route: route.clone(),
                     taken_at: now,
                     note: note.clone(),
+                    detail: db::DoseDetail { form: form.clone(), ..Default::default() },
                 })
             })?;
-            let amt = dose.amount.map(|a| format!("{a} {}", dose.unit)).unwrap_or_else(|| dose.unit.clone());
+            let mut amt = dose.amount.map(|a| format!("{a} {}", dose.unit)).unwrap_or_else(|| dose.unit.clone());
+            if !dose.detail.form.is_empty() {
+                amt = format!("{amt} {}", dose.detail.form);
+            }
             let desc = format!("Logged {amt} {}{}", dose.substance_name, if dose.route.is_empty() { String::new() } else { format!(" ({})", dose.route) });
             let mut result = format!("Logged: {desc}.");
+            if let Some(p) = &dose.profile {
+                result.push_str(&format!(" {}", p.note));
+            }
             if !warns.is_empty() {
                 result.push_str(" Interaction flags: ");
                 result.push_str(&warns.iter().map(|w| format!("[{}] {} + {}: {}", w.severity, w.a, w.b, w.message)).collect::<Vec<_>>().join("; "));
@@ -2409,6 +2633,65 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_bedtime_is_a_time_or_varies() {
+        for ok in ["23:00", "0:30", "07:05", "varies", "skip"] {
+            assert!(is_bedtime(ok), "{ok}");
+        }
+        for bad in ["24:00", "11pm", "23:5", "23:60", "", "late"] {
+            assert!(!is_bedtime(bad), "{bad}");
+        }
+    }
+
+    /// The check across entries says what an amount adds, as an entry's own does:
+    /// a quick-logged 7 g of kratom is its own entry, beside the evening's drinks.
+    #[test]
+    fn the_wider_check_counts_dose_profiles_too() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema_for_tests()).unwrap();
+        let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        db::pw_replace_all(&mut conn, &all).unwrap();
+        let dbh = Db::new(Some(conn), std::env::temp_dir().join("fn-wider-profile-unused.db"));
+        let dose = |name: &str, amount: Option<f64>, unit: &str, at_min: f64| TimedDoseIn {
+            substance_name: name.into(),
+            route: "oral".into(),
+            at_min: Some(at_min),
+            amount,
+            unit: unit.into(),
+            form: String::new(),
+            per_unit: None,
+            per_unit_unit: String::new(),
+        };
+        let names = vec!["Alcohol".to_string(), "Kratom".to_string()];
+        let w = check_combo_in(&dbh, names.clone(), Some(vec![dose("Alcohol", Some(3.0), "drinks", 0.0), dose("Kratom", Some(7.0), "g", 30.0)]));
+        assert!(w.iter().any(|w| w.message.contains("acts more like an opioid")), "{w:?}");
+        // Without amounts (an older caller), the same warnings as before.
+        let w = check_combo_in(&dbh, names, Some(vec![dose("Alcohol", None, "", 0.0), dose("Kratom", None, "", 30.0)]));
+        assert!(!w.iter().any(|w| w.message.contains("acts more like an opioid")));
+        assert!(!w.is_empty());
+    }
+
+    /// The Companion records a form the person said, and drops one it made up.
+    #[test]
+    fn the_companion_logs_a_said_form_and_nothing_else() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema_for_tests()).unwrap();
+        let dbh = Db::new(Some(conn), std::env::temp_dir().join("fn-companion-form-unused.db"));
+        let id = dbh
+            .with(|c| db::create_experience(c, &serde_json::from_value(serde_json::json!({ "title": "t", "started_at": "2026-09-01T20:00:00Z" })).unwrap()))
+            .unwrap()
+            .id;
+        let log = |args: serde_json::Value| run_companion_tool(&dbh, &Knowledge(None), Some(id), "log_dose", &args).unwrap();
+        let (_, desc, changed) = log(serde_json::json!({ "substance": "Psilocybin Mushrooms", "amount": 3, "unit": "g", "form": "Fresh" }));
+        assert!(changed);
+        assert_eq!(desc.as_deref(), Some("Logged 3 g fresh Psilocybin Mushrooms"));
+        log(serde_json::json!({ "substance": "Kratom", "amount": 15, "unit": "mg", "form": "7-hydroxymitragynine" }));
+        log(serde_json::json!({ "substance": "LSD", "amount": 100, "unit": "ug", "form": "liquid gold" }));
+        let forms: Vec<String> =
+            dbh.with(|c| db::get_experience(c, id)).unwrap().doses.into_iter().map(|d| d.detail.form).collect();
+        assert_eq!(forms, vec!["fresh", "7-oh", ""]);
     }
 
     /// What was taken never raises the crisis banner, live or not; words do.

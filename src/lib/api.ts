@@ -48,6 +48,17 @@ const ROUTED = new Set([
   "delete_dose",
   "delete_timeline_event",
   "delete_substance",
+  "list_unit_kinds",
+  "save_unit_kind",
+  "delete_unit_kind",
+  "set_bedtime",
+  "sleep_checkin",
+  "log_sleep",
+  "set_sleep_checkin",
+  "kind_question",
+  "pattern_note",
+  "answer_kind_question",
+  "set_substance_kind",
   "check_combo",
   "canonical_name",
   "crisis_scan",
@@ -116,6 +127,42 @@ export interface Dose {
   route: string;
   taken_at: string;
   note: string;
+  /** What the dose was. Missing from older servers, which reads as "not said". */
+  form?: string;
+  per_unit?: number | null;
+  per_unit_unit?: string;
+  unit_label?: string;
+  estimate?: number | null;
+  estimate_unit?: string;
+  /** What this amount tends to do, for the few substances whose effects change
+   *  with the amount (profiles.rs): "more stimulating at this amount". */
+  profile?: { key: string; label: string; note: string; caution?: string } | null;
+}
+
+/**
+ * What a dose was, beyond amount and unit: `DoseDetail` in db.rs. Every field
+ * defaults to "not said".
+ */
+export interface DoseDetail {
+  /** `FORMS` in quicklog.ts: dried, fresh, powdered, edible; leaf, extract, 7-oh. */
+  form?: string;
+  /** For a counted unit: how much one holds, kept on the dose as it was. */
+  per_unit?: number | null;
+  per_unit_unit?: string;
+  /** The capsule kind's name when logged ("00 caps"). */
+  unit_label?: string;
+  /** An edible's estimated content for the whole dose: "g" (dried mushroom) or "mg psilocybin". */
+  estimate?: number | null;
+  estimate_unit?: string;
+}
+
+/** A named capsule (pill, tab) for one substance: "00 caps, 0.45 g". */
+export interface UnitKind {
+  id: number;
+  substance: string;
+  label: string;
+  per_unit: number;
+  per_unit_unit: string;
 }
 
 export interface TimelineEvent {
@@ -170,7 +217,7 @@ export interface ExperienceInput {
   started_at: string;
 }
 
-export interface DoseInput {
+export interface DoseInput extends DoseDetail {
   experience_id: number;
   substance_name: string;
   amount: number | null;
@@ -212,6 +259,9 @@ export interface DoseUpdate {
   route?: string;
   taken_at: string;
   note?: string;
+  /** What the form shows now, replacing what the dose had. Nested, unlike a
+   *  new dose: an edit without it (an older phone) leaves the dose's detail be. */
+  detail?: DoseDetail;
 }
 
 export const updateExperience = (id: number, update: ExperienceUpdate) =>
@@ -224,6 +274,45 @@ export const updateTimelineEvent = (id: number, update: TimelineUpdate) =>
   invoke<TimelineEvent>("update_timeline_event", { id, update });
 export const deleteExperience = (id: number) => invoke<void>("delete_experience", { id });
 export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
+export const listUnitKinds = (substance: string) => invoke<UnitKind[]>("list_unit_kinds", { substance });
+export const saveUnitKind = (substance: string, kind: Omit<UnitKind, "id" | "substance">) =>
+  invoke<UnitKind>("save_unit_kind", { substance, kind });
+export const deleteUnitKind = (id: number) => invoke<void>("delete_unit_kind", { id });
+/** The morning question (step 6): asked only when turned on and unanswered. */
+export interface SleepCheckin {
+  enabled: boolean;
+  rating: number | null;
+}
+/** `night` = the local date of the evening, "2026-10-05". */
+export const sleepCheckin = (night: string) => invoke<SleepCheckin>("sleep_checkin", { night });
+/** Rate a night 1 to 5, or null to take it back. */
+export const logSleep = (night: string, rating: number | null) => invoke<void>("log_sleep", { night, rating });
+export const setSleepCheckin = (on: boolean) => invoke<void>("set_sleep_checkin", { on });
+
+/** "23:00", "varies", "skip", or null to forget it (the time-of-day card asks again). */
+export const setBedtime = (value: string | null) => invoke<void>("set_bedtime", { value });
+
+/** A question about how a substance is taken (kinds.rs), asked after logging it. */
+export interface KindQuestion {
+  substance: string;
+  /** "routine" or "as_needed": which question. */
+  ask: string;
+  text: string;
+  choices: { value: string; label: string }[];
+}
+/** The question to ask about a substance just logged, or null. */
+export const kindQuestion = (substance: string) => invoke<KindQuestion | null>("kind_question", { substance });
+/** A dependence or withdrawal note (patterns.rs), shown once after logging. */
+export interface PatternNote {
+  key: string;
+  text: string;
+}
+export const patternNote = (substance: string) => invoke<PatternNote | null>("pattern_note", { substance });
+export const answerKindQuestion = (substance: string, ask: string, answer: string) =>
+  invoke<void>("answer_kind_question", { substance, ask, answer });
+/** "" (as experiences), "routine" or "as_needed". */
+export const setSubstanceKind = (substance: string, kind: string) =>
+  invoke<void>("set_substance_kind", { substance, kind });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
@@ -344,6 +433,13 @@ export interface TimedDose {
   substance_name: string;
   route: string;
   at_min: number | null;
+  /** The amount and what the dose was, when known: they add dose-profile
+   *  context (kratom by amount, diphenhydramine's deliriant range). */
+  amount?: number | null;
+  unit?: string;
+  form?: string;
+  per_unit?: number | null;
+  per_unit_unit?: string;
 }
 /** With `doses`, pairs are checked by when they were taken: ones that never
  *  overlapped drop out, ones that met past a peak are softened. */
@@ -374,8 +470,20 @@ export interface StatsDosePoint {
   dose_id: number;
   experience_id: number;
   taken_at: string;
+  /** In the series' unit. */
   amount: number | null;
   route: string;
+  /** What was written, when the amount shown differs from it (600 mg in a g
+   *  series, "3 g fresh", "× 00 caps, 0.45 g each"). Missing from older servers. */
+  logged_amount?: number | null;
+  logged_unit?: string | null;
+  /** An estimate (fresh mushrooms as dried, an edible's guess): shown as "about". */
+  approx?: boolean;
+  /** Where the amount sits: micro, below, threshold, light, common, strong, heavy
+   *  (stats.rs `tier_of`). Null when there's nothing honest to compare with. */
+  tier?: string | null;
+  /** How to say it: "microdose", "low dose", "common", "high"... */
+  tier_label?: string | null;
 }
 export interface StatsUnitSeries {
   unit: string;
@@ -395,6 +503,13 @@ export interface StatsSubstance {
   /** Drug families it counts toward: psychedelics, entactogens, dissociatives,
    *  stimulants, depressants, opioids, cannabinoids, other (stats.rs). */
   families: string[];
+  /** Dependence and withdrawal notes that hold now (patterns.rs). Missing from older servers. */
+  notes?: { key: string; text: string }[];
+  /** How it's taken: "" (as experiences), "routine" or "as_needed" (kinds.rs).
+   *  Missing from older servers, which read as "". */
+  kind?: string;
+  /** The dose reference's half-life, when it has one. Missing from older servers. */
+  half_life?: { text: string; route: string; low_hours: number; high_hours: number } | null;
 }
 export interface StatsSession {
   experience_id: number;
@@ -409,6 +524,13 @@ export interface UsageStats {
   pairs: { a: string; b: string; sessions: number }[];
   total_sessions: number;
   total_doses: number;
+  /** "23:00" (local), "varies", "skip" (asked, not answered), or null (not asked
+   *  yet). Missing from older servers, which can't store one. */
+  bedtime?: string | null;
+  /** The morning sleep question is on. Missing from older servers. */
+  sleep_checkin?: boolean;
+  /** Every rated night, oldest first. */
+  sleep?: { night: string; rating: number }[];
 }
 /** Read-only. `since` is an ISO time; omit for all time. */
 export const usageStats = (since: string | null) => invoke<UsageStats>("usage_stats", { since });

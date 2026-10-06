@@ -14,6 +14,8 @@ pub mod db;
 mod devices;
 pub(crate) use field_notes_core::interactions;
 mod keychain;
+mod kinds;
+mod patterns;
 pub mod knowledge;
 mod obsidian;
 mod owner_auth;
@@ -258,6 +260,17 @@ pub fn run() {
             commands::delete_experience,
             commands::remove_duplicate_entries,
             commands::delete_dose,
+            commands::list_unit_kinds,
+            commands::save_unit_kind,
+            commands::delete_unit_kind,
+            commands::set_bedtime,
+            commands::sleep_checkin,
+            commands::log_sleep,
+            commands::set_sleep_checkin,
+            commands::kind_question,
+            commands::pattern_note,
+            commands::answer_kind_question,
+            commands::set_substance_kind,
             commands::delete_timeline_event,
             commands::delete_substance,
             commands::ai_status,

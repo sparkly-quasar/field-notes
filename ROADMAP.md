@@ -1241,7 +1241,362 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.22.2** (2026-10-03): share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
+**Current release: v0.25.0** (2026-10-06): dose-aware Stats (below). v0.24.0: tap a chart in Stats to see its experiences. v0.22.2: share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
+
+### Dose-aware Stats: shipped in v0.25.0 (owner's discussion, 2026-10-05)
+
+**Why.** Stats mostly counts every dose the same: 25 µg and 100 µg of LSD, 2 mg
+and 30 mg of amphetamine. Only two places use the amount: the dose-over-time
+chart (reference bands, `UsageStats.svelte`) and Trends' "amount per experience"
+(`Trends.svelte`). How often, the calendar, time between, combinations,
+redosing, families and time of day don't. Also, `stats::unit_eq` only treats µg
+spellings as one unit, so **600 mg and 5 g of kratom are two separate series**, and
+reference bands vanish when the logged unit differs from DoseWiki's (kratom is
+in g there).
+
+**The rule everything below follows: routine changes how a dose is shown, never
+whether it's tracked.** Routine doses leave the *experience* views, but daily
+totals, days per week, gradual increase, time of day and the combination
+checker always include them. A habit that gets filed as routine by mistake must
+still be visible.
+
+#### Order of work
+
+1. **Convert between mass units (µg, mg, g)** in series grouping and band
+   matching. *Built 2026-10-05, released in v0.25.0:* `stats::in_unit` and
+   `usual_mass_unit`; a substance's mass doses form one series in the unit
+   logged most, each converted point keeps `logged_amount`/`logged_unit`
+   (shown as "logged as 600 mg"), and reference bands convert into the
+   series' unit. Plain arithmetic, so it keeps the "no invented numbers" rule.
+   Tab, drop, hit, cap and other count units stay unconverted, as
+   `different_units_are_never_merged` already requires.
+2. **Mushroom form: fresh, dried, powdered or edible** (owner's decision,
+   2026-10-05; see "Mushroom forms" below). Shipped early as a safety fix,
+   before tiers. *Built 2026-10-05, released in v0.25.0:* `db::DoseDetail` (six
+   `doses` columns: form, per_unit, per_unit_unit, unit_label, estimate,
+   estimate_unit; flat on new doses, nested `detail` on edits so an older client
+   keeps it), saved capsule kinds (`unit_kinds`), `stats::measure`, and
+   `src/lib/dosedetail.ts` (the same rules for the forms, the inline dose label,
+   the journal, PDF and phone queue) with `DoseDetailFields.svelte` in every dose
+   form. The paste importer reads "2g fresh shrooms" and "3g kratom extract";
+   the Companion's `log_dose` takes a `form`. Not covered yet: forms are matched
+   by name (mushroom, shroom, truffle, kratom), not by catalogue entries marked
+   as mushrooms; "Sync journal to server" copies each dose's own capsule amount
+   but not the saved capsule kinds; the AI-read import ("import a trip report")
+   doesn't look for forms.
+3. **Time of day and sleep (version one).** Per substance, when doses are
+   taken (`byHour` exists), with the hours before a usual bedtime shaded and
+   "N of your doses were within X hours of bed." Use the reference's
+   `half_life` where it exists: for stimulants the felt duration understates
+   the effect on sleep (amphetamine's half-life runs about 10 to 12 hours, longer
+   than it feels active). Say so when no half-life is known. Caffeine counts.
+   **Bedtime (owner approved):** asked once, inline, the first
+   time the view opens: a time, "It varies," or Skip. No assumed default
+   (delayed sleep phase is common with ADHD, and shift work exists). Saved as
+   a journal setting so the phone and computer agree, editable in Settings.
+   "It varies" shows dose times and the half-life wording without bedtime
+   shading. *Built 2026-10-05, released in v0.25.0:* `journal_settings` table
+   (`bedtime`: "23:00", "varies", "skip"), `set_bedtime`, and `half_life` on
+   each substance in `usage_stats` (`stats::half_life_hours` reads the
+   reference's text, ignoring bracketed glosses). The time-of-day card asks once
+   (time / It varies / Not now), marks bedtime, and counts doses within one
+   half-life before it, using the **low end** of the range so it never
+   overstates what's left; a dose exactly one half-life before counts. With a
+   substance picked it shades those hours and gives the half-life, adding "often
+   longer than it feels active" for stimulants; without, it lists the
+   substances with doses near bedtime. Bedtime is changed from the card itself
+   ("Change"), not from Settings. A dose taken after bedtime isn't counted: the
+   app doesn't know when anyone actually slept.
+4. **Routine and as-needed doses** (see below). *Built 2026-10-05, not yet
+   released:* `kinds.rs` (the `substance_kinds` table, the groups, routine
+   detection, the two questions and their answers), `kind_question`,
+   `answer_kind_question` and `set_substance_kind`; `KindQuestion.svelte` after
+   every dose form's receipt; `kind` on each substance in Stats. Routine
+   detection allows the odd outlier: **at least 4 in 5** doses within 3 hours
+   and a quarter of the amount (one late dose shouldn't hide a routine). The
+   overview, families and Trends' "how often" and combinations count
+   experiences only; a routine substance has no "how often" or "time between"
+   trend but keeps its amount trends; an as-needed one keeps everything. A
+   picked substance gets "How you take it" (any substance, by hand) and, when
+   routine or as needed, days taken in the last 28 and the 28 before, usual
+   time and amount. **Not built yet:** the dependence notes ("Patterns to watch,
+   by group", including the as-needed drift note), which wait for the clinician
+   review of their wording; "Sync journal to server" doesn't copy how
+   substances are taken (each person's computer keeps its own).
+5. **Dose tiers and automatic microdosing** (see below), once routine and
+   as-needed doses are filtered out. *Tiers and microdosing built 2026-10-05,
+   released in v0.25.0:* `stats::tier_of` gives every dose a tier against the
+   ranges for its own route ("logged as a common dose"), the approved microdose
+   cutoffs (`MICRODOSE`, mirrored in `dosedetail.ts`), "low dose" above a
+   cutoff but below common, and the psilocybin scale for mg of psilocybin.
+   Routine and as-needed doses get none. Stats: the dose table and details say
+   the tier (or "above/below your usual" with no ranges); the calendar shades by
+   the day's strongest dose and outlines microdose-only days, and names
+   microdosing runs (3+ microdose days, gaps of 4 days or less); frequency
+   shows microdose-only experiences lighter; "days since the last full dose";
+   the computer's inline label says microdose and low dose. *Dose profiles
+   built 2026-10-05, released in v0.25.0:* `field_notes_core::profiles` (kratom
+   leaf by amount, DXM plateaus, diphenhydramine sleep-aid/deliriant, ketamine
+   per route, alcohol in standard drinks), worked out for every dose read from
+   the journal (`Dose.profile`, never stored) and shown beside it on both
+   screens; given to the Companion with each dose. `db::profile_context` adds
+   to warnings, both an entry's own and the wider 12-hour check (whose doses
+   now carry amount, unit and form): diphenhydramine's deliriant range and
+   DXM's third plateau and up get a caution of their own; opioid-range kratom
+   appends to its depressant/opioid warnings; stimulant-range kratom with a
+   stimulant gets a note. Never removes or lowers anything. **The cautions'
+   and notes' wording waits for the clinician review** with the dependence
+   notes. The phone's offline checker doesn't add profile context yet.
+6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
+   used. Then show sleep after late-dose nights vs. other nights, with counts
+   and no p-values. No streaks or guilt; it must be easy to skip. *Built
+   2026-10-06, released in v0.25.0:* off until turned on from the time-of-day card
+   ("Ask me each morning", needs a bedtime); `sleep_log` (one 1-to-5 rating
+   per night, keyed by the evening's date) and the `sleep_checkin` setting;
+   `SleepCheckin.svelte` on the phone's Today and the computer's Journal,
+   4am to 2pm, until answered or skipped (Skip is per device, that morning
+   only). Stats compares rated nights in range after a dose within its
+   half-life (low end) of bedtime against the rest, every substance counted,
+   once there are 3 of each; averages and counts only.
+
+#### Routine and as-needed doses
+
+Three kinds of dose: **experience** (the default), **routine** (regular, e.g. a
+daily prescription) and **as needed** (the owner's suggestion, 2026-10-05: PRN,
+shown as "As needed" in the app, never "PRN"). All three follow the rule above:
+the kind changes where a dose is shown, never whether it's tracked.
+
+**As needed** fits what routine detection can't catch: lorazepam for panic,
+zolpidem on bad nights, kratom for pain. It's irregular by nature, so no
+pattern reveals it, and it isn't an "experience" either.
+- **Asked, once, on the second logged dose** of a benzo, Z-drug, gabapentin,
+  pregabalin or kratom: *"How do you take this?"* As needed (for anxiety,
+  sleep, pain…) / Regularly / Neither. Any other substance can be marked from
+  its Stats page. Never asked for alcohol, GHB/GBL/1,4-B, phenibut or opioids
+  (manual only; owner's decision for opioids, 2026-10-05).
+- **As-needed doses get their own small view**: how often, and the amount per
+  dose over time. They get no tier.
+- **The signal to watch is drift**: as-needed use creeping toward daily is
+  exactly how benzo dependence tends to start, so the benzo/Z-drug rule
+  (near-daily beyond about 3 to 4 weeks) applies to as-needed doses too. E.g.
+  *"You've taken lorazepam on 22 of the last 28 days. Taken most days for weeks,
+  the body can come to rely on it; if you change how you take it, a gradual
+  taper is safer than stopping."*
+
+**Routine:**
+
+- **Detected, then the user is asked.** No tagging up front. Suggest routine
+  only when: the same substance on 5+ of the last 7 to 10 days, amounts within
+  about 25%, times within about 3 hours, logged as plain doses (not inside an
+  experience with an intention or rating).
+- **Wording:** learning their routine, not noticing a habit. E.g. *"You take
+  Adderall around 8am most days. Should Field Notes treat it as part of your
+  routine? Routine doses stay in your journal and in combination checks, but
+  don't count toward experience stats."* Yes / No / Not now. **A "No" sticks:**
+  ask again only if the pattern clearly changes, at most once a month.
+- **Routine doses get no tier.** DoseWiki's bands are recreational: oral
+  methylphenidate's threshold is 20 mg, so a typical prescribed 10 mg would
+  read "below threshold."
+- **Never suggested by pattern** (the user can still mark them routine, e.g.
+  prescribed clonazepam, methadone or buprenorphine, medical cannabis; benzos,
+  Z-drugs, gabapentinoids and kratom also get the as-needed question above):
+  GHB, GBL, 1,4-B, alcohol, benzodiazepines, Z-drugs, gabapentin, pregabalin,
+  phenibut, opioids, kratom. Use an explicit name list, not `psychoactive_class`
+  (DoseWiki calls zolpidem an "Atypical Hallucinogen").
+- **Later, maybe:** a standing list of medications that doesn't need logging
+  each day, which would make combination checks more reliable. Start with
+  "logged, filed differently."
+
+#### Patterns to watch, by group
+
+A single "used most days" trigger is too blunt: it would nag a once-nightly
+oxybate-style GHB user and could miss an evening heavy drinker. Each group gets
+its own signal. A note appears **once** when the pattern first shows up, is easy
+to dismiss, and then lives on the substance's Stats page. Wording is factual and
+never marks anything as a concern; the useful fact is usually about stopping
+safely.
+
+| Group | Watch | Not enough on its own | Note says |
+|---|---|---|---|
+| GHB, GBL, 1,4-B | Short gaps between doses repeated through the day, overnight or on-waking doses, doses per day rising | One dose a day (half-life under an hour; nightly sodium oxybate rarely leads to meaningful withdrawal) | Round-the-clock dosing builds dependence fast; stopping suddenly can be dangerous; taper with support |
+| Alcohol | Daily total in standard drinks, consecutive heavy days, drinking soon after waking (also an early sign of withdrawal) | Drinking every day at low amounts | Withdrawal can start 6 to 24 hours after the last drink, so a gap between drinking sessions doesn't protect; seizure risk; taper with support. **No sex-based limits** (NIAAA-style limits fit trans users and people on HRT poorly) |
+| Benzodiazepines, Z-drugs | Near-daily use beyond about 3 to 4 weeks; nightly dose rising | One to two weeks at a low or normal dose | After longer use, tapering is safer than stopping suddenly. Long half-life (diazepam, clonazepam) means more continuous exposure but a gentler, built-in taper when stopping; short half-life (alprazolam, triazolam) means sharper rebound |
+| Gabapentin, pregabalin, phenibut | As for benzos | Occasional use | Dependence is real and withdrawal seizures are possible |
+| Kratom | Daily total, gradual increase | Occasional use | Withdrawal is mostly opioid-like and rarely dangerous; worded differently from GHB/alcohol. Many people use it daily on purpose |
+| Cannabis | Daily total only | Daily use at a steady amount | No withdrawal note |
+| Stimulants | Gradual increase, late-day doses (sleep) | A steady daily dose | Street amphetamine at 8am looks the same as a prescription; don't try to tell them apart |
+
+**Rebound note after short sleeping-pill courses**, probably the most useful
+message here: *"After a week or two of a sleeping pill, a few rough nights once
+you stop are common. That's rebound, and it usually passes within a few days.
+It isn't a sign you need it."* People reading rebound as need is one way short
+courses become long ones.
+
+**Dose is a trend in the person's own numbers** ("your nightly dose has doubled
+since March"), never converted between substances. Diazepam-equivalence tables
+disagree too much, especially for alprazolam and clonazepam.
+
+Reference coverage (checked 2026-10-05): `half_life` is on 92 of 763 routes, but
+it's present for every benzo, Z-drug and gabapentinoid checked (alprazolam,
+clonazepam, diazepam, lorazepam, triazolam, zolpidem, zopiclone, eszopiclone,
+gabapentin, pregabalin, phenibut, 1,4-B). **GHB and GBL have none**, so their
+note can't depend on it. The figures are for the parent drug only (diazepam's
+30 to 56 hours leaves out its longer-lived metabolite) and lorazepam's "~8
+hours" is at the low end, so use half-life to choose wording, not to compute
+anything.
+
+#### Tiers and microdosing
+
+- **Tier per dose** (threshold / light / common / strong / heavy) from the
+  substance's own bands, computed in `stats.rs`. It's one scale across
+  substances for the calendar (shade by tier) and frequency (microdose vs. full
+  dose). Say "logged as a strong dose," never "you took a strong dose":
+  blotter strength, mushroom potency (several-fold between batches) and kratom
+  alkaloid content are all uncertain, and the bands are community-sourced, not
+  clinical. Where there are no bands, compare to the person's usual amount.
+- **No cross-substance equivalents, no combined "psychedelic load," and no
+  tolerance meter with a percentage.**
+- **Microdosing is decided automatically, and only for psychedelics**
+  (owner's decision, 2026-10-05). Elsewhere a low dose is just a low dose. A
+  dose at or under its cutoff is labelled a microdose; low doses two or more
+  times a week (e.g. Fadiman, Stamets) show as one microdosing period on the
+  calendar. Above the cutoff but within the light band reads "low dose."
+
+**Microdose cutoffs (proposed 2026-10-05, approved by the owner with mescaline
+changed to 30 mg).** These are Field Notes' own curated numbers, a new kind of shipped
+data next to DoseWiki's, so the app says so wherever they show: "Field Notes'
+microdose cutoff, based on published microdosing studies and common practice."
+Oral or sublingual unless noted. DoseWiki threshold and light band for comparison.
+
+| Substance | Microdose at or under | DoseWiki threshold · light | Basis |
+|---|---|---|---|
+| LSD | 20 µg | 10 · 10 to 50 µg | Lab microdosing studies use 5 to 20 µg (Hutten et al. 2020; Family et al. 2020); 26 µg was noticeable (Bershad et al. 2019) |
+| 1P-LSD, 1cP-LSD | 20 µg | 15 · 15 to 50 µg | Treated as roughly equal to LSD by weight |
+| ALD-52 | 20 µg | 30 · 25 to 75 µg | As for LSD |
+| AL-LAD | 30 µg | 20 · 20 to 75 µg | Weaker than LSD by weight |
+| Psilocybin mushrooms, dried or powdered | 0.3 g | 0.25 · 0.25 to 1 g | Common practice 0.1 to 0.3 g; 0.5 g (Cavanna et al. 2022) is closer to a low dose |
+| Psilocybin mushrooms, fresh | 3 g | (dried band × 10, approximate) | Fresh is about 90% water |
+| 4-AcO-DMT | 3 mg | 5 · 5 to 15 mg | Roughly as potent as psilocybin by weight; pure-psilocybin microdoses are about 1 to 3 mg |
+| 4-HO-MET | 2 mg | 2 · 10 mg (data look inconsistent) | At threshold |
+| Mescaline | 30 mg (owner's figure) | 100 · 100 to 200 mg | Salt form (HCl, sulfate, freebase) changes this, so say "logged as" |
+| 2C-B | 3 mg | 2 · 2 to 15 mg | Low end; 5 to 10 mg is a "museum dose" for many |
+| Any other psychedelic with bands | its threshold | | Fallback |
+
+**Never labelled microdoses**, whatever the amount: DMT and ayahuasca (not dosed
+that way; ayahuasca strength varies too much and it has no bands), ibogaine
+(cardiac risk at any dose, logged in mg/kg), NBOMes (tiny safety margin, often
+sold as LSD), DOx compounds (very long-lasting, potent), LSA (seeds, too
+variable). Truffles aren't in the reference, so there's no automatic cutoff
+unless the owner adds one.
+
+#### Mushroom forms (owner's decision, 2026-10-05)
+
+A **form** on mushroom doses: **fresh, dried, powdered or edible**. Stored as a
+new nullable `doses.form` column (`db.rs` migration), shown only for psilocybin
+mushrooms and catalogue entries the user marks as mushrooms or truffles. It
+touches the dose forms on desktop and phone, the offline outbox, `quickLog`,
+the paste importer ("2g fresh", "dried"), the companion's `log_dose` tool, the
+PDF and the Obsidian export. Unset reads as dried, which is how most people
+mean a plain weight.
+
+| Form | Compared to the bands as | Notes |
+|---|---|---|
+| Dried | As logged | |
+| Powdered | As logged | Same strength per gram; mixing evens out batch variation. Capsules: see "Capsules and other counted units" below |
+| Fresh | Weight ÷ 10, shown as "about 0.3 g dried" | Water content varies (roughly 85 to 92%), so always "about." Fresh weights read on a dried scale lead to taking far more than intended, which is the main safety reason for this |
+| Edible (chocolate, gummies, tea) | Optional estimate, in the person's choice of **grams of dried mushroom** or **mg of psilocybin** (owner's decision), each against its own scale; never converted between them. "Don't know" means no tier | Once, factual: shop-bought "mushroom" edibles often aren't what the label says. Some contain Amanita muscaria (muscimol, a different drug with different interactions) or unlisted compounds; in 2024 one brand was recalled after illnesses and hospitalizations |
+- Spacing notes (`stats::SPACING_NOTE`) assume full doses: add "since your last
+  full dose" next to "since any dose."
+
+**Pure psilocybin (mg).** The reference has no psilocybin entry (only
+mushrooms and psilocin), so mg of psilocybin from an edible estimate, or from
+a trial or clinic, needs Field Notes' own scale. Approved by the owner
+2026-10-05, from the clinical literature: microdose up to 3 mg; low 3 to 10 mg; moderate
+10 to 20 mg; high 20 to 30 mg (25 mg is the usual trial dose, and Goodwin et
+al. 2022 compared 1, 10 and 25 mg); very high over 30 mg. No mg-to-grams
+conversion: psilocybin content of dried mushrooms varies too much (roughly
+0.2 to 2% by weight across studies) for it to mean anything.
+
+#### Capsules and other counted units (owner's request, 2026-10-05)
+
+People do keep capsules with different amounts: a home-filled size 00 can hold
+around 0.4 to 0.5 g of powder, smaller sizes and commercial microdose capsules
+much less, and two batches filled weeks apart can differ. So:
+
+- **Named capsule kinds per substance**, e.g. "Microdose caps, 0.15 g" and
+  "00 caps, 0.45 g." When logging capsules, pick a kind (last used is the
+  default), add one, or choose "Not sure," which logs the count without a tier.
+- **The dose stores the amount per capsule at the time it was logged**
+  (`doses.per_unit` and its unit, plus the kind's name). Editing or deleting a
+  kind later never changes past doses.
+- **Two kinds at once are two doses** (1 of A plus 2 of B), so totals stay right.
+- The same mechanism serves any counted unit with a known amount: kratom
+  capsules, gummies, chocolate squares. Pressed pills can use it too, always
+  as "logged as," since what a pill claims and what it holds can differ.
+
+#### Dose-dependent effects ("smart about dosage")
+
+Some substances do different things at different amounts. The reference's
+prose says so for kratom ("a stimulant at lower doses ... opioid-like depressant
+effects at higher doses") but gives no figure for where the switch happens, so
+this is **Field Notes' own curated table**, small, cited, and owner-reviewed,
+like the microdose cutoffs. A **dose profile** gives each amount range a short
+description.
+
+Where profiles are used:
+- **On the dose**, e.g. "Logged as 2 g of kratom leaf. At this amount kratom
+  usually feels more stimulating than sedating."
+- **The combination checker gets context added, never taken away.** In the
+  opioid-like range, kratom with alcohol, benzos or other depressants gets the
+  stronger respiratory wording; in the stimulant range, kratom with stimulants
+  gets a note. A low dose never downgrades a warning, and the checker stays
+  deterministic.
+- **The companion and live session** read the profile, e.g. which DXM plateau
+  the dose falls in, or that a diphenhydramine dose is in the deliriant range.
+- **Stats don't move doses between families.** Kratom stays in its families,
+  and the profile is a label. Dependence patterns (daily total, gradual
+  increase) count every dose whatever its profile.
+
+First entries (approved by the owner 2026-10-05):
+
+| Substance | Profile | Notes |
+|---|---|---|
+| Kratom (leaf powder only) | Under about 3 g: more stimulating · about 3 to 5 g: mixed · over about 5 g: more opioid-like and sedating | The commonly cited split is about 1 to 5 g vs. 5 to 15 g (e.g. Prozialeck et al. 2012); DoseWiki already calls 3 to 6 g "strong." Product strength and the person both shift it |
+| DXM | Plateaus 1 to 4, mapped to the reference's bands | Long-established community framework; the 3rd and 4th plateaus matter for safety |
+| Diphenhydramine | Sleep-aid range vs. deliriant range | The deliriant range carries seizure and heart-rhythm risk: a safety note, not just a label |
+| Ketamine | Below dissociative vs. dissociative ("hole") range | Route matters a lot; per route |
+| Alcohol | Low amounts more stimulating, higher amounts sedating | In standard drinks, as logged |
+
+**Forms beyond mushrooms.** The `doses.form` column should take a list of forms
+per substance, not just mushrooms. **Kratom: leaf powder, extract, or 7-OH
+product.** Concentrated 7-hydroxymitragynine products are far stronger per gram
+and act like an opioid at any amount (the FDA recommended scheduling 7-OH in
+2025). The reference has no 7-OH entry, so a 7-OH product gets no leaf profile
+and no tier, and gets opioid wording in the checker.
+
+#### Still open
+
+- Settled 2026-10-05 (owner approved): microdose cutoffs (mescaline 30 mg);
+  opioids marked as needed manually only, never asked; bedtime asked once and
+  saved as a setting; the psilocybin mg scale; the five first dose profiles
+  (kratom, DXM, diphenhydramine, ketamine, alcohol) with the kratom ranges as
+  proposed.
+- **Reviewed 2026-10-06** (the owner's "wording for clinical review" packet):
+  dependence notes built in `patterns.rs` with the reviewed triggers (GHB group
+  doses 4 hours apart or less for more than a day, or 21+ of 28 days; alcohol
+  5+ drinks on 4 of 7 days, 3 heavy days in a row, or drinks 4 to 10am on 3 of
+  14 days; benzodiazepines and Z-drugs 20+ of 28 days or the daily amount up by
+  half; gabapentinoids and phenibut 20+ of 28; kratom most days with the amount
+  up a quarter, or extract/7-OH most days; as needed 20+ of 28; the rebound note
+  after a week or more of nightly use then a night off). Each shows once after
+  logging, then stays on the substance's Stats page. DMT, ayahuasca and ibogaine
+  can be microdosed; ibogaine carries a cardiac caution at every dose. The
+  kratom-with-stimulants note says some people find it takes the edge off.
+- **Every note's final wording gets a check from someone with addiction
+  medicine or psychiatry experience before it ships.** The thresholds above
+  (2 to 4 weeks, 5 of 7 days, about 25%) are reasonable anchors, not measured
+  cutoffs, and published thresholds come from treatment populations, not
+  journal users.
 
 ### Phone settings for the owner — v0.22.1 (owner's request, 2026-10-03)
 

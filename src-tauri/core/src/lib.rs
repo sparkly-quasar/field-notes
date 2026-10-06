@@ -9,4 +9,5 @@ pub mod check;
 pub mod interactions;
 pub mod knowledge;
 pub mod names;
+pub mod profiles;
 pub mod pw;
