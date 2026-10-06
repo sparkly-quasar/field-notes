@@ -1241,9 +1241,9 @@ emotional presence.
 
 ## Suggested next increment
 
-**Current release: v0.22.2** (2026-10-03): share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
+**Current release: v0.25.0** (2026-10-06): dose-aware Stats (below). v0.24.0: tap a chart in Stats to see its experiences. v0.22.2: share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
 
-### Dose-aware Stats: planned, not built (owner's discussion, 2026-10-05)
+### Dose-aware Stats: shipped in v0.25.0 (owner's discussion, 2026-10-05)
 
 **Why.** Stats mostly counts every dose the same: 25 µg and 100 µg of LSD, 2 mg
 and 30 mg of amphetamine. Only two places use the amount: the dose-over-time
@@ -1263,7 +1263,7 @@ still be visible.
 #### Order of work
 
 1. **Convert between mass units (µg, mg, g)** in series grouping and band
-   matching. *Built 2026-10-05, not yet released:* `stats::in_unit` and
+   matching. *Built 2026-10-05, released in v0.25.0:* `stats::in_unit` and
    `usual_mass_unit`; a substance's mass doses form one series in the unit
    logged most, each converted point keeps `logged_amount`/`logged_unit`
    (shown as "logged as 600 mg"), and reference bands convert into the
@@ -1272,7 +1272,7 @@ still be visible.
    `different_units_are_never_merged` already requires.
 2. **Mushroom form: fresh, dried, powdered or edible** (owner's decision,
    2026-10-05; see "Mushroom forms" below). Shipped early as a safety fix,
-   before tiers. *Built 2026-10-05, not yet released:* `db::DoseDetail` (six
+   before tiers. *Built 2026-10-05, released in v0.25.0:* `db::DoseDetail` (six
    `doses` columns: form, per_unit, per_unit_unit, unit_label, estimate,
    estimate_unit; flat on new doses, nested `detail` on edits so an older client
    keeps it), saved capsule kinds (`unit_kinds`), `stats::measure`, and
@@ -1295,7 +1295,7 @@ still be visible.
    (delayed sleep phase is common with ADHD, and shift work exists). Saved as
    a journal setting so the phone and computer agree, editable in Settings.
    "It varies" shows dose times and the half-life wording without bedtime
-   shading. *Built 2026-10-05, not yet released:* `journal_settings` table
+   shading. *Built 2026-10-05, released in v0.25.0:* `journal_settings` table
    (`bedtime`: "23:00", "varies", "skip"), `set_bedtime`, and `half_life` on
    each substance in `usage_stats` (`stats::half_life_hours` reads the
    reference's text, ignoring bracketed glosses). The time-of-day card asks once
@@ -1325,7 +1325,7 @@ still be visible.
    substances are taken (each person's computer keeps its own).
 5. **Dose tiers and automatic microdosing** (see below), once routine and
    as-needed doses are filtered out. *Tiers and microdosing built 2026-10-05,
-   not yet released:* `stats::tier_of` gives every dose a tier against the
+   released in v0.25.0:* `stats::tier_of` gives every dose a tier against the
    ranges for its own route ("logged as a common dose"), the approved microdose
    cutoffs (`MICRODOSE`, mirrored in `dosedetail.ts`), "low dose" above a
    cutoff but below common, and the psilocybin scale for mg of psilocybin.
@@ -1335,7 +1335,7 @@ still be visible.
    microdosing runs (3+ microdose days, gaps of 4 days or less); frequency
    shows microdose-only experiences lighter; "days since the last full dose";
    the computer's inline label says microdose and low dose. *Dose profiles
-   built 2026-10-05, not yet released:* `field_notes_core::profiles` (kratom
+   built 2026-10-05, released in v0.25.0:* `field_notes_core::profiles` (kratom
    leaf by amount, DXM plateaus, diphenhydramine sleep-aid/deliriant, ketamine
    per route, alcohol in standard drinks), worked out for every dose read from
    the journal (`Dose.profile`, never stored) and shown beside it on both
@@ -1350,7 +1350,7 @@ still be visible.
 6. **Optional morning "How did you sleep?" (1 to 5)**, only if version one gets
    used. Then show sleep after late-dose nights vs. other nights, with counts
    and no p-values. No streaks or guilt; it must be easy to skip. *Built
-   2026-10-06, not yet released:* off until turned on from the time-of-day card
+   2026-10-06, released in v0.25.0:* off until turned on from the time-of-day card
    ("Ask me each morning", needs a bedtime); `sleep_log` (one 1-to-5 rating
    per night, keyed by the evening's date) and the `sleep_checkin` setting;
    `SleepCheckin.svelte` on the phone's Today and the computer's Journal,
