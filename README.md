@@ -55,7 +55,9 @@ show you how to get past it.
   hundreds of substances, bundled with the app and available offline. Search the
   reference prose, or read any of the 575 substance entries **in full** —
   pharmacology, harm potential, tolerance, legality — with the exact dose figures
-  alongside. Sourced from [DoseWiki](https://dose.wiki) (public domain).
+  alongside. The dose figures are the Field Notes dose reference: based on
+  [DoseWiki](https://dose.wiki) (public domain) with substantial revisions, listed in
+  [`data/dosewiki/`](./data/dosewiki/). The prose is DoseWiki's, as written.
 - **Companion** (optional, off until you turn it on) — a calm, non-judgmental
   support chat that runs on a local AI
   model. It can be aware of your live trip report, look up references, and log

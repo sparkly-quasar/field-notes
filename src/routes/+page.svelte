@@ -2281,7 +2281,9 @@
     if (!dRef || !dAmount) return null;
     const amt = parseFloat(dAmount);
     if (isNaN(amt) || amt <= 0) return null;
-    const roa = dRef.roas.find((r) => r.name.toLowerCase() === dRoute.trim().toLowerCase()) ?? dRef.roas[0];
+    // Only the route being logged: another route's ranges (ketamine IM read
+    // against insufflated) would be a confident wrong answer.
+    const roa = dRef.roas.find((r) => r.name.toLowerCase() === dRoute.trim().toLowerCase());
     if (!roa) return null;
     if (roa.threshold == null && roa.light.min == null && roa.common.min == null) return null;
     // Don't classify across mismatched units (e.g. entering g against mg ranges).
@@ -2662,7 +2664,7 @@
               {#if refInteractions(dRef, "caution").length}
                 <div class="small warn-text muted">Use care with: {refInteractions(dRef, "caution").map((i) => i.name).join(", ")}</div>
               {/if}
-              <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
+              <div class="muted attribution">Field Notes dose reference, based on DoseWiki (CC0) with substantial revisions · reference only, verify before dosing</div>
             </div>
           {/if}
           <datalist id="subnames">
@@ -3203,7 +3205,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {:else}
           <p class="muted small">The reference text isn't loaded, so search is unavailable.</p>
         {/if}
-        <p class="muted attribution">Dose and reference data from <strong>DoseWiki</strong> (dose.wiki), dedicated to the public domain under CC0. Reference only — not a prescription. Updates ship with new versions of the app.</p>
+        <p class="muted attribution">Dose ranges, durations and interaction lists are the <strong>Field Notes dose reference</strong>: based on <strong>DoseWiki</strong> (dose.wiki, public domain under CC0), with substantial revisions where its figures were wrong, and some figures from Erowid and published sources (each says so). The passages above are DoseWiki’s prose, quoted as written. Reference only — not a prescription. Updates ship with new versions of the app.</p>
 
         {#if kbOpen}
           <!-- Reading one substance whole. Its dose data rides along above the
@@ -3228,7 +3230,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 {#if refInteractions(kbDose, "caution").length}
                   <div class="small warn-text muted">Use care with: {refInteractions(kbDose, "caution").map((i) => i.name).join(", ")}</div>
                 {/if}
-                <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
+                <div class="muted attribution">Field Notes dose reference, based on DoseWiki (CC0) with substantial revisions · reference only, verify before dosing</div>
               </div>
             {/if}
 

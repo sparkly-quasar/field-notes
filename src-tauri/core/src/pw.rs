@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
-//! Dose reference importer. Reads a bundled snapshot of the DoseWiki substance
-//! encyclopedia (dose ranges, durations, graded interactions) and maps it into
-//! the local reference cache. The data ships *with* the app as an offline
+//! The Field Notes dose reference. Reads a bundled snapshot of the DoseWiki
+//! substance encyclopedia (dose ranges, durations, graded interactions), corrects
+//! it on load (units, band order, route names, impossible durations), replaces
+//! the routes it gets badly wrong ([`ROUTE_OVERRIDES`]), and maps the result into
+//! the local reference cache. Based on DoseWiki, with substantial revisions. The data ships *with* the app as an offline
 //! resource, so there is no network call and every lookup is private.
 //!
 //! DoseWiki content is dedicated to the public domain under CC0 (the site code is
@@ -156,7 +158,7 @@ fn route_units(d: &DwDoseRanges) -> Option<String> {
     [&d.moderate, &d.light, &d.threshold, &d.strong, &d.heavy]
         .into_iter()
         .flatten()
-        .find_map(|r| r.unit.clone().filter(|u| !u.is_empty()))
+        .find_map(|r| r.unit.as_deref().map(canonical_unit).filter(|u| !u.is_empty()))
 }
 
 fn fmt_stage(g: &Option<DwStage>) -> Option<String> {
@@ -195,15 +197,207 @@ fn interactions_of(list: &[String], severity: &str) -> Vec<PwInteraction> {
         .collect()
 }
 
-fn map_sub(s: DwSub) -> PwInfo {
+// ---- revisions applied to every DoseWiki entry on load ----
+//
+// DoseWiki's dose data has structural errors that the app would otherwise read
+// wrongly without saying so (see ROADMAP, "Dose reference review"). They are
+// fixed here, on load, so a fresh snapshot gets the same treatment. Each change
+// is written to the revision log (`parse_slim_logged`), which is committed as
+// `data/dosewiki/REVISIONS.txt`.
+
+/// The dose form's route names: oral, insufflated, sublingual, vaporized, rectal,
+/// IM, IV. DoseWiki spells routes many ways ("I.M.", "Intravenous", "Smoked",
+/// "Inhaled"); smoked and inhaled are both the form's "vaporized".
+pub fn canonical_route(route: &str) -> String {
+    let r = route.trim().to_lowercase();
+    match r.as_str() {
+        "smoked" | "inhaled" | "inhalation" | "vaped" | "vaporised" | "vaporized" => "vaporized".into(),
+        "im" | "i.m." | "intramuscular" => "IM".into(),
+        "iv" | "i.v." | "intravenous" => "IV".into(),
+        "intranasal" | "nasal" | "snorted" => "insufflated".into(),
+        _ => r,
+    }
+}
+
+/// One spelling per unit: "ug", "mcg" and "μg" are all "µg".
+fn canonical_unit(u: &str) -> String {
+    let u = u.trim().to_lowercase();
+    match u.as_str() {
+        "ug" | "mcg" | "μg" | "µg" => "µg".into(),
+        _ => u,
+    }
+}
+
+/// How many micrograms one of `unit` is, for the units that convert.
+fn mass_in_ug(unit: &str) -> Option<f64> {
+    match unit {
+        "µg" => Some(1.0),
+        "mg" => Some(1_000.0),
+        "g" => Some(1_000_000.0),
+        _ => None,
+    }
+}
+
+const TIERS: [&str; 5] = ["threshold", "light", "moderate", "strong", "heavy"];
+
+fn tiers_mut(d: &mut DwDoseRanges) -> [&mut Option<DwRange>; 5] {
+    [&mut d.threshold, &mut d.light, &mut d.moderate, &mut d.strong, &mut d.heavy]
+}
+
+fn has_amount(g: &Option<DwRange>) -> bool {
+    g.as_ref().is_some_and(|r| r.min.is_some() || r.max.is_some())
+}
+
+/// Put every band of a route in one unit. DoseWiki sometimes gives some bands in
+/// g and others in mg (or µg and mg) within one route, and the app reads all of
+/// them in one unit, so a psilocin "heavy 5 g" read as 5 mg. The route's unit is
+/// the one most bands use (ties go to the moderate band's). A band in a unit that
+/// can't be converted (UK units against US drinks, mg/kg) is dropped. A band that
+/// only fits after converting but then sits more than 10× away from the bands
+/// that were already in the route's unit was copied from somewhere else (psilocin
+/// carried psilocybin mushroom figures in grams) and is dropped too.
+fn unify_units(title: &str, route: &str, d: &mut DwDoseRanges, log: &mut Vec<String>) -> Option<String> {
+    let units: Vec<Option<String>> = tiers_mut(d)
+        .iter()
+        .map(|g| g.as_ref().filter(|_| has_amount(g)).and_then(|r| r.unit.as_deref()).map(canonical_unit).filter(|u| !u.is_empty()))
+        .collect();
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for u in units.iter().flatten() {
+        match counts.iter_mut().find(|(c, _)| c == u) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((u.clone(), 1)),
+        }
+    }
+    let top = counts.iter().map(|c| c.1).max()?;
+    let tied: Vec<&String> = counts.iter().filter(|c| c.1 == top).map(|c| &c.0).collect();
+    let unit = match &units[2] {
+        Some(m) if tied.contains(&m) => m.clone(),
+        _ => tied[0].clone(),
+    };
+
+    let mut converted = [false; 5];
+    for (i, g) in tiers_mut(d).into_iter().enumerate() {
+        let Some(from) = units[i].as_ref().filter(|u| **u != unit) else { continue };
+        match (mass_in_ug(from), mass_in_ug(&unit)) {
+            (Some(a), Some(b)) => {
+                let r = g.as_mut().unwrap();
+                r.min = r.min.map(|x| x * a / b);
+                r.max = r.max.map(|x| x * a / b);
+                r.unit = Some(unit.clone());
+                converted[i] = true;
+            }
+            _ => {
+                log.push(format!("{title} [{route}]: dropped {} band, given in {from} where the rest is in {unit}", TIERS[i]));
+                *g = None;
+            }
+        }
+    }
+    // A converted band far out of line with the native ones came from elsewhere.
+    let mins: Vec<Option<f64>> = tiers_mut(d).iter().map(|g| g.as_ref().and_then(|r| r.min.or(r.max))).collect();
+    for i in 0..5 {
+        let (true, Some(v)) = (converted[i], mins[i]) else { continue };
+        let near = (1..5)
+            .flat_map(|k| [i.checked_sub(k), Some(i + k)])
+            .flatten()
+            .filter(|&j| j < 5 && !converted[j])
+            .find_map(|j| mins[j]);
+        if let Some(n) = near.filter(|&n| n > 0.0 && v > 0.0) {
+            if v / n > 10.0 || n / v > 10.0 {
+                log.push(format!(
+                    "{title} [{route}]: dropped {} band ({v} {unit} once converted), more than 10x off the other bands",
+                    TIERS[i]
+                ));
+                *tiers_mut(d)[i] = None;
+                continue;
+            }
+        }
+        log.push(format!("{title} [{route}]: {} band converted to {unit}", TIERS[i]));
+    }
+    Some(unit)
+}
+
+/// Bands must rise: each tier's lower bound at or above the one before it, since
+/// the classifier reads them from heavy down. Keep the longest rising run of
+/// tiers and drop the rest (ties keep the lower tiers), and drop a band whose
+/// min is above its own max.
+fn order_bands(title: &str, route: &str, d: &mut DwDoseRanges, log: &mut Vec<String>) {
+    for (i, g) in tiers_mut(d).into_iter().enumerate() {
+        if let Some(r) = g.as_ref() {
+            if let (Some(a), Some(b)) = (r.min, r.max) {
+                if a > b {
+                    log.push(format!("{title} [{route}]: dropped {} band, min {a} above max {b}", TIERS[i]));
+                    *g = None;
+                }
+            }
+        }
+    }
+    let mins: Vec<Option<f64>> = tiers_mut(d).iter().map(|g| g.as_ref().and_then(|r| r.min)).collect();
+    let idx: Vec<usize> = (0..5).filter(|&i| mins[i].is_some()).collect();
+    // Longest non-decreasing subsequence over at most five values.
+    let mut best: Vec<usize> = Vec::new();
+    for mask in 1u32..(1 << idx.len()) {
+        let pick: Vec<usize> = (0..idx.len()).filter(|b| mask & (1 << b) != 0).map(|b| idx[b]).collect();
+        let rising = pick.windows(2).all(|w| mins[w[0]] <= mins[w[1]]);
+        let better = pick.len() > best.len() || (pick.len() == best.len() && pick < best);
+        if rising && better {
+            best = pick;
+        }
+    }
+    for &i in idx.iter().filter(|i| !best.contains(i)) {
+        log.push(format!(
+            "{title} [{route}]: dropped {} band (from {}), out of order with the bands around it",
+            TIERS[i],
+            mins[i].unwrap()
+        ));
+        *tiers_mut(d)[i] = None;
+    }
+}
+
+/// A stage that ends after the whole experience does is wrong (buspirone's peak
+/// was "40–90 hours" against a total of 2.5); drop it rather than time warnings
+/// by it.
+fn check_stages(title: &str, route: &str, st: &mut DwStages, log: &mut Vec<String>) {
+    let minutes = |g: &Option<DwStage>| {
+        let g = g.as_ref()?;
+        let v = g.max.or(g.min)?;
+        let u = g.unit.as_deref().unwrap_or("").to_lowercase();
+        Some(if u.starts_with("sec") { v / 60.0 } else if u.starts_with("min") { v } else if u.starts_with("day") { v * 1440.0 } else { v * 60.0 })
+    };
+    let Some(total) = minutes(&st.total_duration) else { return };
+    for (name, g) in [("onset", &mut st.onset), ("come-up", &mut st.come_up), ("peak", &mut st.peak), ("offset", &mut st.offset)] {
+        if minutes(g).is_some_and(|m| m > total) {
+            log.push(format!("{title} [{route}]: dropped {name}, longer than the total duration"));
+            *g = None;
+        }
+    }
+}
+
+fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
+    let title = s.title.clone();
+    let mut seen: Vec<String> = Vec::new();
     let roas = s
         .routes
         .into_iter()
-        .map(|r| {
+        .filter_map(|mut r| {
+            let name = canonical_route(&r.route);
+            if seen.contains(&name) {
+                log.push(format!("{title}: dropped duplicate route \"{}\" (already have {name})", r.route));
+                return None;
+            }
+            if !name.eq_ignore_ascii_case(&r.route) {
+                log.push(format!("{title}: route \"{}\" renamed {name}", r.route));
+            }
+            seen.push(name.clone());
+            let units = unify_units(&title, &name, &mut r.dose_ranges, log);
+            order_bands(&title, &name, &mut r.dose_ranges, log);
+            check_stages(&title, &name, &mut r.stages, log);
+            Some((name, units, r))
+        })
+        .map(|(name, units, r)| {
             let d = &r.dose_ranges;
             PwRoa {
-                name: r.route,
-                units: route_units(d),
+                name,
+                units: units.or_else(|| route_units(d)),
                 threshold: d.threshold.as_ref().and_then(|t| t.min),
                 light: range(&d.light),
                 common: range(&d.moderate), // DoseWiki calls our "common" tier "moderate"
@@ -303,7 +497,7 @@ const ROUTE_OVERRIDES: &[(&str, &str, &[RouteSpec])] = &[(
     "Smoked and insufflated ranges from Erowid. Intramuscular ranges from the Field Notes maintainer. Not orally active.",
     &[
         RouteSpec {
-            name: "smoked", units: "mg", threshold: Some(1.0),
+            name: "vaporized", units: "mg", threshold: Some(1.0),
             light: (2.0, 5.0), common: (5.0, 10.0), strong: (10.0, 20.0), heavy: None,
             onset: Some("0–30 seconds"), peak: Some("1–15 minutes"), after_effects: Some("1 hour"), total: Some("30 minutes"),
         },
@@ -322,9 +516,16 @@ const ROUTE_OVERRIDES: &[(&str, &str, &[RouteSpec])] = &[(
 
 /// Parse the slimmed DoseWiki JSON (the bundled `dosewiki.json`) into our shape.
 pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
+    parse_slim_logged(json).map(|(subs, _)| subs)
+}
+
+/// [`parse_slim`], plus one line for every change made to DoseWiki's figures.
+pub fn parse_slim_logged(json: &str) -> Result<(Vec<PwInfo>, Vec<String>), String> {
     let subs: Vec<DwSub> =
         serde_json::from_str(json).map_err(|e| format!("Couldn't parse the bundled dose reference: {e}"))?;
-    Ok(subs.into_iter().map(map_sub).collect())
+    let mut log = Vec::new();
+    let infos = subs.into_iter().map(|s| map_sub(s, &mut log)).collect();
+    Ok((infos, log))
 }
 
 #[cfg(test)]
@@ -349,11 +550,86 @@ mod tests {
         let subs = parse_slim(include_str!("../../resources/dosewiki.json")).unwrap();
         let s = subs.iter().find(|s| s.name == "5-MeO-DMT").unwrap();
         let names: Vec<&str> = s.roas.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["smoked", "insufflated", "IM"]);
+        assert_eq!(names, ["vaporized", "insufflated", "IM"]);
         let im = &s.roas[2];
         assert_eq!((im.light.min, im.light.max), (Some(0.5), Some(1.0)));
         assert_eq!((im.heavy, im.heavy_max), (Some(8.0), Some(12.0)));
         assert!(s.dose_note.as_deref().unwrap().contains("Erowid"));
+    }
+
+    fn bundled() -> Vec<PwInfo> {
+        parse_slim(include_str!("../../resources/dosewiki.json")).unwrap()
+    }
+
+    fn route<'a>(subs: &'a [PwInfo], name: &str, route: &str) -> &'a PwRoa {
+        let s = subs.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no {name}"));
+        s.roas.iter().find(|r| r.name == route).unwrap_or_else(|| panic!("{name} has no {route} route"))
+    }
+
+    #[test]
+    fn every_route_is_clean_after_load() {
+        let form = ["oral", "insufflated", "sublingual", "vaporized", "rectal", "IM", "IV"];
+        for s in bundled() {
+            let mut names: Vec<&str> = s.roas.iter().map(|r| r.name.as_str()).collect();
+            names.sort();
+            names.dedup();
+            assert_eq!(names.len(), s.roas.len(), "{} has a duplicate route", s.name);
+            for r in &s.roas {
+                let n = r.name.as_str();
+                assert!(!["smoked", "inhaled", "intravenous", "intramuscular", "I.M."].contains(&n), "{}: {n}", s.name);
+                assert!(form.contains(&n) || n == n.to_lowercase(), "{}: route {n} not canonical", s.name);
+                assert!(r.units.as_deref() != Some("ug"), "{}: ug not normalised", s.name);
+                let mins = [r.threshold, r.light.min, r.common.min, r.strong.min, r.heavy];
+                let set: Vec<f64> = mins.into_iter().flatten().collect();
+                assert!(set.windows(2).all(|w| w[0] <= w[1]), "{} [{n}]: bands out of order {mins:?}", s.name);
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_units_are_converted_or_dropped() {
+        let subs = bundled();
+        // Psilocin's gram figures were psilocybin mushroom figures: gone, mg bands kept.
+        let p = route(&subs, "Psilocin", "oral");
+        assert_eq!((p.units.as_deref(), p.threshold, p.heavy), (Some("mg"), None, None));
+        assert_eq!((p.light.min, p.strong.max), (Some(5.0), Some(25.0)));
+        // Butyrfentanyl: strong and heavy were in mg, the rest in µg.
+        let b = route(&subs, "Butyrfentanyl", "oral");
+        assert_eq!((b.units.as_deref(), b.strong.min, b.heavy), (Some("µg"), Some(1500.0), Some(3000.0)));
+        // Piracetam is mostly in g; its one mg band becomes g.
+        let pi = route(&subs, "Piracetam", "oral");
+        assert_eq!((pi.units.as_deref(), pi.common.min, pi.heavy), (Some("g"), Some(1.2), Some(5.0)));
+    }
+
+    #[test]
+    fn routes_take_the_dose_forms_names() {
+        let subs = bundled();
+        assert_eq!(route(&subs, "Ketamine", "IM").light.min, Some(15.0));
+        assert!(route(&subs, "Heroin", "IV").common.min.is_some());
+        // DMT listed Vaporized and Inhaled; the first is kept.
+        let dmt = subs.iter().find(|s| s.name == "DMT").unwrap();
+        assert_eq!(dmt.roas.iter().filter(|r| r.name == "vaporized").count(), 1);
+    }
+
+    #[test]
+    fn stages_longer_than_the_whole_are_dropped() {
+        let subs = bundled();
+        assert!(route(&subs, "Buspirone", "oral").peak.is_none());
+    }
+
+    /// Writes the revision log. Run after a refresh and commit the result:
+    /// `cargo test -p field_notes_core write_revision_log -- --ignored`
+    #[test]
+    #[ignore]
+    fn write_revision_log() {
+        let (_, log) = parse_slim_logged(include_str!("../../resources/dosewiki.json")).unwrap();
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/dosewiki/REVISIONS.txt");
+        let head = format!(
+            "Changes Field Notes makes to the DoseWiki snapshot ({DOSEWIKI_SNAPSHOT}) on load.\n\
+             Generated by `cargo test -p field_notes_core write_revision_log -- --ignored`;\n\
+             see src-tauri/core/src/pw.rs. Hand-written replacements (ROUTE_OVERRIDES) are listed there.\n\n"
+        );
+        std::fs::write(path, head + &log.join("\n") + "\n").unwrap();
     }
 
     #[test]

@@ -1243,6 +1243,73 @@ emotional presence.
 
 **Current release: v0.22.2** (2026-10-03): share an entry as a PDF. v0.22.1: phone settings for the owner, street names saved as the substance, and write-ups asked for by kind. v0.22.0 made the phone work offline (Phase 3b, below).
 
+### Dose reference review (owner's request, 2026-10-05)
+
+A review of the bundled DoseWiki snapshot (577 substances, 2026-07-08) found two
+kinds of problem: entries that are wrong, and entries malformed in a way the app
+read wrongly without saying so. The second kind was worse, since the app showed a
+confident label. **Owner's decision:** the reference becomes our own, "the Field
+Notes dose reference, based on DoseWiki with substantial revisions". Erowid is
+the preferred source for replacement figures, then drug labels and peer-reviewed
+literature. PsychonautWiki and TripSit are a cross-check only (CC BY-SA).
+
+**Step 1, done (structural fixes on load, `pw.rs`).** Every change is logged to
+`data/dosewiki/REVISIONS.txt` (regenerate with
+`cargo test -p field_notes_core write_revision_log -- --ignored`), so a refresh
+gets the same treatment and shows what changed.
+- **Mixed units within a route** (8 entries): the app read every band in one
+  unit, so psilocin's "heavy 5 g" read as 5 mg and a 10 mg dose showed "heavy";
+  butyrfentanyl's strong/heavy (mg) read as µg. Bands are now converted to the
+  route's majority unit. A band in a unit that can't convert (Alcohol's US
+  "drinks" among UK units) is dropped, and so is a converted band more than 10x
+  off the rest (psilocin's gram figures were psilocybin mushroom figures).
+- **Bands out of order** (14 inverted): the classifier reads from heavy down, so
+  an inverted band mislabels doses. The longest rising run of tiers is kept and
+  the rest dropped (MDAI, 6-APDB, 5-MAPB, ALD-52, 5-MeO-DiBF, Meclofenoxate).
+  Overlaps that still rise (oxycodone "moderate 5–5 mg", heroin smoked heavy
+  inside strong, ketamine's routes, DXM) are left for step 2.
+- **Route names** match the dose form: smoked/inhaled → vaporized, I.M. /
+  intramuscular → IM, intravenous → IV. Duplicates after renaming are dropped,
+  first kept (DMT, 5-MeO-DMT, 5-MeO-MiPT, DPT, Kanna, N-Ethylhexedrone, DET,
+  5-MeO-DALT). The dose form no longer falls back to the first route when the
+  logged one isn't listed (ketamine IM was being classified against
+  insufflated), and the combo checker's IM lookup finds IM before IV.
+- **Impossible durations:** a stage longer than the total is dropped (buspirone
+  peak "40–90 hours", nicotine buccal offset).
+- In-app credit, NOTICE and READMEs now say "based on DoseWiki with substantial
+  revisions". The prose corpus is still credited as DoseWiki's, as written.
+
+**Step 2, to do (replacement figures, `ROUTE_OVERRIDES`).** Research in
+progress, Erowid first. Each override carries a `dose_note` naming its sources.
+- **DMT:** oral route listed as active by itself (onset "15–60 seconds"); it isn't
+  without an MAOI. Vaporized and Inhaled disagreed (the first was kept).
+- **Ketamine:** oral timings look like injection figures (onset 1–3 min, total
+  1–2 h); insufflated peak 45–90 min / offset 3–6 h, no total; overlapping bands
+  on every route.
+- **Psilocin:** after step 1 it has light–strong only; needs threshold and heavy.
+- **Oxycodone:** oral "moderate 5–5 mg"; IV peak 3–5 h.
+- **Heroin:** insufflated onset "10–60 s"; IV peak 1–4 h; IV/oral missing light.
+- **Butyrfentanyl:** units now consistent, figures still unverified.
+- **Buspirone:** real peak/Tmax from the label.
+- **Dextromethorphan:** plateau-based ranges, overlapping moderate/strong.
+- **Alcohol:** the existing drinks/units item (above).
+
+**Step 3, to do (coverage gaps).**
+- **Ibogaine has no interactions at all.** Add QT-prolonging drugs, CYP2D6
+  inhibitors, serotonergics and opioids to `interactions.rs` with reasons and
+  sources. Its doses are mg/kg, which the form can't take, so they're never
+  classified.
+- **No dose data:** 30 entries (incl. Salvia, Lithium, Khat, Tobacco), plus empty
+  routes for Ayahuasca (defensible), Datura, Scopolamine and others.
+- **Missing:** Peyote, San Pedro, Salvia divinorum by that name, esketamine.
+- **24 street names map to more than one substance** ("speed", "dexedrine",
+  "smiles", "death"). They fail safe (the name index refuses ambiguity) but
+  don't resolve.
+- **230 entries have no psychoactive class.** Low impact: combo checks get
+  classes from `interactions.rs`, not DoseWiki.
+- DoseWiki's own interaction lists agree with each other (no pair is dangerous
+  one way and caution the other).
+
 ### Phone settings for the owner — v0.22.1 (owner's request, 2026-10-03)
 
 The gear next to Help used to appear only for other people on the server; the

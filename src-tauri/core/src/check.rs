@@ -114,17 +114,12 @@ fn max_minutes(s: &str) -> Option<f64> {
     Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
 }
 
-/// The reference's entry for a route, IM read as IV, the nearest route DoseWiki lists.
+/// The reference's entry for a route. IM falls back to IV, the nearest route,
+/// when the reference has no IM figures.
 fn roa<'a>(info: &'a PwInfo, route: &str) -> Option<&'a crate::pw::PwRoa> {
-    let want = match route.to_lowercase().as_str() {
-        "im" | "iv" => "intravenous".to_string(),
-        "vaporized" => "vaporized".to_string(),
-        r => r.to_string(),
-    };
-    info.roas
-        .iter()
-        .find(|r| r.name.eq_ignore_ascii_case(route))
-        .or_else(|| info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(&want)))
+    let route = crate::pw::canonical_route(route);
+    let find = |n: &str| info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(n));
+    find(&route).or_else(|| if route == "IM" { find("IV") } else { None })
 }
 
 /// How long a dose of this lasts by the reference's "total" for the route, longest

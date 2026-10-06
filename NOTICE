@@ -14,8 +14,12 @@ Third-party fonts (bundled in static/fonts, used offline):
 
 Third-party data:
 
-  - Substance reference data (dose ranges, durations, graded interactions) is a
-    snapshot of DoseWiki (https://dose.wiki), which dedicates its encyclopedia to
+  - The Field Notes dose reference (dose ranges, durations, graded interactions)
+    is based on a snapshot of DoseWiki (https://dose.wiki), with substantial
+    revisions: structural errors are corrected on load and some substances'
+    figures are replaced from Erowid and published sources (see
+    data/dosewiki/REVISIONS.txt and ROUTE_OVERRIDES in src-tauri/core/src/pw.rs).
+    The reference prose is DoseWiki's as written. DoseWiki dedicates its encyclopedia to
     the public domain under the Creative Commons CC0 1.0 Universal dedication (the
     DoseWiki site code is MIT-licensed). No attribution is legally required; a
     courtesy credit to DoseWiki is shown in-app wherever this data is displayed.
