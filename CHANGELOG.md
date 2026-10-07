@@ -11,6 +11,14 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.28.0
+
+- **Unlock your journal with a PIN.** If you share someone's Field Notes server,
+  you can set a 4 to 12 digit PIN in Settings on your phone and use it instead
+  of your password when your journal locks. It works only on that device, turns
+  off after five wrong tries, and turns off on all your devices if you change
+  your password. Your password stays the real key: the server never keeps it.
+
 ## v0.27.3
 
 - **San Pedro and peyote count as psychedelics,** however they're written
