@@ -3336,6 +3336,14 @@
     border-radius: 10px; padding: 0.7rem 0.75rem; margin-bottom: 0.6rem; min-height: var(--tap);
   }
   textarea { line-height: 1.5; }
+  /* The substance box lives in its own component, so the rule above doesn't
+     reach it: without this it gets the browser's small default font, which
+     also makes iOS zoom in on focus (it zooms on any field under 16px). */
+  :global(.sub-suggest input) {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-body);
+    background: var(--field); color: var(--text); border: 1px solid var(--field-border);
+    border-radius: 10px; padding: 0.7rem 0.75rem; margin-bottom: 0.6rem; min-height: var(--tap);
+  }
   .grid3 { display: grid; grid-template-columns: 1.3fr 1fr 1.4fr; gap: 0.5rem; }
 
   /* ---------- buttons ---------- */
