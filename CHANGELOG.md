@@ -11,6 +11,20 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.27.0
+
+- **Tag someone in a dose.** When two people share a server and have both
+  allowed it (Settings on your phone, under Tagging), either can tag the other
+  in a dose, right after logging it or later from the dose itself. The other
+  person sees it on Today, can change the amount, time or anything else, and
+  adds it to their own journal, or declines. Only the dose travels: never the
+  rest of your entry, and neither of you can see the other's journal. You see
+  whether it was added or declined, nothing more. Waiting tags are kept only
+  while the server is running. On phones for now.
+- **Name suggestions as you type.** Substance fields suggest names from your
+  own substances and the dose reference, street names included ("acid" offers
+  LSD), on the phone and on the computer.
+
 ## v0.26.1
 
 - **A spacing note that fits kratom.** Kratom's Stats now explains its own
