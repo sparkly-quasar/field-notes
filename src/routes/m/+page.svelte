@@ -120,6 +120,7 @@
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
   import NameHint from "$lib/NameHint.svelte";
+  import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
@@ -843,6 +844,7 @@
   }
 
   async function refresh() {
+    forgetSubstanceNames();
     // Older servers don't know this command: then discreet mode isn't offered.
     discreetAvailable().then((v) => (discreet.available = v)).catch(() => (discreet.available = false));
     try {
@@ -1617,7 +1619,7 @@
       searched = true;
     });
 
-  const loadSubstances = () => run("subs", async () => (substances = await listSubstances()));
+  const loadSubstances = () => run("subs", async () => ((substances = await listSubstances()), forgetSubstanceNames()));
 
   const addToCatalogue = () =>
     run("addsub", async () => {
@@ -2672,7 +2674,7 @@
             </div>
           {/if}
           <label for="d-sub">Substance</label>
-          <input id="d-sub" bind:value={dSub} onblur={applyRemembered} autocapitalize="none" autocomplete="off" enterkeyhint="next" />
+          <SubstanceInput id="d-sub" bind:value={dSub} onblur={applyRemembered} onpick={pickSubstance} enterkeyhint="next" />
           <NameHint name={dSub} bind:saveAs={dSubAs} />
           <div class="grid3">
             <div>
@@ -2807,7 +2809,7 @@
             <button class="danger-text" onclick={removeDose}>Delete</button>
           </div>
           <label for="e-sub">Substance</label>
-          <input id="e-sub" bind:value={eSub} autocapitalize="none" />
+          <SubstanceInput id="e-sub" bind:value={eSub} />
           <div class="grid3">
             <div>
               <label for="e-amt">Amount</label>
@@ -2827,6 +2829,20 @@
           <DateTimeField id="e-when" bind:value={eWhen} variant="phone" />
           <label for="e-note">Note (optional)</label>
           <input id="e-note" bind:value={eNote} />
+          {#if tagPartners.length}
+            {@const sentTo = taggedTo[editDose.id] ?? []}
+            <p class="label">Tag someone in this dose</p>
+            <div class="chips" role="group" aria-label="Tag someone in this dose">
+              {#each tagPartners as p}
+                {#if sentTo.includes(p.id)}
+                  <span class="chip on">Tagged {p.name}</span>
+                {:else}
+                  <button class="chip" onclick={() => sendTag(editDose!.id, p)}>Tag {p.name}</button>
+                {/if}
+              {/each}
+            </div>
+            <p class="hint">Sends the dose as it's saved now. Save any changes first.</p>
+          {/if}
           <div class="sheet-actions pair">
             <button onclick={closeSheet}>Cancel</button>
             <button class="primary" disabled={busy || !eSub.trim()} onclick={saveDose}>{busyKey === "editDose" ? "Saving…" : "Save"}</button>

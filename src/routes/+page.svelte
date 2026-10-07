@@ -129,6 +129,7 @@
   } from "$lib/api";
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
+  import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
@@ -922,6 +923,7 @@
   }
   async function loadSubstances() {
     substances = await listSubstances();
+    forgetSubstanceNames();
   }
   async function loadUsage() {
     usage = await usageBySubstance();
@@ -2656,7 +2658,7 @@
                 <li>
                   {#if editingDoseId === d.id}
                     <div class="dose-form inline">
-                      <input list="subnames" bind:value={edSub} />
+                      <SubstanceInput bind:value={edSub} />
                       <input type="number" step="any" bind:value={edAmt} class="narrow" />
                       <input bind:value={edUnit} class="narrow" />
                       <input bind:value={edRoute} class="narrow" />
@@ -2682,7 +2684,7 @@
           {/if}
 
           <div class="dose-form">
-            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance, dRoute) ?? dUnit; }} />
+            <SubstanceInput placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance, dRoute) ?? dUnit; }} />
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
@@ -2711,9 +2713,6 @@
               <div class="muted attribution">via DoseWiki · CC0 public domain · reference only, verify before dosing</div>
             </div>
           {/if}
-          <datalist id="subnames">
-            {#each substances as s}<option value={s.name}></option>{/each}
-          </datalist>
 
           <h3>Timeline</h3>
           {#if selected.timeline.length}
@@ -2816,15 +2815,7 @@
               {/if}
 
               <div class="quick-row">
-                <input
-                  placeholder="Substance"
-                  list="substance-names"
-                  bind:value={qlSub}
-                  onblur={applyRememberedShape}
-                />
-                <datalist id="substance-names">
-                  {#each substances as s}<option value={s.name}></option>{/each}
-                </datalist>
+                <SubstanceInput placeholder="Substance" bind:value={qlSub} onblur={applyRememberedShape} />
                 <input class="narrow" placeholder="Amount" bind:value={qlAmt} />
                 <select bind:value={qlUnit}>
                   {#each UNITS as u}<option>{u}</option>{/each}
@@ -4392,7 +4383,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
           <h3>Quick log</h3>
           <div class="quick-log">
-            <input placeholder="Substance" bind:value={qSub} />
+            <SubstanceInput placeholder="Substance" bind:value={qSub} />
             <input placeholder="Amount" inputmode="decimal" bind:value={qAmt} />
             <input placeholder="Unit" bind:value={qUnit} />
             <input placeholder="Route" bind:value={qRoute} />
@@ -4654,7 +4645,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
      panel rather than floating loose in the card. */
   .quick-log { margin: 0.6rem 0 1rem; }
   .quick-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 0; align-items: center; }
-  .quick-row > input:first-child { flex: 1; min-width: 9rem; }
+  .quick-row > input:first-child,
+  .quick-row > :global(.sub-suggest):first-child { flex: 1; min-width: 9rem; }
   /* Selects aren't styled app-wide (nothing else uses one in a form row), and a
      default white dropdown in this dark card reads as a rendering bug. */
   .quick-row select {
