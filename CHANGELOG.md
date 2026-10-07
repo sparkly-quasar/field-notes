@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.26.1
+
+- **A spacing note that fits kratom.** Kratom's Stats now explains its own
+  tolerance and dependence, and when its risks rise (mixing with alcohol,
+  benzodiazepines or other opioids, and 7-OH products), instead of the
+  general opioid note.
+
 ## v0.26.0
 
 - **Stats or Talk in the phone's bottom bar.** In Settings on your phone,
