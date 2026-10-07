@@ -11,6 +11,12 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.27.3
+
+- **San Pedro and peyote count as psychedelics,** however they're written
+  ("San Pedro powder", "Peruvian torch", "huachuma"), in Stats and in the
+  combination check.
+
 ## v0.27.2
 
 - **A bigger substance box on phones.** It now matches the other fields, and

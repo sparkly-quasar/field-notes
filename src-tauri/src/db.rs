@@ -646,7 +646,10 @@ fn classes_for(conn: &Connection, name: &str) -> Vec<String> {
         |r| r.get::<_, String>(0),
     )
     .map(|s| json_vec(&s))
-    .unwrap_or_else(|_| crate::interactions::builtin_classes(name))
+    .ok()
+    // Saved with none (the built-in list didn't know it then): ask it again.
+    .filter(|c| !c.is_empty())
+    .unwrap_or_else(|| crate::interactions::builtin_classes(name))
 }
 
 // ---------- experiences ----------

@@ -258,7 +258,8 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     // classic psychedelics
     if n.contains("lsd") || n.contains("acid") || n.contains("psiloc") || n.contains("mushroom")
         || n.contains("shroom") || n.contains("dmt") || n.contains("mescaline") || n.contains("2c-")
-        || n.contains("ayahuasca")
+        || n.contains("ayahuasca") || n.contains("san pedro") || n.contains("peyote")
+        || n.contains("peruvian torch") || n.contains("huachuma") || n.contains("trichocereus")
     {
         add("psychedelic", &mut c);
         add("serotonergic", &mut c);
@@ -336,6 +337,13 @@ mod tests {
 
     fn sub(name: &str) -> (String, Vec<String>) {
         (name.to_string(), builtin_classes(name))
+    }
+
+    #[test]
+    fn mescaline_cacti_are_psychedelics() {
+        for n in ["San Pedro powder", "san pedro", "Peyote", "Peruvian torch", "huachuma"] {
+            assert!(builtin_classes(n).iter().any(|c| c == "psychedelic"), "{n}");
+        }
     }
 
     #[test]
