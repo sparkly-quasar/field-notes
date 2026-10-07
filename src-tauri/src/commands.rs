@@ -2444,6 +2444,7 @@ pub fn person_add(people: State<'_, crate::people::People>, name: String) -> Res
 pub fn person_remove(
     people: State<'_, crate::people::People>,
     devices: State<'_, Devices>,
+    tagging: State<'_, crate::tagging::Tagging>,
     id: u32,
     confirm: String,
 ) -> Result<Vec<crate::people::PersonInfo>, String> {
@@ -2453,6 +2454,7 @@ pub fn person_remove(
     }
     devices.revoke_person(id)?;
     people.remove(id)?;
+    tagging.forget(id);
     Ok(people.list())
 }
 

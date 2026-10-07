@@ -25,6 +25,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
+    tagPeople,
+    tagAllow,
+    tagSetOwnerName,
+    tagSend,
+    tagInbox,
+    tagAnswer,
+    tagSent,
+    type TagPerson,
+    type IncomingTag,
+    type SentTag,
     serverUpdateStatus,
     serverUpdateInstall,
     type ServerUpdateStatus,
@@ -465,6 +475,90 @@
     refresh();
     loadAi();
     loadServerUpdate();
+    loadTags();
+  }
+
+  // ---------- tagging someone else on this server (src-tauri/src/tagging.rs) ----------
+
+  let tagWho = $state<TagPerson[]>([]);
+  let tagOwnerName = $state("");
+  let tagOwnerDraft = $state("");
+  let tagIn = $state<IncomingTag[]>([]);
+  let tagOut = $state<SentTag[]>([]);
+  /** The tag the dose sheet was opened from, to accept once it's saved. */
+  let fromTag = $state<IncomingTag | null>(null);
+  /** Who each just-logged dose was sent to, by dose id. */
+  let taggedTo = $state<Record<number, number[]>>({});
+  const tagPartners = $derived(tagWho.filter((p) => p.you_allow && p.they_allow));
+
+  /** Quietly: an older server, or no connection, just means no tagging here. */
+  async function loadTags() {
+    try {
+      const r = await tagPeople();
+      tagWho = r.people;
+      tagOwnerName = r.owner_name;
+      tagIn = await tagInbox();
+      tagOut = await tagSent();
+    } catch {
+      /* offline or an older server */
+    }
+  }
+
+  async function setTagAllow(p: TagPerson, allow: boolean) {
+    try {
+      tagWho = await tagAllow(p.id, allow);
+      tagIn = await tagInbox();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function saveOwnerTagName() {
+    try {
+      tagOwnerName = await tagSetOwnerName(tagOwnerDraft);
+      tagOwnerDraft = "";
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function sendTag(doseId: number, p: TagPerson) {
+    try {
+      await tagSend(doseId, [p.id]);
+      taggedTo = { ...taggedTo, [doseId]: [...(taggedTo[doseId] ?? []), p.id] };
+      tagOut = await tagSent();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  /** Open the dose sheet filled in from a tag, to change before saving. */
+  function reviewTag(t: IncomingTag) {
+    startDose(null);
+    const d = t.dose;
+    dSub = d.substance_name;
+    dAmt = d.amount == null ? "" : String(d.amount);
+    dUnit = d.unit || dUnit;
+    dRoute = d.route || dRoute;
+    dWhen = isoToLocalInput(d.taken_at);
+    dDetail = {
+      form: d.form,
+      per_unit: d.per_unit,
+      per_unit_unit: d.per_unit_unit,
+      unit_label: d.unit_label,
+      estimate: d.estimate,
+      estimate_unit: d.estimate_unit,
+    };
+    fromTag = t;
+  }
+
+  async function declineTag(t: IncomingTag) {
+    try {
+      await tagAnswer(t.id, false);
+    } catch {
+      /* already gone */
+    }
+    tagIn = tagIn.filter((x) => x.id !== t.id);
   }
 
   // ---------- another person's journal (src-tauri/src/people.rs) ----------
@@ -778,13 +872,17 @@
 
   function closeSheet() {
     sheet = null;
+    fromTag = null;
     receipt = null;
     confirmDelete = false;
   }
 
   function goTo(v: View) {
     view = v;
-    if (v === "today") loadServerUpdate();
+    if (v === "today") {
+      loadServerUpdate();
+      loadTags();
+    }
     if (v === "talk") loadAi();
     if (v === "journal" && !open) refresh();
   }
@@ -998,6 +1096,14 @@
       const detail = dDetail;
       const res = await quickLog({ substance, amount, unit: dUnit, route: dRoute, at, intoId: target?.id ?? null, detail });
       rememberDoseShape(substance, { unit: dUnit, route: dRoute });
+      // Saved in this journal first; only then is the tag answered. If that can't
+      // reach the server, the tag stays waiting rather than claiming otherwise.
+      const tag = fromTag;
+      if (tag) {
+        fromTag = null;
+        tagIn = tagIn.filter((x) => x.id !== tag.id);
+        tagAnswer(tag.id, true).catch(() => {});
+      }
       warnFor = { ...warnFor, [res.id]: res.warnings };
       receipt = {
         id: res.id,
@@ -1627,6 +1733,45 @@
   <RiskNotes warnings={list} />
 {/snippet}
 
+<!-- Tagging: who may tag whom in a dose, and what became of the tags you sent. -->
+{#snippet tagging()}
+  {#if tagWho.length}
+    <h3 class="sec">Tagging</h3>
+    <p class="muted small">
+      When you both allow it, you and someone else on this server can tag each other in a dose. They get a copy of
+      that one dose to change and add to their own journal, or decline. Neither of you can see the other's journal.
+    </p>
+    {#each tagWho as p (p.id)}
+      <label class="check">
+        <input type="checkbox" checked={p.you_allow} onchange={(e) => setTagAllow(p, e.currentTarget.checked)} />
+        Let {p.name} tag me
+      </label>
+      <p class="muted small">
+        {#if p.you_allow && p.they_allow}You can tag each other.{:else if p.they_allow}{p.name} lets you tag them.{:else if p.you_allow}Waiting for {p.name} to allow it too.{/if}
+      </p>
+    {/each}
+    {#if !isOther}
+      <label for="tag-owner-name">Your name, as others here see it</label>
+      <div class="pair">
+        <input id="tag-owner-name" bind:value={tagOwnerDraft} placeholder={tagOwnerName} autocomplete="off" />
+        <button class="small" disabled={!tagOwnerDraft.trim()} onclick={saveOwnerTagName}>Save</button>
+      </div>
+    {/if}
+    {#if tagOut.length}
+      <p class="label">Tags you sent</p>
+      <ul class="plain">
+        {#each tagOut as t (t.id)}
+          <li class="small">
+            {t.to_name} · {t.substance_name} {fmtDay(t.taken_at)} ·
+            {t.status === "accepted" ? "added" : t.status === "declined" ? "declined" : "waiting"}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    <p class="muted small">Waiting tags are kept only while the server is running, so a restart clears them.</p>
+  {/if}
+{/snippet}
+
 <!-- Settings that belong to this phone, for the owner and for anyone else alike. -->
 {#snippet thisPhone()}
   {#if !isOther}
@@ -1943,6 +2088,18 @@
     {:else}
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
+      {#each tagIn as t (t.id)}
+        <section class="pane" role="status">
+          <p>
+            <strong>{t.from_name} tagged you</strong> · {t.dose.substance_name}
+            {fmtAmt({ ...t.dose })} · {hhmm(t.dose.taken_at)} {fmtDay(t.dose.taken_at)}
+          </p>
+          <div class="pair">
+            <button class="primary" onclick={() => reviewTag(t)}>Review and add</button>
+            <button onclick={() => declineTag(t)}>Decline</button>
+          </div>
+        </section>
+      {/each}
       <SleepCheckin />
       {#if backupNudge}
         <section class="pane" role="status">
@@ -2486,7 +2643,25 @@
                 {#if receipt.doseId != null}<button class="ghost small" onclick={undoLastLog}>Undo</button>{/if}</p>
               {@render warnings(receipt.warnings)}
               <KindQuestion substance={dAsk.s} tick={dAsk.n} />
+              {#if receipt.doseId != null && tagPartners.length}
+                {@const sentTo = taggedTo[receipt.doseId] ?? []}
+                <div class="chips" role="group" aria-label="Tag someone in this dose">
+                  {#each tagPartners as p}
+                    {#if sentTo.includes(p.id)}
+                      <span class="chip on">Tagged {p.name}</span>
+                    {:else}
+                      <button class="chip" onclick={() => sendTag(receipt!.doseId!, p)}>Tag {p.name}</button>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
             </div>
+          {/if}
+          {#if fromTag}
+            <p class="hint" role="status">
+              From {fromTag.from_name}'s tag. Change anything that was different for you, then log it. Only this dose
+              goes in your journal; {fromTag.from_name} sees just that you added it.
+            </p>
           {/if}
 
           {#if qRecents.length}
@@ -2869,6 +3044,8 @@
             <input id="new-device" bind:value={newDevice} placeholder="e.g. Laptop" autocomplete="off" />
             <button disabled={busy || (!isOther && !ownerPw)} onclick={pairAnother}>{busyKey === "pairown" ? "Making a code…" : "Show a pairing code"}</button>
           {/if}
+
+          {@render tagging()}
 
           {@render thisPhone()}
 

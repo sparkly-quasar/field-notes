@@ -387,6 +387,24 @@ fn mine<R: Runtime>(app: &AppHandle<R>, who: Caller) -> Vec<Value> {
 }
 
 /// Pull a named argument out of the request body, the way Tauri's `invoke` would.
+fn tagging<R: Runtime>(app: &AppHandle<R>) -> Result<tauri::State<'_, crate::tagging::Tagging>, DispatchError> {
+    app.try_state::<crate::tagging::Tagging>().ok_or_else(|| DispatchError::Failed("Tagging isn't available.".into()))
+}
+
+/// Everyone on this server with the name others see them by, the owner first.
+fn everyone<R: Runtime>(app: &AppHandle<R>) -> Vec<(u32, String)> {
+    let owner = app.try_state::<crate::tagging::Tagging>().map(|t| t.owner_name()).unwrap_or_default();
+    let mut all = vec![(OWNER, owner)];
+    if let Some(p) = app.try_state::<People>() {
+        all.extend(p.list().into_iter().map(|p| (p.id, p.name)));
+    }
+    all
+}
+
+fn name_of<R: Runtime>(app: &AppHandle<R>, id: u32) -> Option<String> {
+    everyone(app).into_iter().find(|(i, _)| *i == id).map(|(_, n)| n)
+}
+
 fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, DispatchError> {
     serde_json::from_value(args.get(name).cloned().unwrap_or(Value::Null))
         .map_err(|e| DispatchError::Failed(format!("bad argument `{name}`: {e}")))
@@ -512,11 +530,22 @@ pub const EXPOSED: &[&str] = &[
     // pairing or un-pairing asks for the journal's password or the phone PIN
     // (owner_auth.rs, owner's request 2026-10-03). This says which to ask for.
     "owner_device_auth",
+    // Tagging someone else on this server in a dose (tagging.rs). Each acts as the
+    // device's person; the one sent copies a dose from the sender's own journal,
+    // and none of them reads or writes anyone else's.
+    "tag_people",
+    "tag_allow",
+    "tag_set_owner_name",
+    "tag_send",
+    "tag_inbox",
+    "tag_answer",
+    "tag_sent",
 ];
 
 /// Exposed to the owner's devices only. Installing an update restarts everyone's
 /// server, so only the owner may do it from a phone.
-pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install", "owner_device_auth"];
+pub const OWNER_ONLY: &[&str] =
+    &["server_update_status", "server_update_install", "owner_device_auth", "tag_set_owner_name"];
 
 /// Exposed to other people's devices only. The owner's journal unlocks at the desk,
 /// as it always has. (The owner may pair from a phone, but only with the journal's
@@ -777,6 +806,30 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             ok(json!({ "data": base64::engine::general_purpose::STANDARD.encode(bytes) }))
         }
         "my_devices" => ok(mine(app, who)),
+
+        // --- tagging someone else on this server in a dose (tagging.rs) ---
+        "tag_people" => {
+            let tags = tagging(app)?;
+            ok(json!({ "people": tags.people(who.person, &everyone(app)), "owner_name": tags.owner_name() }))
+        }
+        "tag_allow" => {
+            let tags = tagging(app)?;
+            let all = everyone(app);
+            tags.allow(who.person, arg(&args, "other")?, arg(&args, "allow")?, &all).map_err(DispatchError::Failed)?;
+            ok(tags.people(who.person, &all))
+        }
+        "tag_set_owner_name" => done(tagging(app)?.set_owner_name(&arg::<String>(&args, "name")?)),
+        "tag_send" => {
+            // Read from the sender's own journal, by id: what travels is what they
+            // logged, never anything the request says it was.
+            let dose = db.with(|c| crate::db::get_dose(c, arg::<i64>(&args, "doseId").unwrap_or(-1)))
+                .map_err(|_| DispatchError::Failed("That dose isn't in your journal.".into()))?;
+            let to: Vec<u32> = arg(&args, "to")?;
+            done(tagging(app)?.send(who.person, &to, (&dose).into()))
+        }
+        "tag_inbox" => ok(tagging(app)?.inbox(who.person, |id| name_of(app, id))),
+        "tag_answer" => done(tagging(app)?.answer(who.person, arg(&args, "id")?, arg(&args, "accept")?)),
+        "tag_sent" => ok(tagging(app)?.sent(who.person, |id| name_of(app, id))),
         "owner_device_auth" => ok(owner_auth(app)?.method(&owner_db.path)),
         "pair_own_device" => {
             if is_owner {
@@ -973,6 +1026,7 @@ mod tests {
         let people = People::load(&dir);
         let sam = people.add("Sam").unwrap();
         app.manage(people);
+        app.manage(crate::tagging::Tagging::load(dir.join("tagging.json")));
         let devices = Devices::load(dir.join("devices.json"));
         let (_, owner_token) = devices.pair("Owner phone").unwrap();
         let (_, sam_token) = devices.pair_for("Sam phone", sam.id).unwrap();
@@ -1039,6 +1093,47 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Tagging, end to end: a tag carries one dose and nothing else, needs both to
+    /// agree, and the sender hears back only whether it was accepted.
+    #[test]
+    fn a_tag_carries_one_dose_and_never_opens_the_other_journal() {
+        let (_app, port, owner, sam) = serving_two();
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+        let (_, body) = post(port, "create_experience", Some(&owner), new_session("OWNERSECRET evening"));
+        let exp: Value = serde_json::from_str(&body).unwrap();
+        let (_, body) = post(port, "log_dose", Some(&owner), json!({ "input": {
+            "experience_id": exp["id"], "substance_name": "kratom", "amount": 3.0, "unit": "g",
+            "route": "oral", "taken_at": "2026-10-07T20:00:00Z", "note": "OWNERNOTE", "form": "leaf" } }));
+        let dose: Value = serde_json::from_str(&body).unwrap();
+        let dose_id = dose["dose"]["id"].clone();
+
+        // Not until both say yes.
+        let (status, body) = post(port, "tag_send", Some(&owner), json!({ "doseId": dose_id, "to": [2] }));
+        assert_eq!(status, 400, "{body}");
+        assert_eq!(post(port, "tag_allow", Some(&owner), json!({ "other": 2, "allow": true })).0, 200);
+        assert_eq!(post(port, "tag_allow", Some(&sam), json!({ "other": 1, "allow": true })).0, 200);
+        let (status, body) = post(port, "tag_send", Some(&owner), json!({ "doseId": dose_id, "to": [2] }));
+        assert_eq!(status, 200, "{body}");
+
+        // Sam sees the dose, and none of the rest of the owner's entry.
+        let (_, inbox) = post(port, "tag_inbox", Some(&sam), json!({}));
+        assert!(inbox.contains("kratom") && inbox.contains("leaf"), "{inbox}");
+        assert!(!inbox.contains("OWNERSECRET") && !inbox.contains("OWNERNOTE"), "{inbox}");
+        let tags: Value = serde_json::from_str(&inbox).unwrap();
+        // The owner can't answer Sam's tag, or send one of Sam's doses.
+        assert_eq!(post(port, "tag_answer", Some(&owner), json!({ "id": tags[0]["id"], "accept": true })).0, 400);
+        assert_eq!(post(port, "tag_send", Some(&sam), json!({ "doseId": 999, "to": [1] })).0, 400);
+        assert_eq!(post(port, "tag_answer", Some(&sam), json!({ "id": tags[0]["id"], "accept": true })).0, 200);
+
+        let (_, sent) = post(port, "tag_sent", Some(&owner), json!({}));
+        assert!(sent.contains("accepted") && sent.contains("Sam"), "{sent}");
+        // Sam's journal is untouched by any of this: the phone logs it itself.
+        let (_, theirs) = post(port, "list_experiences", Some(&sam), json!({}));
+        assert_eq!(theirs.trim(), "[]");
+        // Only the owner names the owner.
+        assert_eq!(post(port, "tag_set_owner_name", Some(&sam), json!({ "name": "x" })).0, 403);
     }
 
     #[test]

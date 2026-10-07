@@ -1003,6 +1003,11 @@ pub fn update_timeline_event(conn: &Connection, id: i64, u: &TimelineUpdate) -> 
     })
 }
 
+/// One dose by its id.
+pub fn get_dose(conn: &Connection, id: i64) -> rusqlite::Result<Dose> {
+    conn.query_row("SELECT * FROM doses WHERE id = ?1", [id], dose_from_row)
+}
+
 pub fn update_dose(conn: &Connection, id: i64, u: &DoseUpdate) -> rusqlite::Result<Dose> {
     let substance_id: Option<i64> = conn
         .query_row(

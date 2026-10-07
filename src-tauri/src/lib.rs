@@ -27,6 +27,7 @@ pub mod pw;
 mod remote;
 mod server_update;
 mod stats;
+mod tagging;
 mod tailnet;
 mod tray;
 
@@ -206,6 +207,7 @@ pub fn run() {
             app.manage(portal::CompanionJobs::default());
             app.manage(devices::Devices::load(dir.join("devices.json")));
             app.manage(people::People::load(&dir));
+            app.manage(tagging::Tagging::load(dir.join("tagging.json")));
             app.manage(prefs::Prefs::load(dir.join("server.json")));
             app.manage(owner_auth::OwnerAuth::new(dir.join("phone_pin.json")));
             // The built-in Tailscale: idle until the user connects this computer.

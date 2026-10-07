@@ -891,6 +891,46 @@ export const unpairMyDevice = (id: number, password: string | null = null) =>
   invoke<MyDevice[]>("unpair_my_device", { id, password });
 /** On the owner's phone: what pairing or un-pairing asks for (owner_auth.rs). */
 export const ownerDeviceAuth = () => invoke<"password" | "pin" | "off">("owner_device_auth");
+// Tagging someone else on this server in a dose (tagging.rs). Phone only; the
+// server knows whose device is asking.
+export interface TagPerson {
+  id: number;
+  name: string;
+  /** You let them tag you. */
+  you_allow: boolean;
+  /** They let you tag them. */
+  they_allow: boolean;
+}
+export interface TaggedDose extends DoseDetail {
+  substance_name: string;
+  amount: number | null;
+  unit: string;
+  route: string;
+  taken_at: string;
+}
+export interface IncomingTag {
+  id: number;
+  from_name: string;
+  dose: TaggedDose;
+}
+export interface SentTag {
+  id: number;
+  to_name: string;
+  substance_name: string;
+  taken_at: string;
+  at: number;
+  status: "waiting" | "accepted" | "declined";
+}
+export const tagPeople = () => invoke<{ people: TagPerson[]; owner_name: string }>("tag_people");
+export const tagAllow = (other: number, allow: boolean) => invoke<TagPerson[]>("tag_allow", { other, allow });
+/** The owner's phone only: the name everyone else sees them by. */
+export const tagSetOwnerName = (name: string) => invoke<string>("tag_set_owner_name", { name });
+/** Send a copy of one of your doses (by id) to each of `to`. */
+export const tagSend = (doseId: number, to: number[]) => invoke<number>("tag_send", { doseId, to });
+export const tagInbox = () => invoke<IncomingTag[]>("tag_inbox");
+/** Accept only once the dose is in your own journal. */
+export const tagAnswer = (id: number, accept: boolean) => invoke<null>("tag_answer", { id, accept });
+export const tagSent = () => invoke<SentTag[]>("tag_sent");
 export interface PhonePinStatus {
   method: "password" | "pin" | "off";
   has_pin: boolean;
