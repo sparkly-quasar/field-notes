@@ -11,13 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.27.2
+
+- **A bigger substance box on phones.** It now matches the other fields, and
+  tapping it no longer zooms the page in.
+
 ## v0.27.1
 
 - **No more "stimulating" or "sedating" note on drinks.** Alcohol no longer
   carries a note on what that number of drinks tends to do. Its combination
   warnings and dependence notes are unchanged.
-- **A bigger substance box on phones.** It now matches the other fields, and
-  tapping it no longer zooms the page in.
 
 ## v0.27.0
 
