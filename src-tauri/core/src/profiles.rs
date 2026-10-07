@@ -9,7 +9,6 @@
 //! | DXM | plateaus 1 to 4, from the reference's light, common, strong and heavy ranges |
 //! | Diphenhydramine | below the reference's common range, the sleep-aid range; from it, the deliriant range |
 //! | Ketamine | below dissociative, dissociative, and from the strong range, a "hole", per route |
-//! | Alcohol | up to 2 standard drinks more stimulating; more than that, more sedating |
 //!
 //! A profile is a label, never a reason to worry less: the checker only ever
 //! *adds* context from one (see `db::log_dose`). Kratom extract and 7-OH
@@ -25,8 +24,7 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Profile {
     /// Stable name: "stimulating", "mixed", "opioid", "plateau1".."plateau4",
-    /// "sleep", "deliriant", "subdissociative", "dissociative", "hole",
-    /// "sedating".
+    /// "sleep", "deliriant", "subdissociative", "dissociative", "hole".
     pub key: String,
     /// Short, for beside the dose: "more stimulating at this amount".
     pub label: String,
@@ -68,11 +66,6 @@ fn ranges(r: &impl Reference, name: &str, route: &str, unit: &str) -> Option<(Pw
     Some(((*roa).clone(), scale(roa)?))
 }
 
-const DRINKS: &[&str] = &[
-    "alcohol", "ethanol", "booze", "beer", "wine", "cider", "vodka", "whiskey", "whisky", "rum", "gin", "tequila",
-    "mezcal", "liquor", "spirits", "sake", "champagne", "glass of wine", "shot",
-];
-
 /// What this amount of `name` tends to do, if it's one of the substances with a
 /// profile and the amount can be read. `form` is the dose's form (kratom
 /// extract and 7-OH have none).
@@ -92,18 +85,6 @@ pub fn profile(r: &impl Reference, name: &str, amount: Option<f64>, unit: &str, 
             p("mixed", "mixed at this amount", "Around this amount kratom is often a mix of stimulating and opioid-like.", None)
         } else {
             p("opioid", "more opioid-like at this amount", "At this amount kratom usually acts more like an opioid: more sedating, less stimulating.", None)
-        });
-    }
-
-    if DRINKS.contains(&n.as_str()) {
-        let u = unit.trim().to_lowercase();
-        if u != "drink" && u != "drinks" {
-            return None;
-        }
-        return Some(if a <= 2.0 {
-            p("stimulating", "more stimulating at this amount", "A drink or two tends to feel stimulating at first.", None)
-        } else {
-            p("sedating", "more sedating at this amount", "Past a couple of drinks, alcohol tends to feel more sedating.", None)
         });
     }
 
@@ -261,13 +242,6 @@ mod tests {
         assert_eq!(key("Ketamine", 80.0, "mg", "insufflated", "").as_deref(), Some("hole"));
         // The same 80 mg by mouth is below dissociative.
         assert_eq!(key("Ketamine", 80.0, "mg", "oral", "").as_deref(), Some("subdissociative"));
-    }
-
-    #[test]
-    fn alcohol_in_standard_drinks_only() {
-        assert_eq!(key("Alcohol", 1.0, "drink", "oral", "").as_deref(), Some("stimulating"));
-        assert_eq!(key("Beer", 4.0, "drinks", "oral", "").as_deref(), Some("sedating"));
-        assert_eq!(key("Alcohol", 30.0, "ml", "oral", ""), None);
     }
 
     #[test]

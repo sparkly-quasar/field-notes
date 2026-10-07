@@ -59,7 +59,7 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   is assumed. Capsules are counted by how much is in each, and you can save
   your usual capsules so you only enter that once.
 - **What an amount tends to do.** For a few substances whose effects change a
-  lot with the amount (kratom, DXM, diphenhydramine, ketamine, alcohol), a dose
+  lot with the amount (kratom, DXM, diphenhydramine, ketamine), a dose
   carries a short note on what that amount usually does, and the combination
   check takes it into account. Ibogaine always carries a heart-rhythm caution.
   These only ever add to a warning; they never soften one.

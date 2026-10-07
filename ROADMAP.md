@@ -1565,7 +1565,6 @@ First entries (approved by the owner 2026-10-05):
 | DXM | Plateaus 1 to 4, mapped to the reference's bands | Long-established community framework; the 3rd and 4th plateaus matter for safety |
 | Diphenhydramine | Sleep-aid range vs. deliriant range | The deliriant range carries seizure and heart-rhythm risk: a safety note, not just a label |
 | Ketamine | Below dissociative vs. dissociative ("hole") range | Route matters a lot; per route |
-| Alcohol | Low amounts more stimulating, higher amounts sedating | In standard drinks, as logged |
 
 **Forms beyond mushrooms.** The `doses.form` column should take a list of forms
 per substance, not just mushrooms. **Kratom: leaf powder, extract, or 7-OH
@@ -1580,7 +1579,7 @@ and no tier, and gets opioid wording in the checker.
   opioids marked as needed manually only, never asked; bedtime asked once and
   saved as a setting; the psilocybin mg scale; the five first dose profiles
   (kratom, DXM, diphenhydramine, ketamine, alcohol) with the kratom ranges as
-  proposed.
+  proposed. Alcohol's profile was dropped 2026-10-07 (owner).
 - **Reviewed 2026-10-06** (the owner's "wording for clinical review" packet):
   dependence notes built in `patterns.rs` with the reviewed triggers (GHB group
   doses 4 hours apart or less for more than a day, or 21+ of 28 days; alcohol
