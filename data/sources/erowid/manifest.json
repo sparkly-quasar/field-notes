@@ -1,0 +1,117 @@
+{
+  "skipped": [],
+  "pages": [
+    {
+      "url": "https://erowid.org/chemicals/dmt/dmt_dose.shtml",
+      "title": "Erowid DMT Vault : Dosage",
+      "saved_at": "2026-10-07T20:52:15.168824+00:00",
+      "html": "dmt_dose.html",
+      "text": "dmt_dose.txt",
+      "sha256": "b1f712f560c81d9f366c80e654404ec10a9c1aedad25ced339d14369eeae92b8"
+    },
+    {
+      "url": "https://erowid.org/chemicals/dmt/dmt_effects.shtml",
+      "title": "Erowid DMT Vault : Effects",
+      "saved_at": "2026-10-07T20:52:15.169120+00:00",
+      "html": "dmt_effects.html",
+      "text": "dmt_effects.txt",
+      "sha256": "81f5b9f162ec823503ef7dd923ce83ae5ce15cbaf2566c1d521df30ed3509f06"
+    },
+    {
+      "url": "https://erowid.org/chemicals/dmt/dmt_info2.shtml",
+      "title": "Erowid DMT Vault : Info #2",
+      "saved_at": "2026-10-07T20:52:15.169360+00:00",
+      "html": "dmt_info2.html",
+      "text": "dmt_info2.txt",
+      "sha256": "101234e1194062f38f539a45aa2b0f09c58c38bb2c1ae2bd1961739d3a6ccdb4"
+    },
+    {
+      "url": "https://erowid.org/chemicals/ketamine/ketamine_dose.shtml",
+      "title": "Erowid Ketamine Vault : Dosage",
+      "saved_at": "2026-10-07T20:52:15.169545+00:00",
+      "html": "ketamine_dose.html",
+      "text": "ketamine_dose.txt",
+      "sha256": "6a1a98dc288fe3a718f2f7d292d0c4e49f7d48dca6b843ea186e396ee13b489b"
+    },
+    {
+      "url": "https://erowid.org/chemicals/ketamine/ketamine_effects.shtml",
+      "title": "Erowid Ketamine Vault : Effects",
+      "saved_at": "2026-10-07T20:52:15.169696+00:00",
+      "html": "ketamine_effects.html",
+      "text": "ketamine_effects.txt",
+      "sha256": "87a9c210035b3713cdd6bd3312678fdad135f9281aad0474252d27b3ca5a3cac"
+    },
+    {
+      "url": "https://erowid.org/chemicals/psilocybin/psilocybin_dose.shtml",
+      "title": "Erowid Psilocybin & Psilocin Vault : Dosage",
+      "saved_at": "2026-10-07T20:52:15.169869+00:00",
+      "html": "psilocybin_dose.html",
+      "text": "psilocybin_dose.txt",
+      "sha256": "79a7849333c190502c020801481fff78f58b6fd940d14f819617a20a9cd23735"
+    },
+    {
+      "url": "https://erowid.org/plants/mushrooms/mushrooms_dose.shtml",
+      "title": "Erowid Psilocybin Mushroom Vault : Dosage",
+      "saved_at": "2026-10-07T20:52:15.170023+00:00",
+      "html": "mushrooms_dose.html",
+      "text": "mushrooms_dose.txt",
+      "sha256": "8dac892f987724cc97f8df62de206021a81ce66cc98999dfbdcc0fc7a40c9763"
+    },
+    {
+      "url": "https://erowid.org/plants/mushrooms/mushrooms_effects.shtml",
+      "title": "Erowid Psilocybin Mushroom Vault : Effects",
+      "saved_at": "2026-10-07T20:52:15.170195+00:00",
+      "html": "mushrooms_effects.html",
+      "text": "mushrooms_effects.txt",
+      "sha256": "c6c79040ae24ec716eb5c9a3462eabc22c8d3f11aa6f747746b7ccd982073653"
+    },
+    {
+      "url": "https://erowid.org/chemicals/oxycodone/oxycodone_dose.shtml",
+      "title": "Erowid : 404 : File Not Found /chemicals/oxycodone/oxycodone_dose.shtml",
+      "saved_at": "2026-10-07T20:52:15.170341+00:00",
+      "html": "oxycodone_dose.html",
+      "text": "oxycodone_dose.txt",
+      "sha256": "697a7c754b853ce2da452d84946763c176831658c151e12cccc7d0761332c938"
+    },
+    {
+      "url": "https://erowid.org/chemicals/oxycodone/oxycodone_effects.shtml",
+      "title": "Erowid : 404 : File Not Found /chemicals/oxycodone/oxycodone_effects.shtml",
+      "saved_at": "2026-10-07T20:52:15.170485+00:00",
+      "html": "oxycodone_effects.html",
+      "text": "oxycodone_effects.txt",
+      "sha256": "d0b5ddd237d5060ff06cf7e156ca6c61dcabdfc38df5f72882770bf29c9fcea5"
+    },
+    {
+      "url": "https://erowid.org/chemicals/heroin/heroin_dose.shtml",
+      "title": "Erowid Heroin Vault : Dosage",
+      "saved_at": "2026-10-07T20:52:15.170632+00:00",
+      "html": "heroin_dose.html",
+      "text": "heroin_dose.txt",
+      "sha256": "c65688b629b5c612b98484f25931074b621f6be52eafd941e952cae77b709d85"
+    },
+    {
+      "url": "https://erowid.org/chemicals/heroin/heroin_effects.shtml",
+      "title": "Erowid : 404 : File Not Found /chemicals/heroin/heroin_effects.shtml",
+      "saved_at": "2026-10-07T20:52:15.170770+00:00",
+      "html": "heroin_effects.html",
+      "text": "heroin_effects.txt",
+      "sha256": "360b04d348449ea625b18e65659c66e5e1be0d5222de52b43747442276e7ad5a"
+    },
+    {
+      "url": "https://erowid.org/chemicals/dxm/dxm_dose.shtml",
+      "title": "Erowid DXM Vault : Dosage",
+      "saved_at": "2026-10-07T20:52:15.170915+00:00",
+      "html": "dxm_dose.html",
+      "text": "dxm_dose.txt",
+      "sha256": "a82c87042c8e4ffee18ee780817793d292f5b7ab60f38c33a61f77b48aa8605e"
+    },
+    {
+      "url": "https://erowid.org/chemicals/dxm/dxm_effects.shtml",
+      "title": "Erowid DXM Vault : Effects",
+      "saved_at": "2026-10-07T20:52:15.171056+00:00",
+      "html": "dxm_effects.html",
+      "text": "dxm_effects.txt",
+      "sha256": "0d1f047ffec28205e527785621673c7ceed0a43f907b431dfbb59198d4160391"
+    }
+  ]
+}
