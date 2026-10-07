@@ -521,6 +521,10 @@ pub const EXPOSED: &[&str] = &[
     // of these take a person: it comes from the device.
     "person_unlock",
     "person_remember",
+    // A short PIN on one of their devices (people.rs, rule 5): set or turn it off
+    // with the journal open, and unlock with it while it's locked.
+    "person_set_pin",
+    "person_pin_unlock",
     "my_devices",
     "pair_own_device",
     "unpair_my_device",
@@ -553,6 +557,8 @@ pub const OWNER_ONLY: &[&str] =
 pub const OTHERS_ONLY: &[&str] = &[
     "person_unlock",
     "person_remember",
+    "person_set_pin",
+    "person_pin_unlock",
     "person_change_password",
     "export_my_journal",
 ];
@@ -563,6 +569,7 @@ pub const OTHERS_ONLY: &[&str] = &[
 pub const LOCKED_OK: &[&str] = &[
     "db_status",
     "person_unlock",
+    "person_pin_unlock",
     "check_combo",
     "interaction_classes",
     "emergency_resources",
@@ -634,7 +641,7 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "list_substances" => done(commands::list_substances_in(db)),
         "db_status" => match &theirs {
             None => ok(commands::db_status(owner_db)),
-            Some(_) => ok(app.state::<People>().status(who.person)),
+            Some(_) => ok(app.state::<People>().status(who.person, who.device)),
         },
         "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
         "discreet_available" => ok(app.state::<crate::prefs::Prefs>().get().discreet_available),
@@ -780,7 +787,32 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             let opened = people.unlock(who.person, who.device, &password).map_err(DispatchError::Failed)?;
             // The dose reference lives inside each journal; load it into theirs.
             commands::refresh_dose_reference(app, &opened);
-            ok(people.status(who.person))
+            ok(people.status(who.person, who.device))
+        }
+        "person_pin_unlock" => {
+            let people = app.state::<People>();
+            let pin: String = arg(&args, "pin")?;
+            let sealed: String = arg(&args, "sealed")?;
+            let opened = people.unlock_with_pin(who.person, who.device, &pin, &sealed).map_err(DispatchError::Failed)?;
+            commands::refresh_dose_reference(app, &opened);
+            ok(people.status(who.person, who.device))
+        }
+        // With a PIN and the password: returns the sealed password for this device to
+        // keep. With no PIN: turns this device's PIN off.
+        "person_set_pin" => {
+            let people = app.state::<People>();
+            let pin: Option<String> = arg(&args, "pin")?;
+            let sealed = match pin {
+                Some(pin) => {
+                    let password: String = arg(&args, "password")?;
+                    Some(people.set_pin(who.person, who.device, &password, &pin).map_err(DispatchError::Failed)?)
+                }
+                None => {
+                    people.forget_pin(who.person, who.device).map_err(DispatchError::Failed)?;
+                    None
+                }
+            };
+            ok(json!({ "status": people.status(who.person, who.device), "sealed": sealed }))
         }
         "person_remember" => {
             let people = app.state::<People>();
@@ -789,14 +821,14 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             people
                 .set_remember(who.person, who.device, remember, password.as_deref())
                 .map_err(DispatchError::Failed)?;
-            ok(people.status(who.person))
+            ok(people.status(who.person, who.device))
         }
         "person_change_password" => {
             let people = app.state::<People>();
             let current: String = arg(&args, "current")?;
             let new: String = arg(&args, "new")?;
             people.change_password(who.person, who.device, &current, &new).map_err(DispatchError::Failed)?;
-            ok(people.status(who.person))
+            ok(people.status(who.person, who.device))
         }
         // Their journal as a file, still encrypted with their password. Base64 so it
         // rides in the same JSON as everything else; the phone saves it as a download.
@@ -851,7 +883,11 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             if is_owner {
                 owner_check(app, &owner_db.path, &args)?;
             }
-            app.state::<Devices>().revoke_own(who.person, arg(&args, "id")?).map_err(DispatchError::Failed)?;
+            let id: u64 = arg(&args, "id")?;
+            app.state::<Devices>().revoke_own(who.person, id).map_err(DispatchError::Failed)?;
+            if !is_owner {
+                let _ = app.state::<People>().forget_pin(who.person, id);
+            }
             ok(mine(app, who))
         }
 
@@ -1064,6 +1100,35 @@ mod tests {
         let (status, body) = post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" }));
         assert_eq!(status, 200, "{body}");
         assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 200);
+    }
+
+    /// A PIN, end to end: set with the password while open, then the only way in
+    /// besides the password while locked, from that device. Not the owner's.
+    #[test]
+    fn a_pin_unlocks_a_locked_journal_from_the_device_that_set_it() {
+        let (app, port, owner, sam) = serving_two();
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+        let (status, body) = post(port, "person_set_pin", Some(&sam), json!({ "pin": "4821", "password": "correct horse battery" }));
+        assert_eq!(status, 200, "{body}");
+        let r: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(r["status"]["pin"], true);
+        let sealed = r["sealed"].as_str().unwrap().to_string();
+        assert_eq!(post(port, "person_set_pin", Some(&owner), json!({ "pin": "4821", "password": "x" })).0, 403);
+
+        // A restart locks it; the PIN reopens it.
+        *app.state::<People>().db(2).unwrap().conn.lock().unwrap() = None;
+        assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 503);
+        let (status, body) = post(port, "person_pin_unlock", Some(&sam), json!({ "pin": "0000", "sealed": sealed }));
+        assert_eq!(status, 400, "{body}");
+        let (status, body) = post(port, "person_pin_unlock", Some(&sam), json!({ "pin": "4821", "sealed": sealed }));
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 200);
+
+        // Turned off, it no longer works.
+        let (_, body) = post(port, "person_set_pin", Some(&sam), json!({ "pin": null }));
+        assert!(body.contains("\"pin\":false"), "{body}");
+        *app.state::<People>().db(2).unwrap().conn.lock().unwrap() = None;
+        assert_eq!(post(port, "person_pin_unlock", Some(&sam), json!({ "pin": "4821", "sealed": sealed })).0, 400);
     }
 
     /// The core promise, against the real request path: everything one person's

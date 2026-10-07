@@ -703,6 +703,8 @@ export interface DbStatus {
   new_journal?: boolean;
   /** Their password is kept on the server so the journal reopens after a restart. */
   remembered?: boolean;
+  /** This device has a PIN it can unlock with (people.rs, rule 5). */
+  pin?: boolean;
 }
 export const dbStatus = () => invoke<DbStatus>("db_status");
 export const unlockDb = (passphrase: string) => invoke<void>("unlock_db", { passphrase });
@@ -882,6 +884,13 @@ export const personUnlock = (password: string) => invoke<DbStatus>("person_unloc
 /** Keep your password on the server (needs it), or stop keeping it. */
 export const personRemember = (remember: boolean, password: string | null = null) =>
   invoke<DbStatus>("person_remember", { remember, password });
+/** Set a PIN for this device (needs your password), or turn it off with `null`.
+ *  `sealed` is this device's copy of your password, which only the server's key
+ *  opens: keep it on this device, and send it back with the PIN to unlock. */
+export const personSetPin = (pin: string | null, password: string | null = null) =>
+  invoke<{ status: DbStatus; sealed: string | null }>("person_set_pin", { pin, password });
+/** Unlock your journal with this device's PIN and the sealed copy it kept. */
+export const personPinUnlock = (pin: string, sealed: string) => invoke<DbStatus>("person_pin_unlock", { pin, sealed });
 export const myDevices = () => invoke<MyDevice[]>("my_devices");
 /** Pair another device of yours. `origin` is where this phone reached the server,
  *  so the returned QR code points at the same place. */

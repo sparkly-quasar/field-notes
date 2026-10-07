@@ -40,6 +40,8 @@
     type ServerUpdateStatus,
     dbStatus,
     personUnlock,
+    personSetPin,
+    personPinUnlock,
     personRemember,
     myDevices,
     pairOwnDevice,
@@ -587,6 +589,53 @@
     }
   }
 
+  // A PIN on this device (people.rs, rule 5). The server keeps a key; this device
+  // keeps the sealed copy of the password it opens. Neither half works alone.
+  const SEALED_KEY = "fieldnotes.pinSealed";
+  const readSealed = () => {
+    try {
+      return localStorage.getItem(SEALED_KEY);
+    } catch {
+      return null;
+    }
+  };
+  function writeSealed(v: string | null) {
+    try {
+      if (v) localStorage.setItem(SEALED_KEY, v);
+      else localStorage.removeItem(SEALED_KEY);
+    } catch {
+      // No storage: the PIN can't be kept here, so the password it is.
+    }
+  }
+  let pinCode = $state("");
+  /** Unlocking with the password instead, though this device has a PIN. */
+  let usePassword = $state(false);
+  const canPin = $derived(!!me?.pin && !me.new_journal && !!readSealed());
+  // The server forgot this device's PIN (too many wrong tries, a new password):
+  // the sealed copy is no use now. Only on a server that says so.
+  $effect(() => {
+    if (me && me.pin === false) writeSealed(null);
+  });
+
+  async function unlockWithPin() {
+    lockErr = null;
+    const sealed = readSealed();
+    if (!pinCode || !sealed) return;
+    unlocking = true;
+    try {
+      me = await personPinUnlock(pinCode, sealed);
+      pinCode = "";
+      usePassword = false;
+      startJournal();
+    } catch (e) {
+      lockErr = e instanceof Error ? e.message : String(e);
+      pinCode = "";
+      await loadMe();
+    } finally {
+      unlocking = false;
+    }
+  }
+
   /** The server answered "locked" (it restarted and forgot the password). */
   function onLocked() {
     err = null;
@@ -678,6 +727,8 @@
     rememberPw = "";
     changingPw = false;
     pwChanged = false;
+    pinAsk = false;
+    pinNew = pinNew2 = pinPw = "";
     backedUp = false;
     run("me", async () => (mine = await myDevices()));
   }
@@ -732,6 +783,27 @@
       pwCurrent = pwNew = pwNew2 = "";
       changingPw = false;
       pwChanged = true;
+    });
+
+  let pinNew = $state("");
+  let pinNew2 = $state("");
+  let pinPw = $state("");
+  let pinAsk = $state(false);
+  const setPin = () =>
+    run("pin", async () => {
+      if (!/^\d{4,12}$/.test(pinNew)) throw new Error("Choose a PIN of 4 to 12 digits.");
+      if (pinNew !== pinNew2) throw new Error("Those two PINs don't match.");
+      const r = await personSetPin(pinNew, pinPw);
+      writeSealed(r.sealed);
+      me = r.status;
+      pinNew = pinNew2 = pinPw = "";
+      pinAsk = false;
+    });
+  const clearPin = () =>
+    run("pin", async () => {
+      const r = await personSetPin(null);
+      writeSealed(null);
+      me = r.status;
     });
 
   let backedUp = $state(false);
@@ -2050,8 +2122,20 @@
           </p>
         {:else}
           <h1>Your journal is locked</h1>
-          <p>The server restarted, so it forgot your password. Type it to open your journal again.</p>
+          <p>
+            The server restarted, so it forgot your password.
+            {canPin && !usePassword ? "Type this device's PIN to open your journal again." : "Type it to open your journal again."}
+          </p>
         {/if}
+        {#if canPin && !usePassword}
+        <form onsubmit={(e) => { e.preventDefault(); unlockWithPin(); }}>
+          <label for="lock-pin">Your PIN</label>
+          <input id="lock-pin" type="password" bind:value={pinCode} inputmode="numeric" autocomplete="off" maxlength="12" />
+          {#if lockErr}<p class="err" role="alert">{lockErr}</p>{/if}
+          <button class="primary" type="submit" disabled={unlocking || !pinCode}>{unlocking ? "Unlocking…" : "Unlock"}</button>
+          <button type="button" class="ghost small" onclick={() => { usePassword = true; lockErr = null; pinCode = ""; }}>Use my password instead</button>
+        </form>
+        {:else}
         <form onsubmit={(e) => { e.preventDefault(); unlock(); }}>
           <label for="lock-pw">{me.new_journal ? "Password (at least 8 characters)" : "Password"}</label>
           <input id="lock-pw" type="password" bind:value={pw1} minlength={me.new_journal ? 8 : undefined}
@@ -2069,6 +2153,7 @@
             {unlocking ? (me.new_journal ? "Creating…" : "Unlocking…") : me.new_journal ? "Create my journal" : "Unlock"}
           </button>
         </form>
+        {/if}
         <button class="help wide" onclick={openHelp}>Help</button>
       </section>
 
@@ -3086,8 +3171,8 @@
               <input id="pw-new2" type="password" bind:value={pwNew2} autocomplete="new-password" autocapitalize="off" spellcheck="false" />
               {#if err}<p class="err" role="alert">{err}</p>{/if}
               <p class="muted small">
-                Your other devices stay paired and keep working. Backups you've already downloaded still open with the
-                old password.
+                Your other devices stay paired and keep working, but any PIN you've set turns off. Backups you've
+                already downloaded still open with the old password.
               </p>
               <span class="pair">
                 <button class="primary" type="submit" disabled={busy || !pwCurrent || !pwNew}>{busyKey === "changepw" ? "Changing…" : "Change password"}</button>
@@ -3097,6 +3182,38 @@
           {:else}
             {#if pwChanged}<p class="muted small" role="status">Password changed.</p>{/if}
             <button onclick={() => { changingPw = true; pwChanged = false; }}>Change password…</button>
+          {/if}
+
+          <h3 class="sec">Unlock with a PIN on this device</h3>
+          {#if canPin}
+            <p>
+              <strong>On.</strong> When your journal locks, this device can open it with a short PIN instead of your
+              password. Five wrong PINs and it turns off, and then your password will do.
+            </p>
+            <button disabled={busy} onclick={clearPin}>{busyKey === "pin" ? "Turning off…" : "Turn off"}</button>
+          {:else}
+            <p>
+              <strong>Off.</strong> A PIN works only on this device, and only with your server. Your password stays the
+              real key: the server never keeps it, and this device keeps it only sealed with a key the server holds.
+              Changing your password turns the PIN off on all your devices.
+            </p>
+            {#if pinAsk}
+              <form onsubmit={(e) => { e.preventDefault(); setPin(); }}>
+                <label for="pin-new">PIN (4 to 12 digits)</label>
+                <input id="pin-new" type="password" bind:value={pinNew} inputmode="numeric" autocomplete="off" maxlength="12" />
+                <label for="pin-new2">The same PIN again</label>
+                <input id="pin-new2" type="password" bind:value={pinNew2} inputmode="numeric" autocomplete="off" maxlength="12" />
+                <label for="pin-pw">Your password</label>
+                <input id="pin-pw" type="password" bind:value={pinPw} autocomplete="current-password" autocapitalize="off" spellcheck="false" />
+                {#if err}<p class="err" role="alert">{err}</p>{/if}
+                <span class="pair">
+                  <button class="primary" type="submit" disabled={busy || !pinNew || !pinPw}>{busyKey === "pin" ? "Setting…" : "Set PIN"}</button>
+                  <button type="button" onclick={() => { pinAsk = false; pinNew = pinNew2 = pinPw = ""; }}>Cancel</button>
+                </span>
+              </form>
+            {:else}
+              <button onclick={() => (pinAsk = true)}>Set a PIN…</button>
+            {/if}
           {/if}
 
           <h3 class="sec">Keep my journal unlocked on this server</h3>

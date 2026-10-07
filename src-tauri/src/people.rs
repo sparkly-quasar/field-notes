@@ -22,6 +22,14 @@
 //!    person's journal without their password.
 //! 4. **Wrong passwords are slowed down,** per device, so a phone can't be used to
 //!    guess.
+//! 5. **A PIN is a shortcut on one device, never a key on the server.** A person can
+//!    set a short PIN on a device that already knows their password. The server
+//!    seals the password under a fresh random key and hands the sealed copy to that
+//!    device, keeping only the key and a stretched hash of the PIN (`pins.json` in
+//!    their folder). Neither half opens anything alone: the owner, holding the
+//!    server's files, has no sealed copy; someone holding the phone has no key, and
+//!    the server forgets the key after [`PIN_TRIES`] wrong PINs. So the password
+//!    stays the only thing that can be guessed offline, and it stays long.
 //!
 //! The limit, said plainly in the app too: while a journal is unlocked it is open in
 //! this program's memory, so someone with full control of the computer and the
@@ -39,6 +47,23 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub const MIN_PASSWORD: usize = 8;
 /// Wrong passwords allowed from one device before it has to wait.
 const FREE_TRIES: u32 = 5;
+/// A PIN is digits, this many or more (and at most [`MAX_PIN`]).
+pub const MIN_PIN: usize = 4;
+pub const MAX_PIN: usize = 12;
+/// Wrong PINs allowed on one device before the server forgets that device's PIN
+/// and only the password will do. Counted on disk, so a restart doesn't reset it.
+pub const PIN_TRIES: u32 = 5;
+
+/// One device's PIN (rule 5). `key` unseals the copy of the password that only that
+/// device holds; on its own it opens nothing.
+#[derive(Clone, Serialize, Deserialize)]
+struct Pin {
+    salt: String,
+    hash: String,
+    key: String,
+    #[serde(default)]
+    fails: u32,
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Person {
@@ -79,6 +104,8 @@ pub struct PersonStatus {
     pub new_journal: bool,
     pub person_name: String,
     pub remembered: bool,
+    /// The device asking has a PIN it can unlock with.
+    pub pin: bool,
 }
 
 struct Tries {
@@ -92,6 +119,8 @@ pub struct People {
     reg: Mutex<Registry>,
     dbs: Mutex<HashMap<u32, Arc<Db>>>,
     tries: Mutex<HashMap<u64, Tries>>,
+    /// Held while `pins.json` is read and rewritten.
+    pins: Mutex<()>,
 }
 
 fn now() -> u64 {
@@ -112,6 +141,7 @@ impl People {
             reg: Mutex::new(reg),
             dbs: Mutex::new(HashMap::new()),
             tries: Mutex::new(HashMap::new()),
+            pins: Mutex::new(()),
         }
     }
 
@@ -215,7 +245,8 @@ impl People {
         Some(dbs.entry(id).or_insert_with(|| Arc::new(Db::new(None, self.journal_path(id)))).clone())
     }
 
-    pub fn status(&self, id: u32) -> Option<PersonStatus> {
+    /// `device` is the one asking, for whether it has a PIN.
+    pub fn status(&self, id: u32, device: u64) -> Option<PersonStatus> {
         let db = self.db(id)?;
         let reg = self.reg.lock().unwrap();
         let p = reg.people.iter().find(|p| p.id == id)?;
@@ -227,6 +258,7 @@ impl People {
             new_journal: !db.path.exists(),
             person_name: p.name.clone(),
             remembered: p.remembered,
+            pin: self.read_pins(id).contains_key(&device),
         })
     }
 
@@ -343,6 +375,9 @@ impl People {
         }
         *guard = Some(db::open(&db.path, Some(new)).map_err(|e| e.to_string())?);
         drop(guard);
+        // Every device's sealed copy is of the old password now. Forget their PINs
+        // so they ask for the password once and can set a PIN again.
+        let _ = self.write_pins(id, &HashMap::new());
         // Keep a remembered password in step, or the next restart can't open it.
         // If the keychain won't take it, stop remembering rather than keep a stale one.
         let mut reg = self.reg.lock().unwrap();
@@ -354,6 +389,112 @@ impl People {
             }
         }
         Ok(())
+    }
+
+    // ---- a PIN on one device (rule 5) ----
+
+    fn pins_path(&self, id: u32) -> PathBuf {
+        self.folder(id).join("pins.json")
+    }
+
+    fn read_pins(&self, id: u32) -> HashMap<u64, Pin> {
+        std::fs::read_to_string(self.pins_path(id))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn write_pins(&self, id: u32, pins: &HashMap<u64, Pin>) -> Result<(), String> {
+        let path = self.pins_path(id);
+        if pins.is_empty() {
+            return match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                _ => Ok(()),
+            };
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(pins).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    }
+
+    /// Set a PIN for this device, proving the password first. Returns the sealed
+    /// copy of the password for the device to keep; the server never stores it.
+    pub fn set_pin(&self, id: u32, device: u64, password: &str, pin: &str) -> Result<String, String> {
+        let db = self.db(id).ok_or("No such person.")?;
+        let pin = pin.trim();
+        if pin.len() < MIN_PIN || pin.len() > MAX_PIN || !pin.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(format!("Choose a PIN of {MIN_PIN} to {MAX_PIN} digits."));
+        }
+        if let Some(w) = self.wait(device) {
+            return Err(format!("Too many wrong passwords. Try again in {} seconds.", w.as_secs().max(1)));
+        }
+        if !db.path.exists() || db::open(&db.path, Some(password)).is_err() {
+            self.failed(device);
+            return Err("That password didn't open your journal.".into());
+        }
+        self.tries.lock().unwrap().remove(&device);
+        let (key, sealed) = seal(password)?;
+        let salt = crate::devices::new_token()?;
+        let rec = Pin { hash: crate::owner_auth::stretch(&salt, pin), salt, key, fails: 0 };
+        let _g = self.pins.lock().unwrap();
+        let mut pins = self.read_pins(id);
+        pins.insert(device, rec);
+        self.write_pins(id, &pins)?;
+        Ok(sealed)
+    }
+
+    /// Turn this device's PIN off. Turning off one that isn't on is fine.
+    pub fn forget_pin(&self, id: u32, device: u64) -> Result<(), String> {
+        let _g = self.pins.lock().unwrap();
+        let mut pins = self.read_pins(id);
+        if pins.remove(&device).is_some() {
+            self.write_pins(id, &pins)?;
+        }
+        Ok(())
+    }
+
+    /// Open this person's journal with this device's PIN and the sealed password
+    /// the device kept. [`PIN_TRIES`] wrong PINs and the PIN is gone.
+    pub fn unlock_with_pin(&self, id: u32, device: u64, pin: &str, sealed: &str) -> Result<Arc<Db>, String> {
+        let db = self.db(id).ok_or("No such person.")?;
+        if db.is_unlocked() {
+            return Ok(db);
+        }
+        let _g = self.pins.lock().unwrap();
+        let mut pins = self.read_pins(id);
+        let gone = || "This device's PIN is off. Unlock with your password, then you can set a PIN again.".to_string();
+        let rec = pins.get_mut(&device).ok_or_else(gone)?;
+        let right = crate::devices::constant_time_eq(&rec.hash, &crate::owner_auth::stretch(&rec.salt, pin.trim()));
+        if !right {
+            rec.fails += 1;
+            if rec.fails >= PIN_TRIES {
+                pins.remove(&device);
+                self.write_pins(id, &pins)?;
+                return Err("That's not your PIN, and that was the last try. Unlock with your password.".into());
+            }
+            let left = PIN_TRIES - rec.fails;
+            self.write_pins(id, &pins)?;
+            return Err(format!("That's not your PIN. {left} tr{} left before it turns off.", if left == 1 { "y" } else { "ies" }));
+        }
+        // The right PIN, but the sealed copy must still open the journal: it won't
+        // if it was tampered with or the password changed some other way.
+        let conn = unseal(&rec.key, sealed).and_then(|pw| db::open(&db.path, Some(&pw)).ok());
+        let Some(conn) = conn else {
+            pins.remove(&device);
+            self.write_pins(id, &pins)?;
+            return Err(gone());
+        };
+        if rec.fails > 0 {
+            rec.fails = 0;
+            self.write_pins(id, &pins)?;
+        }
+        drop(_g);
+        let mut guard = db.conn.lock().unwrap();
+        if guard.is_none() {
+            *guard = Some(conn);
+        }
+        drop(guard);
+        Ok(db)
     }
 
     /// A copy of this person's journal, for them to keep: still encrypted with
@@ -416,6 +557,49 @@ impl People {
     }
 }
 
+/// Sealing a password for one device's PIN (rule 5). A fresh random key per seal,
+/// used once, as a SHA-256 keystream; padded to a multiple of 256 bytes so the
+/// sealed copy doesn't give away the password's length. A wrong or altered copy
+/// unseals to something that doesn't open the journal, which is all that's checked.
+fn keystream(key: &[u8], data: &mut [u8]) {
+    use sha2::{Digest, Sha256};
+    for (i, chunk) in data.chunks_mut(32).enumerate() {
+        let block = Sha256::new().chain_update(key).chain_update((i as u64).to_le_bytes()).finalize();
+        chunk.iter_mut().zip(block.iter()).for_each(|(b, k)| *b ^= k);
+    }
+}
+
+/// Returns (the key, hex, for the server; the sealed password, base64, for the device).
+fn seal(password: &str) -> Result<(String, String), String> {
+    use base64::Engine;
+    let pw = password.as_bytes();
+    let len = u16::try_from(pw.len()).map_err(|_| "That password is too long to use with a PIN.")?;
+    let mut buf = vec![0u8; (pw.len() + 2).div_ceil(256) * 256];
+    getrandom::getrandom(&mut buf).map_err(|e| e.to_string())?;
+    buf[..2].copy_from_slice(&len.to_le_bytes());
+    buf[2..2 + pw.len()].copy_from_slice(pw);
+    let mut key = [0u8; 32];
+    getrandom::getrandom(&mut key).map_err(|e| e.to_string())?;
+    keystream(&key, &mut buf);
+    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+    Ok((hex, base64::engine::general_purpose::STANDARD.encode(buf)))
+}
+
+fn unseal(key_hex: &str, sealed: &str) -> Option<String> {
+    use base64::Engine;
+    let key: Vec<u8> = (0..key_hex.len())
+        .step_by(2)
+        .map(|i| key_hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect::<Option<_>>()?;
+    let mut buf = base64::engine::general_purpose::STANDARD.decode(sealed.trim()).ok()?;
+    if buf.len() < 2 {
+        return None;
+    }
+    keystream(&key, &mut buf);
+    let len = u16::from_le_bytes([buf[0], buf[1]]) as usize;
+    String::from_utf8(buf.get(2..2 + len)?.to_vec()).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,7 +617,7 @@ mod tests {
         let sam = p.add("Sam").unwrap();
         assert_eq!(sam.id, 2);
         assert!(!sam.has_journal && !sam.unlocked);
-        assert!(p.status(2).unwrap().new_journal);
+        assert!(p.status(2, 7).unwrap().new_journal);
 
         // Too short to be the only key to a journal nobody can recover.
         assert!(p.unlock(2, 7, "short").err().unwrap().contains("at least"));
@@ -548,5 +732,85 @@ mod tests {
         assert!(p.list().is_empty());
         // Ids aren't reused, so an old device record can't land on a new person.
         assert_eq!(p.add("Alex").unwrap().id, 3);
+    }
+
+    #[test]
+    fn a_pin_reopens_the_journal_on_its_own_device_only() {
+        let p = people("pin");
+        p.add("Sam").unwrap();
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        assert!(p.set_pin(2, 1, "correct horse battery", "12").unwrap_err().contains("digits"));
+        assert!(p.set_pin(2, 1, "correct horse battery", "12ab").unwrap_err().contains("digits"));
+        assert!(p.set_pin(2, 1, "not my password", "4821").unwrap_err().contains("didn't open"));
+        let sealed = p.set_pin(2, 1, "correct horse battery", "4821").unwrap();
+        assert!(p.status(2, 1).unwrap().pin && !p.status(2, 9).unwrap().pin);
+
+        // Neither the server's file nor the device's copy holds the password or PIN.
+        let stored = std::fs::read_to_string(p.pins_path(2)).unwrap();
+        assert!(!stored.contains("correct horse") && !stored.contains("4821"));
+        assert!(!sealed.contains("correct horse"));
+        use base64::Engine;
+        let raw = base64::engine::general_purpose::STANDARD.decode(&sealed).unwrap();
+        assert!(!raw.windows(7).any(|w| w == b"correct"));
+        assert_eq!(raw.len() % 256, 0, "padded, so its length says nothing");
+
+        // After a restart the PIN opens it, from that device.
+        *p.db(2).unwrap().conn.lock().unwrap() = None;
+        assert!(p.unlock_with_pin(2, 9, "4821", &sealed).err().unwrap().contains("off"), "another device has no PIN");
+        assert!(!p.db(2).unwrap().is_unlocked());
+        p.unlock_with_pin(2, 1, "4821", &sealed).unwrap();
+        assert!(p.db(2).unwrap().is_unlocked());
+
+        // A tampered copy doesn't open it, and the PIN turns off.
+        *p.db(2).unwrap().conn.lock().unwrap() = None;
+        let mut bad = raw.clone();
+        bad[5] ^= 1;
+        let bad = base64::engine::general_purpose::STANDARD.encode(bad);
+        assert!(p.unlock_with_pin(2, 1, "4821", &bad).err().unwrap().contains("off"));
+        assert!(!p.status(2, 1).unwrap().pin);
+    }
+
+    #[test]
+    fn wrong_pins_turn_the_pin_off_even_across_a_restart() {
+        let p = people("pin-tries");
+        p.add("Sam").unwrap();
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        let sealed = p.set_pin(2, 1, "correct horse battery", "4821").unwrap();
+        *p.db(2).unwrap().conn.lock().unwrap() = None;
+        for _ in 0..PIN_TRIES - 1 {
+            assert!(p.unlock_with_pin(2, 1, "0000", &sealed).err().unwrap().contains("not your PIN"));
+        }
+        // The count is on disk: a fresh `People` (a restart) still has it.
+        let p = People::load(&p.dir);
+        assert!(p.unlock_with_pin(2, 1, "0000", &sealed).err().unwrap().contains("last try"));
+        assert!(p.unlock_with_pin(2, 1, "4821", &sealed).err().unwrap().contains("off"));
+        assert!(!p.db(2).unwrap().is_unlocked());
+        // The password still works, and a new PIN can be set.
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        p.set_pin(2, 1, "correct horse battery", "9999").unwrap();
+    }
+
+    #[test]
+    fn changing_the_password_turns_every_pin_off() {
+        let p = people("pin-change");
+        p.add("Sam").unwrap();
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        p.set_pin(2, 1, "correct horse battery", "4821").unwrap();
+        p.set_pin(2, 2, "correct horse battery", "1357").unwrap();
+        p.change_password(2, 1, "correct horse battery", "a brand new password").unwrap();
+        assert!(!p.status(2, 1).unwrap().pin && !p.status(2, 2).unwrap().pin);
+        assert!(!p.pins_path(2).exists());
+    }
+
+    #[test]
+    fn turning_a_pin_off_leaves_other_devices_alone() {
+        let p = people("pin-forget");
+        p.add("Sam").unwrap();
+        p.unlock(2, 1, "correct horse battery").unwrap();
+        p.set_pin(2, 1, "correct horse battery", "4821").unwrap();
+        p.set_pin(2, 2, "correct horse battery", "1357").unwrap();
+        p.forget_pin(2, 1).unwrap();
+        p.forget_pin(2, 1).unwrap();
+        assert!(!p.status(2, 1).unwrap().pin && p.status(2, 2).unwrap().pin);
     }
 }
