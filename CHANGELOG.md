@@ -11,6 +11,12 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.27.1
+
+- **No more "stimulating" or "sedating" note on drinks.** Alcohol no longer
+  carries a note on what that number of drinks tends to do. Its combination
+  warnings and dependence notes are unchanged.
+
 ## v0.27.0
 
 - **Tag someone in a dose.** When two people share a server and have both
