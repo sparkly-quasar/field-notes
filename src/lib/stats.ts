@@ -128,6 +128,10 @@ export function fmtNum(n: number): string {
  *   monthly, three sessions.
  * - cannabinoids: D'Souza et al. 2016 and Hirvonen et al. 2012 (CB1 availability
  *   recovers from about 2 days, near normal by about 4 weeks).
+ * - kratom (in place of the opioid note): Hiranita et al. 2020 and Hill et al.
+ *   2022 (mitragynine's ceiling on respiratory depression in rodents); Olsen et
+ *   al. 2019, CDC MMWR (kratom-positive overdose deaths almost all involved
+ *   other substances). 7-OH is a far stronger opioid agonist than leaf.
  */
 export const SPACING_NOTE: Record<string, string> = {
   psychedelics:
@@ -144,9 +148,16 @@ export const SPACING_NOTE: Record<string, string> = {
     "With GHB/GBL and benzodiazepines, use on most days can bring dependence within weeks, and stopping suddenly after that can be dangerous. Spacing uses apart, not on consecutive days, keeps that from building. Tolerance also falls during a break, so start lower after one.",
 };
 
+/** Kratom sits with the opioids but the opioid note overstates its own risk. */
+export const KRATOM_SPACING_NOTE =
+  "Daily kratom builds tolerance and can lead to dependence, with withdrawal if you stop suddenly. On its own, kratom is much less likely than other opioids to slow breathing dangerously, but the risk rises when it's mixed with alcohol, benzodiazepines or other opioids, and with concentrated 7-OH products. After a break, start lower than before.";
+
 /** The spacing notes for a substance's families, in family order, at most one each. */
-export function spacingNotes(families: string[]): string[] {
-  return [...new Set(families)].map((f) => SPACING_NOTE[f]).filter((n): n is string => !!n);
+export function spacingNotes(families: string[], substance = ""): string[] {
+  const kratom = substance.trim().toLowerCase() === "kratom";
+  return [...new Set(families)]
+    .map((f) => (kratom && f === "opioids" ? KRATOM_SPACING_NOTE : SPACING_NOTE[f]))
+    .filter((n): n is string => !!n);
 }
 
 // ---------- bedtime ----------

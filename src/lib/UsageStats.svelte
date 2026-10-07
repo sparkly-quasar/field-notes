@@ -709,7 +709,7 @@
             {/if}
           </div>
           <!-- The guidance names substances, so it would give a stand-in away. -->
-          {#each hiding() ? [] : spacingNotes(sub.families ?? []) as n}
+          {#each hiding() ? [] : spacingNotes(sub.families ?? [], sub.key) as n}
             <p class="note guide">{n}</p>
           {/each}
           {#if subRatings.length}
