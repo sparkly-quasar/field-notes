@@ -39,6 +39,8 @@ pub const CLASSES: &[&str] = &[
     "lithium",
     "cannabinoid",
     "deliriant",
+    "qt_prolonging",
+    "cyp2d6_inhibitor",
 ];
 
 /// (class A, class B, severity, message). Checked against unordered pairs.
@@ -53,6 +55,14 @@ const RULES: &[(&str, &str, &str, &str)] = &[
         "MAOI + stimulant — risk of hypertensive crisis."),
     ("maoi", "opioid", "danger",
         "MAOI + certain opioids (e.g. tramadol, meperidine, dextromethorphan) — serotonin-syndrome risk."),
+    // Ibogaine blocks hERG and prolongs QT, and so does noribogaine (half-life
+    // 28–49 h); it is cleared mainly by CYP2D6 (Koenig & Hilber 2015,
+    // PMC4382526). Clearance rises steeply with CYP2D6 activity (Knuijver 2024,
+    // PMC11102648). DoseWiki lists no interactions for it at all.
+    ("ibogaine", "qt_prolonging", "danger",
+        "Ibogaine + a QT-prolonging drug (e.g. methadone, cocaine, alcohol) — both lengthen the heart's QT interval, and together the risk of a fatal arrhythmia rises. Ibogaine's metabolite keeps doing this for days."),
+    ("ibogaine", "cyp2d6_inhibitor", "danger",
+        "Ibogaine + a CYP2D6 inhibitor — CYP2D6 is how the body clears ibogaine, so blocking it leaves much more ibogaine in the blood, and more strain on the heart."),
     ("lithium", "psychedelic", "danger",
         "Lithium + psychedelics — reports of seizures and serious reactions. Treated as contraindicated."),
     ("lithium", "stimulant", "danger",
@@ -134,6 +144,9 @@ pub fn advice_for(ca: &[String], cb: &[String]) -> Vec<String> {
     let mut out: Vec<&str> = Vec::new();
     if has(ca, "maoi") || has(cb, "maoi") {
         out.push("MAOIs change how much of the other drug reaches you, unpredictably. This is one to avoid rather than adjust; if it's already happened, watch for a severe headache, a racing heart or overheating, and get help if they appear.");
+    }
+    if either("ibogaine", "qt_prolonging") || either("ibogaine", "cyp2d6_inhibitor") {
+        out.push("This is one to avoid rather than adjust. Ibogaine's effect on the heart outlasts the experience by days, so leave a long gap either side, and get an ECG check beforehand if you can.");
     }
     if has(ca, "lithium") || has(cb, "lithium") {
         out.push("Seizures have been reported with lithium at ordinary doses of the other drug. This is one to avoid rather than adjust.");
@@ -323,6 +336,19 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     if n.contains("lithium") {
         add("lithium", &mut c);
     }
+    // Ibogaine's heart risks (see RULES). Only the drugs the sources name: alcohol,
+    // cocaine and methadone prolong QT; methadone also inhibits CYP2D6.
+    if n.contains("iboga") {
+        add("ibogaine", &mut c);
+    }
+    if n.contains("methadone") {
+        add("opioid", &mut c);
+        add("qt_prolonging", &mut c);
+        add("cyp2d6_inhibitor", &mut c);
+    }
+    if n.contains("cocaine") || n.contains("coke") || n.contains("alcohol") || n.contains("ethanol") || DRINKS.contains(&n.trim()) {
+        add("qt_prolonging", &mut c);
+    }
     if n.contains("cannabis") || n.contains("weed") || n.contains("thc") || n.contains("marijuana") {
         add("cannabinoid", &mut c);
     }
@@ -348,6 +374,23 @@ mod tests {
     fn flags_opioid_benzo_danger() {
         let w = check(&[sub("heroin"), sub("alprazolam")]);
         assert_eq!(w.first().map(|w| w.severity), Some("danger"));
+    }
+
+    #[test]
+    fn ibogaine_with_qt_drugs_or_cyp2d6_inhibitors_is_danger() {
+        for other in ["methadone", "cocaine", "Beer", "alcohol"] {
+            let w = check(&[sub("Ibogaine"), sub(other)]);
+            assert_eq!(w.first().map(|w| w.severity), Some("danger"), "ibogaine + {other}: {w:?}");
+            assert!(w[0].message.starts_with("Ibogaine + a QT"), "{w:?}");
+        }
+        let w = check(&[sub("iboga root bark"), sub("my med")]);
+        assert!(w.is_empty(), "an unclassified med isn't guessed at: {w:?}");
+        let mine = ("my med".to_string(), vec!["cyp2d6_inhibitor".to_string()]);
+        let w = check(&[sub("Ibogaine"), mine]);
+        assert!(w[0].message.contains("CYP2D6"), "{w:?}");
+        // The new classes don't change anything without ibogaine.
+        let w = check(&[sub("cocaine"), sub("Beer")]);
+        assert!(w.iter().all(|w| !w.message.contains("QT")), "{w:?}");
     }
 
     #[test]

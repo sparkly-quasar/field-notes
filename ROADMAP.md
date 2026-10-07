@@ -1279,8 +1279,19 @@ gets the same treatment and shows what changed.
 - In-app credit, NOTICE and READMEs now say "based on DoseWiki with substantial
   revisions". The prose corpus is still credited as DoseWiki's, as written.
 
-**Step 2, to do (replacement figures, `ROUTE_OVERRIDES`).** Research in
-progress, Erowid first. Each override carries a `dose_note` naming its sources.
+**Step 2, to do (replacement figures, `ROUTE_OVERRIDES`).** Erowid first. Each
+override carries a `dose_note` naming its sources.
+**Owner's decisions (2026-10-07):** Erowid wins by default where sources
+disagree, but each disagreement goes to the owner first (e.g. DMT smoked: Erowid
+20–40 mg common vs TIHKAL 60–100 mg). Opioid bands assume no tolerance. No
+figure ships until it has been read on its source page; search excerpts don't
+count. A research pass found candidate figures, but erowid.org refuses the
+web-fetch tool (403), so the Erowid figures are still unverified. Verified so
+far, from labels and PMC: buspirone Tmax 40–90 min (label); esketamine 56/84 mg,
+Tmax 20–40 min, at least 2 h observation (Spravato); ketamine anaesthetic IV
+1–4.5 mg/kg, IM 6.5–13 mg/kg (Ketalar); oxycodone opioid-naive start 5–15 mg
+every 4–6 h (Roxicodone); trial doses 22 or 30 mg/70 kg (Griffiths 2016) and
+0.3 mg/kg (Ross 2016).
 - **DMT:** oral route listed as active by itself (onset "15–60 seconds"); it isn't
   without an MAOI. Vaporized and Inhaled disagreed (the first was kept).
 - **Ketamine:** oral timings look like injection figures (onset 1–3 min, total
@@ -1295,10 +1306,15 @@ progress, Erowid first. Each override carries a `dose_note` naming its sources.
 - **Alcohol:** the existing drinks/units item (above).
 
 **Step 3, to do (coverage gaps).**
-- **Ibogaine has no interactions at all.** Add QT-prolonging drugs, CYP2D6
-  inhibitors, serotonergics and opioids to `interactions.rs` with reasons and
-  sources. Its doses are mg/kg, which the form can't take, so they're never
-  classified.
+- **Ibogaine had no interactions at all.** Added to `interactions.rs`: ibogaine
+  + QT-prolonging drug (methadone, cocaine, alcohol, as the source names them)
+  and ibogaine + CYP2D6 inhibitor (methadone so far), both danger, with new
+  `qt_prolonging` / `cyp2d6_inhibitor` classes people can give their own meds.
+  Sources: Koenig & Hilber 2015 (PMC4382526), Knuijver 2024 (PMC11102648).
+  Still to source before adding: opioids generally, alcohol/benzo withdrawal
+  seizures, serotonergic drugs, and the named strong CYP2D6 inhibitors
+  (paroxetine, fluoxetine, bupropion; Glue 2015 not yet read). Its doses are
+  mg/kg, which the form can't take, so they're never classified.
 - **No dose data:** 30 entries (incl. Salvia, Lithium, Khat, Tobacco), plus empty
   routes for Ayahuasca (defensible), Datura, Scopolamine and others.
 - **Missing:** Peyote, San Pedro, Salvia divinorum by that name, esketamine.
