@@ -13,8 +13,8 @@ const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 /** Best few matches for what's typed: the name itself, then start of a name,
  *  then start of a word or street name, then anywhere. Your own substances
  *  first within each. Hyphens and spaces don't matter ("3meopcp" finds
- *  3-MeO-PCP). A name typed in full stays listed while longer names share its
- *  start ("3-MeO-PCP" beside "3-MeO-PCPr"); alone, it needs no menu. */
+ *  3-MeO-PCP). A name typed in full stays listed, first, even when nothing
+ *  else matches, so it's plain the reference has it. */
 export function suggest(all: Name[], typed: string, limit = 6): Suggestion[] {
   const q = typed.trim().toLowerCase();
   const sq = squash(q);
@@ -39,6 +39,5 @@ export function suggest(all: Name[], typed: string, limit = 6): Suggestion[] {
     scored.push({ s: { name: n.name, via }, score: score * 2 + (n.mine ? 0 : 1) });
   }
   scored.sort((a, b) => a.score - b.score || a.s.name.length - b.s.name.length || a.s.name.localeCompare(b.s.name));
-  if (scored.length === 1 && scored[0].s.name.toLowerCase() === q) return []; // already typed in full
   return scored.slice(0, limit).map((x) => x.s);
 }

@@ -13,9 +13,9 @@ test("a name typed in full stays listed, first, beside longer names that start w
   assert.deepEqual(names("3-meo-pcp"), ["3-MeO-PCP", "3-MeO-PCPr", "3-MeO-PCPy"]);
 });
 
-test("a name typed in full with nothing longer needs no menu", () => {
-  assert.deepEqual(names("3-MeO-PCPr"), []);
-  assert.deepEqual(names("lsd"), []);
+test("a name typed in full stays listed when nothing else matches", () => {
+  assert.deepEqual(names("3-MeO-PCPr"), ["3-MeO-PCPr"]);
+  assert.deepEqual(names("lsd"), ["LSD"]);
 });
 
 test("partial names and street names still suggest", () => {
