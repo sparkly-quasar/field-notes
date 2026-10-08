@@ -148,6 +148,12 @@ non-negotiables, each with a test:
   Journal tab with nothing open; the Check tab. Both: finished trip reports get the
   chart read-only (`past`), moments on it. Deliberately not a bottom-bar slot: the
   last slot is Talk by default, and mid-session is when the Companion matters.
+- **v0.29.1: active means felt, now.** `isActive`: a dose before its slowest
+  offset ends (after-effects don't count), drinks while any are being processed,
+  no timings for `UNKNOWN_ACTIVE_HOURS` (8, the combination check's figure). Only
+  active lines are drawn or listed, on `nowWindow` (earliest dose still counting,
+  at most 12 h back, to 30 min past the slowest felt end), and amounts, tier and
+  phase count only those doses. Nothing draws until every lookup has answered.
 - **Redose classes** (`redoseOf`): additive (depressants, opioids, GABAergics,
   dissociatives, the GHB family, drinks, smoked cannabis), blunted (entactogens,
   stimulants), partial (psychedelics), delayed (eaten cannabis). The line always

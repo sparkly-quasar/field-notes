@@ -11,6 +11,14 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.29.1
+
+- **"Likely still active" shows only what's active now.** The chart and list
+  no longer bring back everything from the last two days. A substance counts
+  while its effects are likely still felt; after-effects don't count, and drinks
+  count while some are still being processed. The chart is centred on now, and
+  the amounts and tier count only the doses still active, not yesterday's.
+
 ## v0.29.0
 
 - **Active arcs.** A chart shows what each substance is
