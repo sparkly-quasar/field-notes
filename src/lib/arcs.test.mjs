@@ -174,3 +174,17 @@ test("a substance with no timings stays listed", () => {
   assert.equal(s.kind, "marker");
   assert.equal(phaseOf(s, T0 + 20 * H).label, "No duration data");
 });
+
+test("recent entries: live, or started or ended in the last two days, never notes", async () => {
+  const { recentEntries } = await import("./arcs.ts");
+  const now = T0;
+  const e = (id, kind, startH, endH) => ({ id, kind, started_at: iso(startH), ended_at: endH == null ? null : iso(endH) });
+  const list = [
+    e(1, "session", -1, null), // live
+    e(2, "session", -30, -20), // yesterday
+    e(3, "session", -100, -60), // long gone
+    e(4, "note", -1, -1), // a note
+    e(5, "session", -60, -40), // started long ago, ended within two days
+  ];
+  assert.deepEqual(recentEntries(list, now).map((x) => x.id), [1, 2, 5]);
+});

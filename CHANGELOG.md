@@ -13,7 +13,7 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.29.0
 
-- **Active arcs in a live trip report.** A chart shows what each substance is
+- **Active arcs.** A chart shows what each substance is
   likely doing now, drawn from the dose reference's own timings, with a line for
   now. Each substance is one line: a top-up adds into it, so the line shows the
   dose you're carrying, and its height follows the reference's dose tiers.
@@ -24,6 +24,13 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   a redose means for it. For MDMA and stimulants, a second dose raises levels in
   your body more than it raises how it feels; for psychedelics it adds with
   diminishing returns; edibles arrive late, so a "didn't work" redose stacks.
+- **"Likely still active" on Today, even without a live trip report.** Anything
+  you've logged in the last two days that may still be active shows there, from
+  any entry, with the chart a tap away. In a live trip report it's on the live
+  card. **Check** lists it too, with a button that puts it into the combination
+  check, ready for whatever you're thinking of adding.
+- **Finished trip reports show their arcs,** with your moments on them: how the
+  doses likely played out, next to how it actually felt.
 - **Drinks stack and clear on their own scale,** at about one standard drink an
   hour. That's a rule of thumb, and many people clear more slowly.
 

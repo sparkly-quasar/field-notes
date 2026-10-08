@@ -10,6 +10,10 @@
   styles itself from whichever page hosts it, falling back between the two pages'
   variable names.
 -->
+<script lang="ts" module>
+  let instances = 0;
+</script>
+
 <script lang="ts">
   import { pwLookup, type Dose, type PwInfo, type TimelineEvent } from "$lib/api";
   import {
@@ -38,12 +42,27 @@
     moments = [],
     now,
     lookup = pwLookup,
+    past = false,
+    compact = false,
+    onlyActive = false,
+    showChart = true,
+    onCheck,
   }: {
     doses: Dose[];
     moments?: TimelineEvent[];
+    /** The live clock; for a finished trip report, when it ended. */
     now: number;
     /** Where reference entries come from; the app's lookup unless a test swaps it. */
     lookup?: (name: string) => Promise<PwInfo | null>;
+    /** A finished trip report: every arc drawn whole, no "now", no rows. */
+    past?: boolean;
+    /** The rows first, the chart behind a tap (remembered on this device). */
+    compact?: boolean;
+    /** Show only what's still active, and nothing at all when nothing is. */
+    onlyActive?: boolean;
+    showChart?: boolean;
+    /** Offer to put what's still active into the combination check. */
+    onCheck?: (names: string[]) => void;
   } = $props();
 
   // The reference for each name logged, looked up once. A name that can't be
@@ -60,13 +79,37 @@
     }
   });
 
-  // Redrawn once a minute, not on every second the live clock ticks.
-  const minute = $derived(Math.floor(now / 60_000) * 60_000);
+  // Redrawn once a minute, not on every second the live clock ticks. A finished
+  // trip report is drawn as of its last dose at the earliest, so every arc is whole.
+  const lastAt = $derived(Math.max(0, ...doses.map((d) => Date.parse(d.taken_at)).filter((t) => Number.isFinite(t))));
+  const minute = $derived(past ? Math.max(Math.floor(now / 60_000) * 60_000, lastAt) : Math.floor(now / 60_000) * 60_000);
+
+  const CHART_KEY = "fieldnotes.arcsChart";
+  let chartOpen = $state(
+    (() => {
+      try {
+        return localStorage.getItem(CHART_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+  );
+  function toggleChart() {
+    chartOpen = !chartOpen;
+    try {
+      localStorage.setItem(CHART_KEY, chartOpen ? "1" : "0");
+    } catch {
+      // Not remembered on this device; it still applies until the page closes.
+    }
+  }
   const series = $derived(buildSeries(doses, (n) => infos[n.trim().toLowerCase()]));
 
   let width = $state(600);
   let focus = $state<string | null>(null);
   let open = $state<string | null>(null);
+
+  // Each chart on a page needs its own clip path id.
+  const clipId = `arcs-plot-${++instances}`;
 
   const COLORS = 6;
   const colorOf = (i: number) => `var(--arc-${(i % COLORS) + 1})`;
@@ -183,8 +226,10 @@
   const rows = $derived(
     series
       .map((s, i) => ({ s, color: colorOf(i), phase: phaseOf(s, minute) }))
-      .filter((r) => r.phase),
+      .filter((r) => r.phase && (!onlyActive || r.phase.tone !== "past")),
   );
+  const shown = $derived(series.length > 0 && (!onlyActive || rows.length > 0));
+  const drawChart = $derived(showChart && (past || !compact || chartOpen));
 
   function toggle(key: string) {
     open = open === key ? null : key;
@@ -194,12 +239,13 @@
   const titleOf = (s: Series) => nameShown(s.name);
 </script>
 
-{#if series.length}
-  <section class="arcs" aria-label="Active arcs">
+{#if shown}
+  <section class="arcs" aria-label={past ? "Arcs" : "Likely still active"}>
+    {#if drawChart}
     <div class="chart" bind:clientWidth={width}>
       <svg viewBox="0 0 {chart.W} {chart.H}" width={chart.W} height={chart.H} role="img" aria-label="Each substance's likely effect over time, with a line for now">
         <defs>
-          <clipPath id="arcs-plot"><rect x={chart.m.l} y="0" width={chart.W - chart.m.l - chart.m.r} height={chart.H} /></clipPath>
+          <clipPath id={clipId}><rect x={chart.m.l} y="0" width={chart.W - chart.m.l - chart.m.r} height={chart.H} /></clipPath>
         </defs>
         {#if chart.tiered}
           {#each chart.tierY as g}
@@ -219,7 +265,7 @@
           <text class="axis" x={t.x} y={chart.H - 8} text-anchor="middle">{t.label}</text>
         {/each}
 
-        <g clip-path="url(#arcs-plot)">
+        <g clip-path="url(#{clipId})">
           {#each chart.lines as l (l.s.key)}
             {@const dim = focus !== null && focus !== l.s.key}
             <g style="color: {l.color}" opacity={dim ? 0.2 : 1}>
@@ -244,8 +290,10 @@
             <circle cx={d.x} cy={d.y} r="5" class="moment"><title>{d.title}</title></circle>
           {/each}
         </g>
-        <line class="now" x1={chart.nowX} x2={chart.nowX} y1={chart.m.t} y2={chart.base} />
-        <text class="now-label" x={chart.nowX + (chart.nowX > chart.W - 70 ? -5 : 5)} y={chart.m.t + 10} text-anchor={chart.nowX > chart.W - 70 ? "end" : "start"}>now</text>
+        {#if !past}
+          <line class="now" x1={chart.nowX} x2={chart.nowX} y1={chart.m.t} y2={chart.base} />
+          <text class="now-label" x={chart.nowX + (chart.nowX > chart.W - 70 ? -5 : 5)} y={chart.m.t + 10} text-anchor={chart.nowX > chart.W - 70 ? "end" : "start"}>now</text>
+        {/if}
       </svg>
     </div>
 
@@ -297,7 +345,9 @@
         {/if}
       </div>
     {/if}
+    {/if}
 
+    {#if !past}
     <h4 class="rows-h">Likely still active</h4>
     <ul class="rows">
       {#each rows as r (r.s.key)}
@@ -311,7 +361,20 @@
         </li>
       {/each}
     </ul>
-    <p class="fine">From the dose reference's timings and ranges: a guide, not a measurement. A line ending isn't an all-clear.</p>
+    {/if}
+    <div class="actions">
+      {#if compact && showChart && !past}
+        <button type="button" class="act" aria-expanded={chartOpen} onclick={toggleChart}>{chartOpen ? "Hide chart" : "Show chart"}</button>
+      {/if}
+      {#if onCheck && rows.length}
+        <button type="button" class="act" onclick={() => onCheck([...new Set(rows.map((r) => r.s.name))])}>Check what's still active</button>
+      {/if}
+    </div>
+    <p class="fine">
+      {past
+        ? "From the dose reference's timings and ranges: how it likely went, not a measurement."
+        : "From the dose reference's timings and ranges: a guide, not a measurement. A line ending isn't an all-clear."}
+    </p>
   </section>
 {/if}
 
@@ -414,6 +477,15 @@
   .pill.after { border-style: dashed; }
   .pill.unknown { border-style: dotted; }
   .pill.past, .pill.wait { color: var(--a-muted); border-color: var(--a-line); }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .actions:empty { display: none; }
+  .act {
+    font: inherit; font-size: 0.88rem; color: var(--a-ink); cursor: pointer;
+    background: transparent; border: 1px solid var(--a-edge); border-radius: 8px;
+    padding: 0.35rem 0.75rem; min-height: 40px;
+  }
+  .act:hover { background: var(--a-raised); }
+  .act:focus-visible { outline: 2px solid var(--focus, var(--a-accent)); outline-offset: 2px; }
   .fine { margin: 0; font-size: 0.8rem; color: var(--a-muted); }
   @media (max-width: 420px) {
     .rows li { grid-template-columns: 10px minmax(0, 1fr); }

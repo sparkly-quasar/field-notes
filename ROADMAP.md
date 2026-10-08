@@ -140,6 +140,14 @@ non-negotiables, each with a test:
   of each tier (threshold, light, common, strong, heavy). Fastest-to-slowest timing
   band shows only for the line tapped in the key. Phases, not countdowns; no "clear
   by" time. Combinations stay in RiskNotes, off the chart.
+- **Where it shows.** Doses come from every entry live or started/ended in the last
+  48 h (`recentEntries`, `recentDoses`), not just the live one. Phone: the live
+  card (rows, chart behind "Show chart", remembered per device); Today without a
+  live trip report (only while something is active); Check (rows only, "Check
+  what's still active" fills the combination field). Desktop: the live view; the
+  Journal tab with nothing open; the Check tab. Both: finished trip reports get the
+  chart read-only (`past`), moments on it. Deliberately not a bottom-bar slot: the
+  last slot is Talk by default, and mid-session is when the Companion matters.
 - **Redose classes** (`redoseOf`): additive (depressants, opioids, GABAergics,
   dissociatives, the GHB family, drinks, smoked cannabis), blunted (entactogens,
   stimulants), partial (psychedelics), delayed (eaten cannabis). The line always

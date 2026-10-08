@@ -151,6 +151,7 @@
     UNITS,
     STANDARD_DRINK,
     HIT_NOTE,
+    recentDoses,
   } from "$lib/quicklog";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
@@ -231,6 +232,25 @@
   let obsMsg = $state<string | null>(null);
 
   let experiences = $state<ExperienceSummary[]>([]);
+  /** Doses from any entry that may still be active (quicklog.ts `recentDoses`). */
+  let activeDoses = $state<Dose[]>([]);
+  /** A minute clock for "Likely still active" outside the live view. */
+  let minuteNow = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (minuteNow = Date.now()), 60_000);
+    return () => clearInterval(t);
+  });
+  /** The open entry's doses (fresh right after logging) with everything else recent. */
+  const arcDoses = $derived.by(() => {
+    const own = liveSession && selected ? selected.doses : [];
+    return [...own, ...activeDoses.filter((d) => !own.some((o) => o.id === d.id))];
+  });
+  /** Fill the combination check with what's still active, ready for one more name. */
+  function checkActive(names: string[]) {
+    comboText = names.join(", ") + ", ";
+    comboResult = null;
+    goTab("substances");
+  }
   let substances = $state<Substance[]>([]);
   let classesVocab = $state<string[]>([]);
   let usage = $state<SubstanceUsage[]>([]);
@@ -921,6 +941,9 @@
 
   async function loadJournal() {
     experiences = await listExperiences();
+    recentDoses(experiences, Date.now(), selected ? [selected] : [])
+      .then((d) => (activeDoses = d))
+      .catch(() => {});
   }
   async function loadSubstances() {
     substances = await listSubstances();
@@ -2579,6 +2602,12 @@
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
       {#if !selected}<SleepCheckin />{/if}
+      {#if !selected && activeDoses.length}
+        <!-- Something logged lately may still be active, live trip report or not. -->
+        <section class="card">
+          <ActiveArcs doses={activeDoses} now={minuteNow} compact onlyActive onCheck={checkActive} />
+        </section>
+      {/if}
       {#if selected && selected.kind === "note"}
         <!-- A plain entry: a title, a body, a date. Deliberately quiet — no session chrome. -->
         <section class="card">
@@ -2651,6 +2680,12 @@
           {/if}
 
           {@render doseWarnings()}
+
+          {#if selected.ended_at && selected.doses.length}
+            <!-- How the doses likely played out, with the moments on top. -->
+            <h3>Arcs</h3>
+            <ActiveArcs doses={selected.doses} moments={selected.timeline} now={Date.parse(selected.ended_at)} past />
+          {/if}
 
           <h3>Doses</h3>
           {#if selected.doses.length}
@@ -3227,6 +3262,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <input id="combo-names" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocomplete="off" />
           <button class="primary small-btn" type="submit" disabled={comboText.split(",").filter((x) => x.trim()).length < 2}>Check</button>
         </form>
+        {#if activeDoses.length}
+          <ActiveArcs doses={activeDoses} now={minuteNow} onlyActive showChart={false} onCheck={(names) => { comboText = names.join(", ") + ", "; comboResult = null; }} />
+        {/if}
         {#if comboResult}
           {#if comboResult.length === 0}
             <p class="notice">Nothing flagged between those. That isn't the same as "safe".</p>
@@ -4370,7 +4408,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
       </div>
 
       <!-- What each substance is likely doing now, all doses of it added in. -->
-      <ActiveArcs doses={selected.doses} moments={selected.timeline} now={lsNow} />
+      <ActiveArcs doses={arcDoses} moments={selected.timeline} now={lsNow} />
 
       <div class="live-body">
         <section class="live-timeline">

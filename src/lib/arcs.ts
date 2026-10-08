@@ -12,7 +12,7 @@
 // `DRINKS_PER_HOUR`), because alcohol is cleared at a near-constant rate rather
 // than tapering, and DoseWiki has no figure for it.
 
-import type { Dose, PwInfo, PwRoa } from "./api";
+import type { Dose, Experience, PwInfo, PwRoa } from "./api";
 import { detailOf, inUnit, measure } from "./dosedetail.ts";
 
 const HOUR = 3_600_000;
@@ -501,4 +501,22 @@ export function windowOf(series: Series[], now: number): [number, number] {
     end = Math.max(end, last.at + (felt + 1) * HOUR);
   }
   return [start, Math.min(end, start + 36 * HOUR)];
+}
+
+// ---- what's recent enough to still be active
+
+/** How far back to look for doses that may still be active: the longest
+ *  after-effects the reference gives for common substances (LSD, alcohol). */
+export const RECENT_HOURS = 48;
+
+/** The trip reports whose doses may still be active at `now`: live, or started or
+ *  ended within `RECENT_HOURS`. Plain notes have no doses. Newest first, at most
+ *  `limit`, so a busy weekend doesn't mean dozens of lookups. */
+export function recentEntries<E extends Pick<Experience, "id" | "kind" | "started_at" | "ended_at">>(entries: E[], now: number, limit = 10): E[] {
+  const since = now - RECENT_HOURS * HOUR;
+  const t = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
+  return entries
+    .filter((e) => e.kind === "session" && (e.ended_at == null || t(e.started_at) >= since || t(e.ended_at) >= since))
+    .sort((a, b) => t(b.started_at) - t(a.started_at))
+    .slice(0, limit);
 }

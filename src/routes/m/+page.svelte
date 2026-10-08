@@ -147,6 +147,7 @@
     STANDARD_DRINK,
     HIT_NOTE,
     DRINK_PICKS,
+    recentDoses,
   } from "$lib/quicklog";
 
   type View = "today" | "journal" | "check" | "talk";
@@ -194,6 +195,8 @@
   let comboOffline = $state(false);
 
   let recent = $state<ExperienceSummary[]>([]);
+  /** Doses from any entry that may still be active (quicklog.ts `recentDoses`). */
+  let activeDoses = $state<Dose[]>([]);
   // False until the journal has loaded once, so the empty-journal card doesn't
   // flash for someone whose entries just haven't arrived yet.
   let loaded = $state(false);
@@ -929,9 +932,24 @@
       session = live ? await getExperience(live.id) : null;
       if (open) open = await getExperience(open.id).catch(() => null);
       if (target) target = await getExperience(target.id).catch(() => null);
+      recentDoses(recent, Date.now(), session ? [session] : [])
+        .then((d) => (activeDoses = d))
+        .catch(() => {});
     } catch (e) {
       if (!(e instanceof LockedError)) err = e instanceof Error ? e.message : String(e);
     }
+  }
+  /** The live entry's doses (fresh right after logging) with everything else recent. */
+  const arcDoses = $derived.by(() => {
+    const own = session?.doses ?? [];
+    return [...own, ...activeDoses.filter((d) => !own.some((o) => o.id === d.id))];
+  });
+  /** Fill the combination check with what's still active, ready for one more name. */
+  function checkActive(names: string[]) {
+    comboText = names.join(", ") + ", ";
+    comboWarnings = null;
+    checkMode = "combo";
+    goTo("check");
   }
 
   /** A number as typed on a phone. iOS keypads in many regions type "1,5"; that
@@ -2262,7 +2280,7 @@
             {@render warnings(warnFor[live.id])}
             <button class="ghost small" onclick={() => (warnFor = { ...warnFor, [live.id]: [] })}>Dismiss warnings</button>
           {/if}
-          <ActiveArcs doses={live.doses} moments={live.timeline} now={nowTick} />
+          <ActiveArcs doses={arcDoses} moments={live.timeline} now={nowTick} compact />
           {@render timeline({ ...live, doses: live.doses.slice(-4), timeline: live.timeline.slice(-3) })}
           <div class="pair">
             <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
@@ -2287,6 +2305,12 @@
         {:else}
           <section class="pane">
             <button class="primary big" onclick={() => startDose(null)}>+ Log a dose</button>
+          </section>
+        {/if}
+        <!-- No live trip report, but something logged lately may still be active. -->
+        {#if arcDoses.length}
+          <section class="pane">
+            <ActiveArcs doses={arcDoses} now={nowTick} compact onlyActive onCheck={checkActive} />
           </section>
         {/if}
       {/if}
@@ -2364,6 +2388,12 @@
           {#if e.kind === "session"}
             <h2 class="sec">Timeline</h2>
             {@render timeline(e)}
+            {#if e.ended_at && e.doses.length}
+              <!-- How the doses likely played out, with the moments on top: felt
+                   against expected, for looking back. -->
+              <h2 class="sec">Arcs</h2>
+              <ActiveArcs doses={e.doses} moments={e.timeline} now={Date.parse(e.ended_at)} past />
+            {/if}
           {/if}
 
           {#if e.intention}
@@ -2488,6 +2518,9 @@
           <input id="combo" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocapitalize="none" enterkeyhint="go" onkeydown={(ev) => ev.key === "Enter" && runCombo()} />
           {#if session?.doses.length}
             <button class="ghost small" onclick={useLiveInCombo}>Use what's in the live trip report</button>
+          {/if}
+          {#if arcDoses.length}
+            <ActiveArcs doses={arcDoses} now={nowTick} onlyActive showChart={false} onCheck={(names) => (comboText = names.join(", ") + ", ")} />
           {/if}
           <button class="primary" disabled={busy} onclick={runCombo}>{busyKey === "combo" ? "Checking…" : "Check"}</button>
           {#if comboWarnings}
