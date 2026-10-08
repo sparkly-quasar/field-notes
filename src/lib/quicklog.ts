@@ -28,12 +28,15 @@ import {
   listExperiences,
   logDose,
   updateExperience,
+  type Dose,
   type DoseDetail,
+  type ExperienceDetail,
   type ExperienceSummary,
   type TimedDose,
   type Warning,
 } from "./api";
 import { deferStretch, NeedsComputerError } from "./offline";
+import { recentEntries } from "./arcs";
 
 export interface QuickLogInput {
   substance: string;
@@ -417,4 +420,25 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
   });
   const entry = await getExperience(id);
   return { id, title: entry.title, warnings, doseId: null, fresh: true };
+}
+
+/**
+ * Every dose that may still be active now, from any trip report: the live one
+ * and any started or ended in the last two days (arcs.ts `recentEntries`). What's
+ * in you doesn't depend on which entry it was logged in. `have` are entries
+ * already loaded, so the live one isn't fetched twice; an entry that can't be
+ * read is skipped.
+ */
+export async function recentDoses(entries: ExperienceSummary[], now = Date.now(), have: ExperienceDetail[] = []): Promise<Dose[]> {
+  const out: Dose[] = [];
+  for (const e of recentEntries(entries, now)) {
+    const known = have.find((h) => h.id === e.id);
+    try {
+      out.push(...(known ?? (await getExperience(e.id))).doses);
+    } catch {
+      // Not readable here (a phone that can't reach it): leave it out.
+    }
+  }
+  const seen = new Set<number>();
+  return out.filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
 }
