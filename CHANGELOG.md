@@ -11,6 +11,22 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.29.0
+
+- **Active arcs in a live trip report.** A chart shows what each substance is
+  likely doing now, drawn from the dose reference's own timings, with a line for
+  now. Each substance is one line: a top-up adds into it, so the line shows the
+  dose you're carrying, and its height follows the reference's dose tiers.
+  Under it, "Likely still active" gives each one's phase (coming up, peaking,
+  winding down, after-effects) and when the next stage usually arrives. Never a
+  countdown, and a line ending isn't an all-clear.
+- **Tap a substance in the key** to see its timing range on the chart and what
+  a redose means for it. For MDMA and stimulants, a second dose raises levels in
+  your body more than it raises how it feels; for psychedelics it adds with
+  diminishing returns; edibles arrive late, so a "didn't work" redose stacks.
+- **Drinks stack and clear on their own scale,** at about one standard drink an
+  hour. That's a rule of thumb, and many people clear more slowly.
+
 ## v0.28.2
 
 - **The combination check knows a substance however you spelled it.** A dose
