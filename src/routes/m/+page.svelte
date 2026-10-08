@@ -2310,7 +2310,7 @@
         <!-- No live trip report, but something logged lately may still be active. -->
         {#if arcDoses.length}
           <section class="pane">
-            <ActiveArcs doses={arcDoses} now={nowTick} compact onlyActive onCheck={checkActive} />
+            <ActiveArcs doses={arcDoses} now={nowTick} compact onCheck={checkActive} />
           </section>
         {/if}
       {/if}
@@ -2520,7 +2520,7 @@
             <button class="ghost small" onclick={useLiveInCombo}>Use what's in the live trip report</button>
           {/if}
           {#if arcDoses.length}
-            <ActiveArcs doses={arcDoses} now={nowTick} onlyActive showChart={false} onCheck={(names) => (comboText = names.join(", ") + ", ")} />
+            <ActiveArcs doses={arcDoses} now={nowTick} showChart={false} onCheck={(names) => (comboText = names.join(", ") + ", ")} />
           {/if}
           <button class="primary" disabled={busy} onclick={runCombo}>{busyKey === "combo" ? "Checking…" : "Check"}</button>
           {#if comboWarnings}

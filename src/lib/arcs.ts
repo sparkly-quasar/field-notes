@@ -367,8 +367,8 @@ export function clock(t: number): string {
 const spanText = (r: Span, unit = "h") => `${+r[0].toFixed(2)}–${+r[1].toFixed(2)} ${unit}`;
 
 /** The amounts taken, as "110 + 40 mg". */
-export function amountsText(s: Series, upTo = Infinity): string {
-  const t = taken(s, upTo);
+export function amountsText(s: Series, upTo = Infinity, live = false): string {
+  const t = dosesFor(s, upTo, live);
   const u = t[0]?.dose.unit ?? "";
   const total = t.reduce((a, d) => a + (d.dose.amount ?? 0), 0);
   // Counted units read as words: "2 hits", "1 pill".
@@ -381,8 +381,9 @@ export function amountsText(s: Series, upTo = Infinity): string {
  *  when the next stage usually arrives, and what a redose means for it. Phases,
  *  never countdowns, and never a "clear by" time. */
 export function phaseOf(s: Series, now: number): Phase | null {
-  const t = taken(s, now);
-  if (!t.length) return null;
+  if (!taken(s, now).length) return null;
+  // Go by the doses still counting; yesterday's dose isn't part of today's line.
+  const t = dosesFor(s, now, true).length ? dosesFor(s, now, true) : taken(s, now);
   const last = t[t.length - 1];
   const multi = t.length > 1;
 
@@ -392,8 +393,8 @@ export function phaseOf(s: Series, now: number): Phase | null {
     if (load > 0.05) {
       const rising = load > before + 0.01;
       const r = Math.round(load);
-      const amt = load < 1 ? "under one drink's" : r === 1 ? "about one drink's" : `about ${r} drinks'`;
-      return { label: rising ? "Rising" : "Coming down", tone: rising ? "coming" : "down", detail: `Roughly ${amt} worth still being processed.` };
+      const amt = load < 1 ? "Under one drink's" : r === 1 ? "About one drink's" : `About ${r} drinks'`;
+      return { label: rising ? "Rising" : "Coming down", tone: rising ? "coming" : "down", detail: `${amt} worth still being processed.` };
     }
     const cleared = drinksClearAt(s, now) ?? last.at;
     const after = s.stages.after;
@@ -429,6 +430,9 @@ export function phaseOf(s: Series, now: number): Phase | null {
       lead = d;
     }
   }
+  // Nothing at its middle timings any more: go by the latest dose still felt
+  // at the slowest ones.
+  if (best <= 0) lead = [...t].reverse().find((d) => feltEnd(s, d) > now) ?? last;
   const fast = bounds(s.stages, 0);
   const slow = bounds(s.stages, 1);
   const h = (now - lead.at) / HOUR;
@@ -450,9 +454,9 @@ export function phaseOf(s: Series, now: number): Phase | null {
 }
 
 /** The tier the line reaches, in words for the row: "strong range combined". */
-export function tierText(s: Series, now: number): string {
+export function tierText(s: Series, now: number, live = false): string {
   if (s.kind === "drinks") return "drinks scale";
-  const t = taken(s, now);
+  const t = dosesFor(s, now, live);
   if (!s.tiers || !s.roa) return t.some((d) => d.dose.unit.trim().toLowerCase() === "hit") ? "hits: no tier" : "no tier";
   const sum = t.reduce((a, d) => a + (d.amount ?? 0), 0);
   const tier = tierOf(s.roa, sum);
@@ -460,19 +464,20 @@ export function tierText(s: Series, now: number): string {
 }
 
 /** What the key's tooltip says about a line. */
-export function aboutLines(s: Series): string[] {
+export function aboutLines(s: Series, now = Infinity, live = false): string[] {
   const out: string[] = [];
-  const list = s.doses.map((d) => `${d.dose.amount ?? "?"} ${d.dose.unit} at ${clock(d.at)}`).join(", ");
-  out.push(s.doses.length > 1 ? `Logged ${list}. Each dose is a tick on the time axis, and they add into one line.` : `Logged ${list}.`);
+  const doses = dosesFor(s, now, live);
+  const list = doses.map((d) => `${d.dose.amount ?? "?"} ${d.dose.unit} at ${clock(d.at)}`).join(", ");
+  out.push(doses.length > 1 ? `Logged ${list}. Each dose is a tick on the time axis, and they add into one line.` : `Logged ${list}.`);
   if (s.kind === "drinks") {
     out.push("The height is standard drinks still being processed, on its own scale at the right. Drinks aren't compared with the reference's alcohol ranges, which mix UK units and drinks.");
     out.push(
       "Clearing is drawn at about one standard drink an hour, a common rule of thumb. Many people clear more slowly: the average rate measured in blood works out nearer half a drink an hour for a 70 kg person, and less for smaller bodies. Food and liver health change it too.",
     );
   } else if (s.tiers && s.roa) {
-    const sum = s.doses.reduce((a, d) => a + (d.amount ?? 0), 0);
+    const sum = doses.reduce((a, d) => a + (d.amount ?? 0), 0);
     const tier = tierOf(s.roa, sum);
-    out.push(`${s.doses.length > 1 ? "Combined, that's" : "That's"} ${+sum.toFixed(3)} ${s.unit}${tier ? `, in the ${tier} range` : ""} for ${s.roa.name.toLowerCase()}. The height follows the dose still counting against the reference's tiers.`);
+    out.push(`${doses.length > 1 ? "Combined, that's" : "That's"} ${+sum.toFixed(3)} ${s.unit}${tier ? `, in the ${tier} range` : ""} for ${s.roa.name.toLowerCase()}. The height follows the dose still counting against the reference's tiers.`);
   } else {
     out.push("The amount can't be placed on the reference's tiers (a hit, a count with no amount each, or no ranges for this route), so this line shows timing only, dashed.");
   }
@@ -485,8 +490,8 @@ export function aboutLines(s: Series): string[] {
   return out;
 }
 
-/** The window to draw: from just before the first dose to an hour past the
- *  slowest end of felt effects (at least an hour past now), at most 36 hours. */
+/** The window to draw for a finished trip report: from just before the first
+ *  dose to an hour past the slowest end of felt effects, at most 36 hours. */
 export function windowOf(series: Series[], now: number): [number, number] {
   const firsts = series.flatMap((s) => s.doses.map((d) => d.at));
   if (!firsts.length) return [now - HOUR, now + HOUR];
@@ -501,6 +506,60 @@ export function windowOf(series: Series[], now: number): [number, number] {
     end = Math.max(end, last.at + (felt + 1) * HOUR);
   }
   return [start, Math.min(end, start + 36 * HOUR)];
+}
+
+// ---- what's active now
+
+/** A substance with no timings counts as active this long after its last dose:
+ *  the combination check's `UNKNOWN_DURATION_MIN` (check.rs). */
+export const UNKNOWN_ACTIVE_HOURS = 8;
+
+/** When a dose's felt effects likely end, at the slowest timings the reference
+ *  gives. After-effects don't count: they aren't the substance being active. */
+export function feltEnd(s: Series, d: ArcDose): number {
+  if (s.kind === "shape") return d.at + bounds(s.stages, 1).off * HOUR;
+  if (s.kind === "block") return d.at + s.stages.total![1] * HOUR;
+  return d.at + UNKNOWN_ACTIVE_HOURS * HOUR;
+}
+
+/** Whether a substance is likely active now: a dose still inside its felt
+ *  window, or, for drinks, some still being processed. */
+export function isActive(s: Series, now: number): boolean {
+  const t = taken(s, now);
+  if (!t.length) return false;
+  if (s.kind === "drinks") return drinksAt(s, now, now) > 0.05;
+  return t.some((d) => feltEnd(s, d) > now);
+}
+
+/** The doses behind what's active now: those still inside their felt window,
+ *  and for drinks, every drink since the last time none were being processed. */
+function liveDoses(s: Series, now: number): ArcDose[] {
+  const t = taken(s, now);
+  if (s.kind !== "drinks") return t.filter((d) => feltEnd(s, d) > now);
+  let clear = -Infinity;
+  for (const [at, v] of drinksTrack(s, now, now)) if (v <= 0) clear = at;
+  return t.filter((d) => d.at >= clear);
+}
+
+/** The doses to describe: those still counting now (`live`), or all taken by `now`. */
+function dosesFor(s: Series, now: number, live: boolean): ArcDose[] {
+  return live ? liveDoses(s, now) : taken(s, now);
+}
+
+/** The window to draw for what's active now: from the earliest dose still
+ *  counting (at most 12 hours back) to half an hour past the slowest end of
+ *  felt effects, and at least an hour past now. */
+export function nowWindow(active: Series[], now: number): [number, number] {
+  if (!active.length) return [now - HOUR, now + HOUR];
+  let start = now;
+  let end = now + HOUR;
+  for (const s of active) {
+    const live = liveDoses(s, now);
+    for (const d of live) start = Math.min(start, d.at);
+    if (s.kind === "drinks") end = Math.max(end, (drinksClearAt(s, now) ?? now) + HOUR / 2);
+    else for (const d of live) end = Math.max(end, feltEnd(s, d) + HOUR / 2);
+  }
+  return [Math.max(start - 15 * 60_000, now - 12 * HOUR), Math.min(end, now + 24 * HOUR)];
 }
 
 // ---- what's recent enough to still be active
