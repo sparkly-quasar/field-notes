@@ -13,6 +13,7 @@
 
 import type { ExperienceDetail } from "./api";
 import { describeAmount } from "./dosedetail.ts";
+import { clockTime } from "./clock.ts";
 
 /** What goes in, beyond the title, times and doses (always included). */
 export interface PdfParts {
@@ -178,7 +179,7 @@ const two = (n: number) => String(n).padStart(2, "0");
 
 function clock(iso: string): string {
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+  return isNaN(d.getTime()) ? "" : clockTime(d);
 }
 
 function day(iso: string): string {

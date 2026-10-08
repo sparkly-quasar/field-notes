@@ -1,5 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0 -->
 <script lang="ts">
+  import { clock24, clockTime } from "$lib/clock";
+  import { clockPref, setClock24 } from "$lib/clock.svelte";
   import { onMount } from "svelte";
   import {
     listExperiences,
@@ -527,7 +529,7 @@
   const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const monthOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const TAB_TITLE: Record<string, string> = { journal: "Journal", stats: "Stats", bysub: "Stats", substances: "Check", companion: "Talk", data: "Settings" };
-  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
+  const fmtTime = (iso: string) => clockTime(iso);
 
   /** T-zero for the open experience: the *first dose*, not the session start.
    *  Sessions often get opened well before anything is taken, and "t+" is only
@@ -2059,7 +2061,7 @@
     const mins = Math.round((Date.now() / 1000 - unix) / 60);
     if (mins < 2) return "active just now";
     if (mins < 60) return `last seen ${mins} min ago`;
-    return `last seen ${new Date(unix * 1000).toLocaleString(undefined, { hour12: true })}`;
+    return `last seen ${new Date(unix * 1000).toLocaleString(undefined, { hour12: !clock24() })}`;
   }
 
   /** Publish (or stop publishing) the portal to the tailnet. This is the step that
@@ -3551,6 +3553,18 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             the Companion tab walks you through. The journal, timeline, dose reference, interaction
             checker and crisis resources don't use it and work the same either way.
           </p>
+        </section>
+
+        <section class="card">
+          <h2>Clock</h2>
+          <p class="muted small">
+            Times show on the 12-hour clock (9:30 pm). Switch to 24-hour (21:30) here; it's for this
+            computer only, and each phone chooses its own. Time pickers follow your system's setting.
+          </p>
+          <label class="share">
+            <input type="checkbox" checked={clockPref.h24} onchange={(e) => setClock24(e.currentTarget.checked)} />
+            Use the 24-hour clock
+          </label>
         </section>
 
         <section class="card">

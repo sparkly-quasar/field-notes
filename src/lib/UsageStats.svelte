@@ -6,6 +6,7 @@
   The grouping rules live in stats.rs; time bucketing in $lib/stats.ts.
 -->
 <script lang="ts">
+  import { clock24, clockHour, timeOpts } from "$lib/clock";
   import { onMount } from "svelte";
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, setBedtime, setSleepCheckin, setSubstanceKind, type UsageStats, type StatsDosePoint, type StatsSubstance } from "$lib/api";
@@ -254,7 +255,7 @@
     return {
       lately,
       before,
-      time: usual == null ? null : new Date(2026, 0, 1, Math.floor(usual / 60), Math.round(usual % 60)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true }),
+      time: usual == null ? null : new Date(2026, 0, 1, Math.floor(usual / 60), Math.round(usual % 60)).toLocaleTimeString(undefined, timeOpts()),
       amount: amount == null ? null : `${fmtNum(amount)} ${main.unit}`,
     };
   });
@@ -398,7 +399,7 @@
     const ids = new Set(hourDoses.filter((d) => new Date(d.t).getHours() === pickHour).map((d) => d.id));
     return exps.filter((e) => ids.has(e.id));
   });
-  const fmtHour = (h: number) => new Date(2000, 0, 1, h % 24).toLocaleTimeString(undefined, { hour: "numeric", hour12: true });
+  const fmtHour = (h: number) => clockHour(new Date(2000, 0, 1, h % 24));
 
   // ---- bedtime (dose-aware Stats, step 3 in ROADMAP.md) ----
   // Asked once, here, the first time this card is seen; kept in the journal so
@@ -489,7 +490,7 @@
     new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const fmtWhen = (s: string) => {
     const t = ts(s);
-    return t == null ? s : new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hour12: true });
+    return t == null ? s : new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hour12: !clock24() });
   };
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   /** " (logged as 600 mg)" when the amount shown isn't what was written. */

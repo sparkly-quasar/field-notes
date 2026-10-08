@@ -9,6 +9,7 @@
   back between the two variable names.
 -->
 <script lang="ts">
+  import { clockTime } from "$lib/clock";
   import DateTimeField from "./DateTimeField.svelte";
   import { listSubstances, pwNames, type Warning } from "$lib/api";
   import { parseTripLog, decodePasted, type ParsedRow, type CatalogueEntry } from "$lib/tripimport";
@@ -175,7 +176,7 @@
   });
 
   const at = (r: ParsedRow) => (start ? new Date(start.getTime() + r.offsetMin * 60000) : null);
-  const hhmm = (d: Date | null) => (d ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true }) : "—");
+  const hhmm = (d: Date | null) => (d ? clockTime(d) : "—");
   /** T+ as the journal will show it: from the first dose (of yours). */
   const t0 = $derived(rows?.find((r) => r.kind === "dose" && !theirs(r))?.offsetMin ?? null);
   const rel = (r: ParsedRow) => {
