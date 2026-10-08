@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.28.2
+
+- **The combination check knows a substance however you spelled it.** A dose
+  logged as "3meo", "3meopcp" or "3-MeO" is now checked as 3-MeO-PCP, including
+  entries you logged before this update. Until now, a name written another way
+  could miss warnings, such as the one for a dissociative with alcohol.
+
 ## v0.28.1
 
 - **Every substance shows up as you type.** A name you've typed in full stays in
