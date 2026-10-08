@@ -11,6 +11,14 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.28.1
+
+- **Every substance shows up as you type.** A name you've typed in full stays in
+  the suggestions, so 3-MeO-PCP no longer seems to vanish beside 3-MeO-PCPr, and
+  LSD no longer disappears once you've typed it.
+- **Hyphens and spaces don't matter.** "3meopcp", "3 meo pcp" or "2cb" finds the
+  right substance, and is saved as it.
+
 ## v0.28.0
 
 - **Unlock your journal with a PIN.** If you share someone's Field Notes server,
