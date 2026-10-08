@@ -4,6 +4,8 @@
 // phone and the computer serving it need not share a time zone. Desktop and phone
 // both use this, so there is one bucketing rule on the frontend too.
 
+import { clockTime } from "./clock.ts";
+
 export type RangeKey = "30d" | "90d" | "1y" | "all";
 
 export const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
@@ -193,10 +195,10 @@ export function hourBeforeBed(hour: number, bed: number, hours: number): boolean
   return before > 0 && before <= Math.min(hours, 24) * 60;
 }
 
-/** "11:30 pm", in the viewer's own clock style. */
+/** "11:30 pm", or "23:30" on the 24-hour clock. */
 export function fmtBedtime(bed: number): string {
   const d = new Date(2026, 0, 1, Math.floor(bed / 60), bed % 60);
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return clockTime(d);
 }
 
 // ---------- sleep (step 6) ----------

@@ -14,6 +14,7 @@
 
 import type { Dose, Experience, PwInfo, PwRoa } from "./api";
 import { detailOf, inUnit, measure } from "./dosedetail.ts";
+import { clockHour, clockTime } from "./clock.ts";
 
 const HOUR = 3_600_000;
 
@@ -360,10 +361,9 @@ function phaseIdx(b: Bounds, h: number): number {
   return 5;
 }
 
-export function clock(t: number): string {
-  const d = new Date(t);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
+/** "9:30 pm", or "21:30" on the 24-hour clock (Settings). */
+export const clock = (t: number): string => clockTime(t);
+export { clockHour };
 const spanText = (r: Span, unit = "h") => `${+r[0].toFixed(2)}–${+r[1].toFixed(2)} ${unit}`;
 
 /** The amounts taken, as "110 + 40 mg". */

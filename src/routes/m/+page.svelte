@@ -23,6 +23,8 @@
   lose. Everything you'd actually reach for mid-session is here.
 -->
 <script lang="ts">
+  import { clockTime } from "$lib/clock";
+  import { clockPref, setClock24 } from "$lib/clock.svelte";
   import { onMount } from "svelte";
   import {
     tagPeople,
@@ -1050,10 +1052,7 @@
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const MONTH = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const hhmm = (iso: string) => {
-    const d = new Date(iso);
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  };
+  const hhmm = (iso: string) => clockTime(iso);
   /** "Sat 20 Sep", with the year only when it isn't this one. */
   const fmtDay = (iso: string) => {
     const d = new Date(iso);
@@ -1884,6 +1883,10 @@
       <p class="muted small">Couldn't ask your computer about updates right now.</p>
     {/if}
   {/if}
+
+  <h3 class="sec">Clock</h3>
+  <p class="muted small">Times show as {clockPref.h24 ? "21:30" : "9:30 pm"} on this phone.</p>
+  <button aria-pressed={clockPref.h24} onclick={() => setClock24(!clockPref.h24)}>{clockPref.h24 ? "Use the 12-hour clock" : "Use the 24-hour clock"}</button>
 
   <h3 class="sec">Discreet mode</h3>
   {#if discreet.available}

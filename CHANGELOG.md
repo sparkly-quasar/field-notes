@@ -11,13 +11,22 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
-## v0.29.1
+## v0.29.2
 
 - **"Likely still active" shows only what's active now.** The chart and list
   no longer bring back everything from the last two days. A substance counts
   while its effects are likely still felt; after-effects don't count, and drinks
   count while some are still being processed. The chart is centred on now, and
   the amounts and tier count only the doses still active, not yesterday's.
+
+## v0.29.1
+
+- **Times use the 12-hour clock** (9:30 pm, not 21:30) everywhere the app
+  shows one: entries, trip reports, Stats, the active-arcs chart, PDFs and the
+  phone.
+- **Prefer 24-hour?** Settings → **Clock** switches it, on each computer and
+  phone separately. The time pickers you type into follow your system's clock
+  setting either way.
 
 ## v0.29.0
 
