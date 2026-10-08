@@ -45,6 +45,8 @@ const BIND_ADDR: &str = "127.0.0.1";
 
 /// First choice; we walk upward if it's taken (3000 is a popular port).
 pub(crate) const PORT_RANGE: std::ops::Range<u16> = 8787..8807;
+/// Threads answering requests; `stop` wakes each one.
+const WORKERS: usize = 4;
 
 pub struct Portal {
     inner: Mutex<Option<Running>>,
@@ -107,7 +109,11 @@ impl Portal {
     pub fn stop(&self) {
         if let Some(r) = self.inner.lock().unwrap().take() {
             r.stopping.store(true, Ordering::SeqCst);
-            r.server.unblock();
+            // `unblock` wakes only one thread blocked in `recv`. Wake every worker,
+            // so each drops its handle and the server closes its port.
+            for _ in 0..WORKERS {
+                r.server.unblock();
+            }
         }
     }
 }
@@ -193,7 +199,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
 
     // A small pool: a Companion reply blocks its thread for many seconds, and a
     // phone that can't load the timeline meanwhile looks broken.
-    for _ in 0..4 {
+    for _ in 0..WORKERS {
         let server = Arc::clone(&server);
         let stopping = Arc::clone(&stopping);
         let paired = Arc::clone(&paired);
@@ -213,6 +219,15 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
 }
 
 fn bind() -> Result<(Server, u16), String> {
+    // The tests start more portals at once than the range has ports, and the app
+    // may be running on this machine too: give each one a port from the OS.
+    #[cfg(test)]
+    {
+        let s = Server::http((BIND_ADDR, 0)).map_err(|e| e.to_string())?;
+        let port = s.server_addr().to_ip().map(|a| a.port()).ok_or("no port")?;
+        return Ok((s, port));
+    }
+    #[allow(unreachable_code)]
     for port in PORT_RANGE {
         if let Ok(s) = Server::http((BIND_ADDR, port)) {
             return Ok((s, port));
@@ -1026,6 +1041,19 @@ mod tests {
         let status = start(&handle).expect("portal starts");
         let port = status.port.unwrap();
         (handle, port, token)
+    }
+
+    #[test]
+    fn stopping_frees_the_port() {
+        // Turning device access off has to let go of the port, or every off/on
+        // leaks one until the range is used up ("no free port in 8787–8806").
+        let (handle, port, _) = serving();
+        handle.state::<Portal>().stop();
+        let freed = (0..40).any(|_| {
+            std::thread::sleep(Duration::from_millis(50));
+            std::net::TcpListener::bind((BIND_ADDR, port)).is_ok()
+        });
+        assert!(freed, "port {port} still held after stop");
     }
 
     fn post(port: u16, cmd: &str, token: Option<&str>, body: Value) -> (u16, String) {

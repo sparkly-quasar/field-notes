@@ -34,6 +34,8 @@
     phaseOf,
     tierText,
     windowOf,
+    isActive,
+    nowWindow,
     type Series,
   } from "$lib/arcs";
   import { shown as nameShown } from "$lib/discreet.svelte";
@@ -45,7 +47,6 @@
     lookup = pwLookup,
     past = false,
     compact = false,
-    onlyActive = false,
     showChart = true,
     onCheck,
   }: {
@@ -59,8 +60,6 @@
     past?: boolean;
     /** The rows first, the chart behind a tap (remembered on this device). */
     compact?: boolean;
-    /** Show only what's still active, and nothing at all when nothing is. */
-    onlyActive?: boolean;
     showChart?: boolean;
     /** Offer to put what's still active into the combination check. */
     onCheck?: (names: string[]) => void;
@@ -68,17 +67,23 @@
 
   // The reference for each name logged, looked up once. A name that can't be
   // looked up (offline, unknown) is drawn as a marker rather than left out.
+  // A name is in `infos` once its lookup has answered: an entry, or null when
+  // there's none (or it failed). Until every name has answered, nothing is
+  // drawn, so a substance never flashes up as "no duration data" while loading.
   let infos = $state<Record<string, PwInfo | null>>({});
+  const asked = new Set<string>();
   $effect(() => {
     for (const d of doses) {
       const n = d.substance_name.trim();
-      if (!n || n.toLowerCase() in infos) continue;
-      infos[n.toLowerCase()] = null;
+      const k = n.toLowerCase();
+      if (!k || asked.has(k)) continue;
+      asked.add(k);
       lookup(n)
-        .then((i) => (infos[n.toLowerCase()] = i))
-        .catch(() => {});
+        .then((i) => (infos[k] = i ?? null))
+        .catch(() => (infos[k] = null));
     }
   });
+  const ready = $derived(doses.every((d) => !d.substance_name.trim() || d.substance_name.trim().toLowerCase() in infos));
 
   // Redrawn once a minute, not on every second the live clock ticks. A finished
   // trip report is drawn as of its last dose at the earliest, so every arc is whole.
@@ -104,6 +109,11 @@
     }
   }
   const series = $derived(buildSeries(doses, (n) => infos[n.trim().toLowerCase()]));
+  // Only what's active now: felt effects, not after-effects. A finished trip
+  // report shows everything it had. Colours follow the full list, so a line
+  // keeps its colour as others drop out.
+  const drawn = $derived(past ? series : series.filter((s) => isActive(s, minute)));
+  const colorFor = (s: Series) => colorOf(series.indexOf(s));
 
   let width = $state(600);
   let focus = $state<string | null>(null);
@@ -119,12 +129,12 @@
     const W = Math.max(280, width);
     const narrow = W < 520;
     const H = narrow ? 210 : 260;
-    const tiered = series.some((s) => s.tiers);
-    const drinks = series.some((s) => s.kind === "drinks");
+    const tiered = drawn.some((s) => s.tiers);
+    const drinks = drawn.some((s) => s.kind === "drinks");
     const m = { l: tiered ? (narrow ? 62 : 72) : 10, r: drinks ? (narrow ? 44 : 56) : 10, t: 12, b: 28 };
     const pw = W - m.l - m.r;
     const ph = H - m.t - m.b;
-    const [t0, t1] = windowOf(series, minute);
+    const [t0, t1] = past ? windowOf(series, minute) : nowWindow(drawn, minute);
     const x = (t: number) => m.l + ((t - t0) / (t1 - t0)) * pw;
     const y = (v: number) => m.t + (1 - v) * ph;
     const step = Math.max(60_000, (t1 - t0) / (pw / 2));
@@ -139,9 +149,9 @@
       if (new Date(t).getHours() % every === 0) ticks.push({ x: x(t), label: clockHour(t) });
     }
 
-    const lines = series.map((s, i) => {
+    const lines = drawn.map((s) => {
       const lastNow = s.doses.filter((d) => d.at <= minute).at(-1);
-      const base = { s, color: colorOf(i), line: "", band: "", tail: "", preview: "", marker: null as null | { x: number; y: number; to: number } };
+      const base = { s, color: colorFor(s), line: "", band: "", tail: "", preview: "", marker: null as null | { x: number; y: number; to: number } };
       const tick = s.doses.map((d) => ({ x: x(d.at), future: d.at > minute }));
       const hasFuture = s.doses.some((d) => d.at > minute);
       if (s.kind === "drinks") {
@@ -194,7 +204,7 @@
     });
 
     // Moments sit on the first line, at the time they were added.
-    const firstLine = series[0];
+    const firstLine = drawn[0];
     const dots = firstLine
       ? moments
           .map((mo) => ({ t: Date.parse(mo.at), mo }))
@@ -225,11 +235,11 @@
   }
 
   const rows = $derived(
-    series
-      .map((s, i) => ({ s, color: colorOf(i), phase: phaseOf(s, minute) }))
-      .filter((r) => r.phase && (!onlyActive || r.phase.tone !== "past")),
+    drawn
+      .map((s) => ({ s, color: colorFor(s), phase: phaseOf(s, minute) }))
+      .filter((r) => r.phase),
   );
-  const shown = $derived(series.length > 0 && (!onlyActive || rows.length > 0));
+  const shown = $derived(ready && drawn.length > 0);
   const drawChart = $derived(showChart && (past || !compact || chartOpen));
 
   function toggle(key: string) {
@@ -318,7 +328,7 @@
               {:else}<path d="M1 13 C7 13 8 3 15 3 S23 3 29 13" class="line" class:untiered={!l.s.tiers} />{/if}
             </svg>
             <span class="nm">{titleOf(l.s)}</span>
-            <span class="sub">{amountsText(l.s)}</span>
+            <span class="sub">{amountsText(l.s, minute, !past)}</span>
             <span class="i" aria-hidden="true">i</span>
           </button>
         </li>
@@ -342,7 +352,7 @@
           <p>Each dot is a moment you added, on the first line at the time you added it. Point at one to read it.</p>
         {:else if l}
           <strong>{titleOf(l.s)}{l.s.roa ? `, ${l.s.roa.name.toLowerCase()}` : ""}</strong>
-          {#each aboutLines(l.s) as line}<p>{line}</p>{/each}
+          {#each aboutLines(l.s, minute, !past) as line}<p>{line}</p>{/each}
         {/if}
       </div>
     {/if}
@@ -355,7 +365,7 @@
         <li>
           <span class="swatch" style="background: {r.color}" aria-hidden="true"></span>
           <div class="what">
-            <div><strong>{titleOf(r.s)}</strong> <span class="muted">{amountsText(r.s, minute)}</span> <span class="tier">{tierText(r.s, minute)}</span></div>
+            <div><strong>{titleOf(r.s)}</strong> <span class="muted">{amountsText(r.s, minute, true)}</span> <span class="tier">{tierText(r.s, minute, true)}</span></div>
             {#if r.phase!.detail}<div class="detail">{r.phase!.detail}</div>{/if}
           </div>
           <span class="pill {r.phase!.tone}">{r.phase!.label}</span>

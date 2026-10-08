@@ -2607,7 +2607,7 @@
       {#if !selected && activeDoses.length}
         <!-- Something logged lately may still be active, live trip report or not. -->
         <section class="card">
-          <ActiveArcs doses={activeDoses} now={minuteNow} compact onlyActive onCheck={checkActive} />
+          <ActiveArcs doses={activeDoses} now={minuteNow} compact onCheck={checkActive} />
         </section>
       {/if}
       {#if selected && selected.kind === "note"}
@@ -3265,7 +3265,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <button class="primary small-btn" type="submit" disabled={comboText.split(",").filter((x) => x.trim()).length < 2}>Check</button>
         </form>
         {#if activeDoses.length}
-          <ActiveArcs doses={activeDoses} now={minuteNow} onlyActive showChart={false} onCheck={(names) => { comboText = names.join(", ") + ", "; comboResult = null; }} />
+          <ActiveArcs doses={activeDoses} now={minuteNow} showChart={false} onCheck={(names) => { comboText = names.join(", ") + ", "; comboResult = null; }} />
         {/if}
         {#if comboResult}
           {#if comboResult.length === 0}

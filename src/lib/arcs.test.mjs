@@ -188,3 +188,45 @@ test("recent entries: live, or started or ended in the last two days, never note
   ];
   assert.deepEqual(recentEntries(list, now).map((x) => x.id), [1, 2, 5]);
 });
+
+test("only felt effects count as active, not after-effects", async () => {
+  const { isActive } = await import("./arcs.ts");
+  const [s] = buildSeries([dose("MDMA", 110, "mg", 0)], info);
+  assert.equal(isActive(s, T0 - 0.1 * H), false, "not taken yet");
+  assert.equal(isActive(s, T0 + 3 * H), true);
+  // Slowest felt end: 70 min + 1 h + 3.5 h + 2 h = 7.67 h. After that it's only after-effects.
+  assert.equal(isActive(s, T0 + 7.5 * H), true);
+  assert.equal(isActive(s, T0 + 8 * H), false);
+  const [drinks] = buildSeries([dose("Alcohol", 2, "drink", 0)], info);
+  assert.equal(isActive(drinks, T0 + 1 * H), true);
+  assert.equal(isActive(drinks, T0 + 3 * H), false, "processed by now, even though after-effects run on");
+  const [marker] = buildSeries([dose("4-HO-McPT", 15, "mg", 0)], info);
+  assert.equal(isActive(marker, T0 + 7 * H), true);
+  assert.equal(isActive(marker, T0 + 9 * H), false, "no timings: the combination check's 8 hours");
+});
+
+test("yesterday's doses leave nothing active, and today's window centres on now", async () => {
+  const { isActive, nowWindow } = await import("./arcs.ts");
+  const now = T0 + 30 * H;
+  const series = buildSeries(
+    [dose("MDMA", 110, "mg", 0), dose("Alcohol", 1, "drink", 2), dose("MDMA", 40, "mg", 28.5)],
+    info,
+  );
+  const active = series.filter((s) => isActive(s, now));
+  assert.deepEqual(active.map((s) => s.name), ["MDMA"], "alcohol from yesterday isn't active");
+  const [start, end] = nowWindow(active, now);
+  // Starts just before the dose still counting (28.5 h), not yesterday's (0 h).
+  assert.equal(start, T0 + 28.5 * H - 15 * 60_000);
+  assert.ok(end > now && end <= T0 + 28.5 * H + 8.2 * H, `end ${(end - T0) / H} h`);
+  assert.deepEqual(nowWindow([], now), [now - H, now + H]);
+});
+
+test("today's row counts only the doses still active, not yesterday's", async () => {
+  const { amountsText, tierText } = await import("./arcs.ts");
+  const now = T0 + 30 * H;
+  const [s] = buildSeries([dose("MDMA", 110, "mg", 0), dose("MDMA", 40, "mg", 28.5)], info);
+  assert.equal(amountsText(s, now, true), "40 mg");
+  assert.equal(tierText(s, now, true), "light range");
+  assert.equal(amountsText(s, now), "110 + 40 mg", "a finished trip report still lists every dose");
+  assert.doesNotMatch(phaseOf(s, now).detail, /second dose/);
+});
