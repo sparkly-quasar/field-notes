@@ -155,6 +155,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
+  import ActiveArcs from "$lib/ActiveArcs.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
@@ -4367,6 +4368,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {@render crisisBanner()}
         {@render doseWarnings()}
       </div>
+
+      <!-- What each substance is likely doing now, all doses of it added in. -->
+      <ActiveArcs doses={selected.doses} moments={selected.timeline} now={lsNow} />
 
       <div class="live-body">
         <section class="live-timeline">

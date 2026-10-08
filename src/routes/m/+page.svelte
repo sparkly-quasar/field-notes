@@ -130,6 +130,7 @@
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
+  import ActiveArcs from "$lib/ActiveArcs.svelte";
   import { discreet, hiding, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import Icon from "$lib/Icon.svelte";
@@ -2261,6 +2262,7 @@
             {@render warnings(warnFor[live.id])}
             <button class="ghost small" onclick={() => (warnFor = { ...warnFor, [live.id]: [] })}>Dismiss warnings</button>
           {/if}
+          <ActiveArcs doses={live.doses} moments={live.timeline} now={nowTick} />
           {@render timeline({ ...live, doses: live.doses.slice(-4), timeline: live.timeline.slice(-3) })}
           <div class="pair">
             <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
