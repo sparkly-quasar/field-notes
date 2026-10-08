@@ -73,7 +73,19 @@
     all = await names();
   }
 
-  function pick(name: string) {
+  /** The menu closes on pointerdown, so the click that follows would land on
+   *  whatever was under it. Swallow clicks for a moment after a pick. */
+  function swallowNextClick() {
+    const stop = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener("click", stop, true);
+    setTimeout(() => document.removeEventListener("click", stop, true), 400);
+  }
+
+  function pick(name: string, fromPointer = false) {
+    if (fromPointer) swallowNextClick();
     value = name;
     dismissed = true;
     active = -1;
@@ -136,7 +148,7 @@
           class:active={i === active}
           onpointerdown={(e) => {
             e.preventDefault();
-            pick(s.name);
+            pick(s.name, true);
           }}
         >
           {s.name}{#if s.via}<span class="via"> · “{s.via}”</span>{/if}
