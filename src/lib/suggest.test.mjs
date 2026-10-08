@@ -22,3 +22,10 @@ test("partial names and street names still suggest", () => {
   assert.deepEqual(names("3-meo-pc"), ["3-MeO-PCE", "3-MeO-PCP", "3-MeO-PCPr", "3-MeO-PCPy"]);
   assert.deepEqual(suggest(ALL, "acid"), [{ name: "LSD", via: "Acid" }]);
 });
+
+test("hyphens and spaces don't matter", () => {
+  assert.deepEqual(names("3meopcp"), ["3-MeO-PCP", "3-MeO-PCPr", "3-MeO-PCPy"]);
+  assert.deepEqual(names("3 meo pcp"), ["3-MeO-PCP", "3-MeO-PCPr", "3-MeO-PCPy"]);
+  assert.deepEqual(names("3meopcpy"), ["3-MeO-PCPy"], "shown so picking it fixes the spelling");
+  assert.deepEqual(names("-"), []);
+});
