@@ -7,8 +7,8 @@
 -->
 <script module lang="ts">
   import { listSubstances, pwNames } from "$lib/api";
+  import { suggest, type Name } from "$lib/suggest";
 
-  type Name = { name: string; aliases: string[]; mine: boolean };
   let cache: Promise<Name[]> | null = null;
 
   /** Loaded once per page, and again after `forgetSubstanceNames`. */
@@ -34,35 +34,6 @@
   /** After a substance is added or removed, so the next suggestions include it. */
   export function forgetSubstanceNames() {
     cache = null;
-  }
-
-  export type Suggestion = { name: string; via: string | null };
-
-  /** Best few matches for what's typed: start of a name, then start of a word or
-   *  street name, then anywhere. Your own substances first within each. */
-  export function suggest(all: Name[], typed: string, limit = 6): Suggestion[] {
-    const q = typed.trim().toLowerCase();
-    if (!q) return [];
-    const scored: { s: Suggestion; score: number }[] = [];
-    for (const n of all) {
-      const name = n.name.toLowerCase();
-      if (name === q) continue; // already typed in full
-      let score = -1;
-      let via: string | null = null;
-      if (name.startsWith(q)) score = 0;
-      else if (name.split(/[\s\-(/]+/).some((w) => w.startsWith(q))) score = 1;
-      else {
-        const a = n.aliases.find((a) => a.toLowerCase().startsWith(q));
-        if (a && q.length >= 2) {
-          score = 2;
-          via = a;
-        } else if (q.length >= 3 && name.includes(q)) score = 3;
-      }
-      if (score < 0) continue;
-      scored.push({ s: { name: n.name, via }, score: score * 2 + (n.mine ? 0 : 1) });
-    }
-    scored.sort((a, b) => a.score - b.score || a.s.name.length - b.s.name.length || a.s.name.localeCompare(b.s.name));
-    return scored.slice(0, limit).map((x) => x.s);
   }
 
   let uid = 0;
