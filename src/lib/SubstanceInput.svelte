@@ -74,11 +74,12 @@
   }
 
   /** The menu closes on pointerdown, so the click that follows would land on
-   *  whatever was under it. Swallow clicks for a moment after a pick. */
+   *  whatever was under it. Swallow that one click, if it comes within a moment. */
   function swallowNextClick() {
     const stop = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
+      document.removeEventListener("click", stop, true);
     };
     document.addEventListener("click", stop, true);
     setTimeout(() => document.removeEventListener("click", stop, true), 400);

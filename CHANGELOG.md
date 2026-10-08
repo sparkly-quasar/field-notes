@@ -11,6 +11,12 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.29.3
+
+- **Picking a substance suggestion no longer taps what's under it.** Choosing a
+  name from the list could also press the button or field underneath it once
+  the list closed.
+
 ## v0.29.2
 
 - **"Likely still active" shows only what's active now.** The chart and list
