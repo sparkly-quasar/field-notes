@@ -527,7 +527,7 @@
   const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const monthOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const TAB_TITLE: Record<string, string> = { journal: "Journal", stats: "Stats", bysub: "Stats", substances: "Check", companion: "Talk", data: "Settings" };
-  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
 
   /** T-zero for the open experience: the *first dose*, not the session start.
    *  Sessions often get opened well before anything is taken, and "t+" is only
@@ -2059,7 +2059,7 @@
     const mins = Math.round((Date.now() / 1000 - unix) / 60);
     if (mins < 2) return "active just now";
     if (mins < 60) return `last seen ${mins} min ago`;
-    return `last seen ${new Date(unix * 1000).toLocaleString()}`;
+    return `last seen ${new Date(unix * 1000).toLocaleString(undefined, { hour12: true })}`;
   }
 
   /** Publish (or stop publishing) the portal to the tailnet. This is the step that

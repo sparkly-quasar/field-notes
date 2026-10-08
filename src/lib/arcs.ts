@@ -360,9 +360,13 @@ function phaseIdx(b: Bounds, h: number): number {
   return 5;
 }
 
+/** "9:30 pm": the 12-hour clock is the default everywhere times are shown. */
 export function clock(t: number): string {
-  const d = new Date(t);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
+}
+/** "9 pm", for the hour ticks on a chart's time axis. */
+export function clockHour(t: number): string {
+  return new Date(t).toLocaleTimeString(undefined, { hour: "numeric", hour12: true });
 }
 const spanText = (r: Span, unit = "h") => `${+r[0].toFixed(2)}–${+r[1].toFixed(2)} ${unit}`;
 

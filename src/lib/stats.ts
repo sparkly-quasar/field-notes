@@ -193,10 +193,10 @@ export function hourBeforeBed(hour: number, bed: number, hours: number): boolean
   return before > 0 && before <= Math.min(hours, 24) * 60;
 }
 
-/** "11:30 pm", in the viewer's own clock style. */
+/** "11:30 pm": a 12-hour clock, written the viewer's way. */
 export function fmtBedtime(bed: number): string {
   const d = new Date(2026, 0, 1, Math.floor(bed / 60), bed % 60);
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 // ---------- sleep (step 6) ----------

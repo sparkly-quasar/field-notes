@@ -159,7 +159,7 @@ test("phases name both ends when fast and slow timings disagree, and never count
   assert.equal(phaseOf(s, T0 + 0.1 * H).label, "Not felt yet");
   // 1.5 h in: fast timing is peaking, slow is still coming up.
   assert.equal(phaseOf(s, T0 + 1.5 * H).label, "Coming up or peaking");
-  assert.match(phaseOf(s, T0 + 1.5 * H).detail, /^The peak usually arrives \d\d:\d\d–\d\d:\d\d\.$/);
+  assert.match(phaseOf(s, T0 + 1.5 * H).detail, /^The peak usually arrives \d{1,2}:\d\d\s?[ap]\.?m\.?–\d{1,2}:\d\d\s?[ap]\.?m\.?\.$/i);
   assert.equal(phaseOf(s, T0 + 30 * H).label, "After-effects or likely past", "after-effects run to 24 h past the slowest offset");
   assert.equal(phaseOf(s, T0 + 40 * H).label, "Likely past");
 });

@@ -16,8 +16,8 @@
   export function pickItem(e: PickExp, label: (key: string) => string, day = false): PickItem {
     const subs = e.subs.map(label).join(", ");
     const when = new Date(e.t).toLocaleString(undefined, day
-      ? { timeStyle: "short" }
-      : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      ? { timeStyle: "short", hour12: true }
+      : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
     const title = hiding() ? "Experience" : e.title || subs || "Untitled";
     const meta = [when, !hiding() && subs === e.title ? "" : subs, e.rating != null ? `${e.rating}/10` : ""];
     return { id: e.id, title, meta: meta.filter(Boolean).join(" · ") };

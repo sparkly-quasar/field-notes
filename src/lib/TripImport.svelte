@@ -175,7 +175,7 @@
   });
 
   const at = (r: ParsedRow) => (start ? new Date(start.getTime() + r.offsetMin * 60000) : null);
-  const hhmm = (d: Date | null) => (d ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : "—");
+  const hhmm = (d: Date | null) => (d ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true }) : "—");
   /** T+ as the journal will show it: from the first dose (of yours). */
   const t0 = $derived(rows?.find((r) => r.kind === "dose" && !theirs(r))?.offsetMin ?? null);
   const rel = (r: ParsedRow) => {

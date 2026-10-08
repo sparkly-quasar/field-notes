@@ -26,6 +26,7 @@
     bounds,
     buildSeries,
     clock,
+    clockHour,
     combined,
     drinksClearAt,
     drinksTrack,
@@ -135,7 +136,7 @@
     const first = new Date(t0);
     first.setMinutes(0, 0, 0);
     for (let t = first.getTime() + 3_600_000; t <= t1; t += 3_600_000) {
-      if (new Date(t).getHours() % every === 0) ticks.push({ x: x(t), label: clock(t) });
+      if (new Date(t).getHours() % every === 0) ticks.push({ x: x(t), label: clockHour(t) });
     }
 
     const lines = series.map((s, i) => {
