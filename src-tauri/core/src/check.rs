@@ -24,7 +24,7 @@ pub trait Reference {
 /// the combo checker "is this safe?" must answer identically — the checker is the
 /// one people consult *before* taking something, so it can't know less.
 pub fn combo_warnings(r: &impl Reference, names: &[String]) -> Vec<Warning> {
-    let with_classes: Vec<(String, Vec<String>)> = names.iter().map(|n| (n.clone(), r.classes(n))).collect();
+    let with_classes: Vec<(String, Vec<String>)> = names.iter().map(|n| (n.clone(), classes_of(r, n))).collect();
     let mut warnings = interactions::check(&with_classes);
     warnings.extend(pw_interaction_warnings(r, names));
     let mut warnings = interactions::dedup_pairs(warnings);
@@ -36,9 +36,24 @@ pub fn combo_warnings(r: &impl Reference, names: &[String]) -> Vec<Warning> {
             w.severity = o.2;
             w.message = o.3.to_string();
         }
-        w.advice = interactions::advice_for(&r.classes(&w.a), &r.classes(&w.b));
+        w.advice = interactions::advice_for(&classes_of(r, &w.a), &classes_of(r, &w.b));
     }
     warnings
+}
+
+/// The classes a logged name belongs to: its own, plus those of the reference
+/// entry it means, so "3-MeO" or "3meo" is a dissociative because 3-MeO-PCP is.
+/// Only ever adds classes, so only ever adds warnings.
+fn classes_of(r: &impl Reference, name: &str) -> Vec<String> {
+    let mut classes = r.classes(name);
+    if let Some(info) = r.lookup(name).filter(|i| !i.name.eq_ignore_ascii_case(name.trim())) {
+        for c in r.classes(&info.name) {
+            if !classes.contains(&c) {
+                classes.push(c);
+            }
+        }
+    }
+    classes
 }
 
 /// One logged dose, for [`session_warnings`]: substance, route, and when it was
@@ -321,18 +336,30 @@ pub fn pw_interaction_warnings(r: &impl Reference, names: &[String]) -> Vec<Warn
 /// desktop's cache table does: an exact name first (ASCII case-insensitive), then
 /// the first entry whose stored JSON contains the name as a quoted string — the
 /// same `LIKE '%"name"%'` the database runs, so a street name, a class or a route
-/// name finds what it finds there. Classes come from the built-in list only: a
-/// phone keeps no copy of the person's own catalogue.
+/// name finds what it finds there — and failing both, the name the spelling means
+/// ("3meopcp" is 3-MeO-PCP), as the desktop does. Classes come from the built-in
+/// list only: a phone keeps no copy of the person's own catalogue.
 pub struct MemReference {
     subs: Vec<PwInfo>,
     /// Each entry's JSON as the desktop stores it, ASCII-lowercased for `LIKE`.
     json: Vec<String>,
+    names: crate::names::NameIndex,
 }
 
 impl MemReference {
     pub fn new(subs: Vec<PwInfo>) -> Self {
         let json = subs.iter().map(|s| serde_json::to_string(s).unwrap_or_default().to_ascii_lowercase()).collect();
-        MemReference { subs, json }
+        let reference: Vec<_> = subs.iter().map(|s| (s.name.clone(), s.common_names.clone())).collect();
+        let names = crate::names::NameIndex::new(&[], &reference);
+        MemReference { subs, json, names }
+    }
+
+    fn lookup_as_written(&self, name: &str) -> Option<PwInfo> {
+        if let Some(s) = self.subs.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
+            return Some(s.clone());
+        }
+        let pattern = format!("%\"{name}\"%").to_ascii_lowercase();
+        self.json.iter().position(|j| like(&pattern, j)).map(|i| self.subs[i].clone())
     }
 
     pub fn len(&self) -> usize {
@@ -353,11 +380,13 @@ impl MemReference {
 
 impl Reference for MemReference {
     fn lookup(&self, name: &str) -> Option<PwInfo> {
-        if let Some(s) = self.subs.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
-            return Some(s.clone());
-        }
-        let pattern = format!("%\"{name}\"%").to_ascii_lowercase();
-        self.json.iter().position(|j| like(&pattern, j)).map(|i| self.subs[i].clone())
+        self.lookup_as_written(name).or_else(|| {
+            let meant = self.names.canonical(name)?;
+            if meant.eq_ignore_ascii_case(name.trim()) {
+                return None;
+            }
+            self.lookup_as_written(&meant)
+        })
     }
 
     fn classes(&self, name: &str) -> Vec<String> {
@@ -421,12 +450,24 @@ mod tests {
         assert_eq!(r.lookup("molly").unwrap().name, "MDMA");
         assert_eq!(r.lookup("lsd").unwrap().name, "LSD");
         assert!(r.lookup("not a real substance").is_none());
+        assert_eq!(r.lookup("3meopcp").unwrap().name, "3-MeO-PCP", "spelled without hyphens");
+        assert_eq!(r.lookup("3 meo").unwrap().name, "3-MeO-PCP", "a street name without hyphens");
     }
 
     #[test]
     fn mdma_with_tramadol_is_flagged_offline() {
         let w = combo_warnings(&bundled(), &["MDMA".into(), "Tramadol".into()]);
         assert!(w.iter().any(|w| w.severity == "danger"), "{w:?}");
+    }
+
+    #[test]
+    fn a_name_logged_by_another_spelling_is_still_checked() {
+        let as_named = combo_warnings(&bundled(), &["3-MeO-PCP".into(), "Alcohol".into()]);
+        assert!(!as_named.is_empty());
+        for typed in ["3meopcp", "3meo", "3-MeO"] {
+            let w = combo_warnings(&bundled(), &[typed.into(), "Alcohol".into()]);
+            assert_eq!(w.len(), as_named.len(), "{typed}: {w:?}");
+        }
     }
 
     #[test]

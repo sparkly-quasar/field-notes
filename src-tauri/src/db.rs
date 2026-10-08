@@ -1270,8 +1270,20 @@ pub fn pw_replace_all(conn: &mut Connection, subs: &[PwInfo]) -> rusqlite::Resul
 }
 
 /// Look up cached reference data by substance name, falling back to an alias
-/// match against the stored common names.
+/// match against the stored common names, then to the name the spelling means
+/// ([`name_index`]: "3meopcp" is 3-MeO-PCP), so an entry logged that way gets the
+/// same combination check and timing that Stats already counts it under.
 pub fn pw_lookup(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInfo>> {
+    if let Some(info) = pw_lookup_as_written(conn, name)? {
+        return Ok(Some(info));
+    }
+    match name_index(conn)?.canonical(name) {
+        Some(meant) if !meant.eq_ignore_ascii_case(name.trim()) => pw_lookup_as_written(conn, &meant),
+        _ => Ok(None),
+    }
+}
+
+fn pw_lookup_as_written(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInfo>> {
     let exact: Option<String> = conn
         .query_row("SELECT data FROM pw_substances WHERE name = ?1 COLLATE NOCASE", [name], |r| r.get(0))
         .optional()?;
@@ -1981,7 +1993,7 @@ mod tests {
         let c = bundled();
         let all = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
         let mem = MemReference::new(all.clone());
-        let mut probes: Vec<String> = vec!["molly".into(), "LSD".into(), "k".into(), "x".into(), "nothing at all".into(), "5-meo".into()];
+        let mut probes: Vec<String> = vec!["molly".into(), "LSD".into(), "k".into(), "x".into(), "nothing at all".into(), "5-meo".into(), "3meopcp".into(), "3 meo".into(), "2cb".into(), "5meodmt".into()];
         for s in &all {
             probes.push(s.name.clone());
             probes.push(s.name.to_uppercase());
