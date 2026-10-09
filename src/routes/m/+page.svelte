@@ -400,6 +400,9 @@
     try { localStorage.setItem(NAV_SLOT_KEY, v); } catch {}
   }
   function goStats() {
+    // An open entry would otherwise stay on screen with Stats lit up.
+    open = null;
+    building = false;
     journalMode = "stats";
     goTo("journal");
   }
