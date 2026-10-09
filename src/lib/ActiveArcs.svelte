@@ -139,6 +139,25 @@
     const y = (v: number) => m.t + (1 - v) * ph;
     const step = Math.max(60_000, (t1 - t0) / (pw / 2));
     const pts = (list: [number, number][]) => "M" + list.map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L");
+    // Round the knees where a line takes off or levels out: a short come-up is
+    // only a few pixels wide, so its ends read as corners. Drawing only; every
+    // number the chart reports still comes from the unsoftened values.
+    const SOFT_PX = 10;
+    const soft = (list: [number, number][]): [number, number][] => {
+      if (list.length < 3) return list;
+      const sig = SOFT_PX / Math.max(0.5, list[1][0] - list[0][0]);
+      const r = Math.ceil(sig * 3);
+      const w = Array.from({ length: 2 * r + 1 }, (_, j) => Math.exp(-((j - r) ** 2) / (2 * sig * sig)));
+      return list.map(([a], i) => {
+        let sw = 0, sv = 0;
+        for (let j = -r; j <= r; j++) {
+          const k = Math.min(list.length - 1, Math.max(0, i + j));
+          sw += w[j + r];
+          sv += w[j + r] * list[k][1];
+        }
+        return [a, sv / sw];
+      });
+    };
 
     const hours = (t1 - t0) / 3_600_000;
     const every = [1, 2, 3, 6].find((n) => pw / (hours / n) >= 46) ?? 6;
@@ -170,21 +189,27 @@
           const end = Math.min(t1, s.doses.at(-1)!.at + slow.off * 3_600_000);
           const p: [number, number][] = [];
           for (let t = start; t <= end; t += step) p.push([x(t), y(heightFor(s, combined(s, t, 0.5, Infinity)))]);
-          base.preview = pts(p);
+          base.preview = pts(soft(p));
         }
         if (lastNow) {
           const solidEnd = lastNow.at + mid.off * 3_600_000;
           const end = Math.min(t1, lastNow.at + slow.off * 3_600_000);
-          const line: [number, number][] = [];
-          const up: [number, number][] = [];
-          const dn: [number, number][] = [];
+          const middle: [number, number][] = [];
+          let up: [number, number][] = [];
+          let dn: [number, number][] = [];
+          let solid = 0;
           for (let t = start; t <= end; t += step) {
             const a = combined(s, t, 0, minute);
             const b = combined(s, t, 1, minute);
             up.push([x(t), y(heightFor(s, Math.max(a, b)))]);
             dn.push([x(t), y(heightFor(s, Math.min(a, b)))]);
-            if (t <= solidEnd) line.push([x(t), y(heightFor(s, combined(s, t, 0.5, minute)))]);
+            middle.push([x(t), y(heightFor(s, combined(s, t, 0.5, minute)))]);
+            if (t <= solidEnd) solid++;
           }
+          // Softened whole, then cut, so the solid line ends where it would have.
+          const line = soft(middle).slice(0, solid);
+          up = soft(up);
+          dn = soft(dn);
           base.line = line.length ? pts(line) : "";
           base.band = up.length ? pts(up) + "L" + dn.reverse().map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L") + "Z" : "";
           if (s.stages.after) base.tail = tailPath(x, y, Math.min(solidEnd, t1), lastNow.at + mid.after * 3_600_000, t1);
