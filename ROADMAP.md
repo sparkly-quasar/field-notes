@@ -1174,25 +1174,24 @@ using the model switch and reading the screens as a first-timer would.
      carry over unchanged either way, since they sit above the transport.
 
 5. **Keep fine-tuning the active arcs' look (owner's request, 2026-10-09).** v0.29.4
-   smoothed the arcs in two ways: `heightFor` (`arcs.ts`) now draws a smooth curve
+   smoothed the arcs in two ways: `heightFor` (`arcs.ts`) draws a smooth curve
    through the tier anchors instead of straight segments, and `ActiveArcs.svelte`
-   blurs the drawn line, band and preview by `SOFT_PX = 20`. The owner chose 20px
-   for now, knowing it costs some reading:
-   - **Onset blurs away.** The line starts lifting almost at the dose, hiding the
-     quiet half hour before onset that matters when deciding whether to redose.
-   - **A top-up's step becomes a slope**, and short shoulders (a brief level
-     stretch on the way down) mostly disappear.
-   - **It's in pixels, so the phone blurs more.** The phone's chart is narrower, so
-     20px spans more time there than on the desktop.
+   blurs the drawn line, band and preview. The blur is measured in **time**, so the
+   phone and the desktop look alike, and follows the nearest come-up or comedown:
+   **30% of its length, kept between 10 and 25 minutes**. The owner picked this from
+   previews over a flat 10px or 20px blur (20px dragged the phone's line off the
+   baseline before the dose and washed out top-ups) and over an uncapped stage
+   blur (LSD's 4-hour comedown ended about 90 minutes after the reference's).
+
+   Still worth a look:
+   - **A long come-up starts lifting at the dose.** LSD's hour-long come-up gets an
+     18-minute blur, which reaches back before onset. Holding the line flat until
+     onset would fix it, if it reads as wrong.
    - **Moment dots sit on the unsoftened height**, so one on a knee can float a few
      pixels off the line.
-
-   Things to try: blur over a fixed span of time rather than pixels (same look on
-   every screen); scale the blur to each stage's length so a short come-up rounds
-   without smearing the onset; keep the line flat until onset and only round the
-   knees; put moment dots on the softened line. Judge each against real entries on
-   the phone and the desktop, not just the sample dose (1.5 g, top-up 1 g at
-   +1.5 h) used so far.
+   - **The numbers (30%, 10 and 25 minutes)** were tuned on two doses: mushrooms
+     (1.5 g, top-up 1 g at +1.5 h) and LSD (100 µg). Check them against real
+     entries, short-acting substances and stacked redoses on both screens.
 
 ---
 
