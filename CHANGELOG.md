@@ -11,6 +11,15 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.29.4
+
+- **Smoother active arcs.** Lines curve through each dose tier instead of
+  bending at it, and they round off where effects start and level out. The
+  timings and amounts they show are unchanged.
+- **Phone: tapping Journal while reading an entry** takes you back to the list.
+- **Phone: the Stats button** now closes an open entry and shows your stats,
+  instead of leaving the entry on screen.
+
 ## v0.29.3
 
 - **Picking a substance suggestion no longer taps what's under it.** Choosing a
