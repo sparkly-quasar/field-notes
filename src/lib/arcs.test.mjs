@@ -230,3 +230,17 @@ test("today's row counts only the doses still active, not yesterday's", async ()
   assert.equal(amountsText(s, now), "110 + 40 mg", "a finished trip report still lists every dose");
   assert.doesNotMatch(phaseOf(s, now).detail, /second dose/);
 });
+
+test("heightFor curves smoothly through the tier anchors", () => {
+  const s = { kind: "shape", tiers: [[0, 0], [20, 0.18], [50, 0.4], [100, 0.62], [150, 0.82], [300, 1]] };
+  for (const [a, h] of s.tiers) assert.ok(Math.abs(heightFor(s, a) - h) < 1e-9);
+  let prev = -1, prevSlope = null;
+  for (let a = 0; a <= 400; a += 0.5) {
+    const h = heightFor(s, a);
+    assert.ok(h >= prev - 1e-9, `falls at ${a}`);
+    const slope = h - prev;
+    if (prevSlope !== null && a > 1) assert.ok(Math.abs(slope - prevSlope) < 1e-3, `kinks at ${a}`);
+    prevSlope = slope;
+    prev = h;
+  }
+});

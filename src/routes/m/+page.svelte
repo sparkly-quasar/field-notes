@@ -400,6 +400,9 @@
     try { localStorage.setItem(NAV_SLOT_KEY, v); } catch {}
   }
   function goStats() {
+    // An open entry would otherwise stay on screen with Stats lit up.
+    open = null;
+    building = false;
     journalMode = "stats";
     goTo("journal");
   }
@@ -2692,7 +2695,12 @@
     {#if !locked}
     <nav aria-label="Sections">
       <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}><Icon name="today" />Today</button>
-      <button class:on={view === "journal" && !(navSlot === "stats" && journalMode === "stats")} aria-current={view === "journal" ? "page" : undefined} onclick={() => { if (navSlot === "stats") journalMode = "entries"; goTo("journal"); }}><Icon name="journal" />Journal</button>
+      <button class:on={view === "journal" && !(navSlot === "stats" && journalMode === "stats")} aria-current={view === "journal" ? "page" : undefined} onclick={() => {
+        // Tapped again while reading an entry: back to the list, like "‹ Journal".
+        if (view === "journal" && open) { open = null; building = false; }
+        if (navSlot === "stats") journalMode = "entries";
+        goTo("journal");
+      }}><Icon name="journal" />Journal</button>
       <button class="plus" aria-label="New: log a dose, a moment, a trip report, or a note" onclick={() => (sheet = "new")}><span class="plus-glyph" aria-hidden="true">＋</span><span aria-hidden="true">New</span></button>
       <button class:on={view === "check"} aria-current={view === "check" ? "page" : undefined} onclick={() => goTo("check")}><Icon name="check" />Check</button>
       {#if navSlot === "stats"}

@@ -317,15 +317,27 @@ export function heightFor(s: Series, amount: number): number {
   if (s.kind === "drinks") return Math.min(1, amount / DRINKS_TOP);
   if (!s.tiers) return Math.min(0.9, amount * 0.45);
   const pts = s.tiers;
-  if (amount >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
-  for (let i = 1; i < pts.length; i++) {
-    if (amount <= pts[i][0]) {
-      const [a0, h0] = pts[i - 1];
-      const [a1, h1] = pts[i];
-      return h0 + ((h1 - h0) * (amount - a0)) / (a1 - a0);
-    }
+  const n = pts.length;
+  if (amount <= 0) return 0;
+  if (amount >= pts[n - 1][0]) return pts[n - 1][1];
+  // A smooth, never-falling curve through the anchors (Fritsch-Carlson), so a
+  // line crossing a tier bends gently instead of kinking. It levels off at the top.
+  const d = pts.slice(1).map(([a, h], i) => (h - pts[i][1]) / (a - pts[i][0]));
+  const m = pts.map((_, i) => (i === 0 ? d[0] : i === n - 1 ? 0 : d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2));
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i];
+    const r = a * a + b * b;
+    if (r > 9) { const t = 3 / Math.sqrt(r); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
   }
-  return 1;
+  let i = 1;
+  while (amount > pts[i][0]) i++;
+  const [a0, h0] = pts[i - 1];
+  const [a1, h1] = pts[i];
+  const w = a1 - a0;
+  const t = (amount - a0) / w;
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * h0 + (t3 - 2 * t2 + t) * w * m[i - 1] + (-2 * t3 + 3 * t2) * h1 + (t3 - t2) * w * m[i];
 }
 
 /** The amount on the line at `t` (middle timings), with doses taken by `upTo`. */

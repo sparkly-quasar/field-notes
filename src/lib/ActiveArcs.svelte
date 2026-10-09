@@ -139,6 +139,42 @@
     const y = (v: number) => m.t + (1 - v) * ph;
     const step = Math.max(60_000, (t1 - t0) / (pw / 2));
     const pts = (list: [number, number][]) => "M" + list.map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L");
+    // Round the knees where a line takes off or levels out. The blur is measured
+    // in time, so the phone and the desktop look alike, and follows the nearest
+    // come-up or comedown: 30% of its length, kept between 10 and 25 minutes so a
+    // short come-up still rounds and a long comedown keeps the reference's timing.
+    // Drawing only; every number the chart reports comes from the unsoftened values.
+    const pxPerMs = pw / (t1 - t0);
+    const soft = (list: [number, number][], s: Series, doses: number[]): [number, number][] => {
+      if (list.length < 3 || !doses.length) return list;
+      const b = bounds(s.stages, 0.5);
+      const stages = doses.flatMap((at) => [
+        [at + ((b.on + b.up) / 2) * 3_600_000, (b.up - b.on) * 3_600_000],
+        [at + ((b.peak + b.off) / 2) * 3_600_000, (b.off - b.peak) * 3_600_000],
+      ]);
+      const dx = Math.max(0.5, list[1][0] - list[0][0]);
+      return list.map(([a], i) => {
+        // Blend the nearby stages' lengths so the blur changes smoothly.
+        const t = t0 + (a - m.l) / pxPerMs;
+        let sw = 0, sl = 0;
+        for (const [c, len] of stages) {
+          const w = 1 / ((t - c) ** 2 + 900_000 ** 2);
+          sw += w;
+          sl += w * len;
+        }
+        const sigMs = Math.min(25 * 60_000, Math.max(10 * 60_000, (0.3 * sl) / sw));
+        const sig = (sigMs * pxPerMs) / dx;
+        const r = Math.ceil(sig * 3);
+        let tw = 0, tv = 0;
+        for (let j = -r; j <= r; j++) {
+          const k = Math.min(list.length - 1, Math.max(0, i + j));
+          const w = Math.exp(-(j * j) / (2 * sig * sig));
+          tw += w;
+          tv += w * list[k][1];
+        }
+        return [a, tv / tw];
+      });
+    };
 
     const hours = (t1 - t0) / 3_600_000;
     const every = [1, 2, 3, 6].find((n) => pw / (hours / n) >= 46) ?? 6;
@@ -170,21 +206,28 @@
           const end = Math.min(t1, s.doses.at(-1)!.at + slow.off * 3_600_000);
           const p: [number, number][] = [];
           for (let t = start; t <= end; t += step) p.push([x(t), y(heightFor(s, combined(s, t, 0.5, Infinity)))]);
-          base.preview = pts(p);
+          base.preview = pts(soft(p, s, s.doses.map((d) => d.at)));
         }
         if (lastNow) {
           const solidEnd = lastNow.at + mid.off * 3_600_000;
           const end = Math.min(t1, lastNow.at + slow.off * 3_600_000);
-          const line: [number, number][] = [];
-          const up: [number, number][] = [];
-          const dn: [number, number][] = [];
+          const middle: [number, number][] = [];
+          let up: [number, number][] = [];
+          let dn: [number, number][] = [];
+          let solid = 0;
           for (let t = start; t <= end; t += step) {
             const a = combined(s, t, 0, minute);
             const b = combined(s, t, 1, minute);
             up.push([x(t), y(heightFor(s, Math.max(a, b)))]);
             dn.push([x(t), y(heightFor(s, Math.min(a, b)))]);
-            if (t <= solidEnd) line.push([x(t), y(heightFor(s, combined(s, t, 0.5, minute)))]);
+            middle.push([x(t), y(heightFor(s, combined(s, t, 0.5, minute)))]);
+            if (t <= solidEnd) solid++;
           }
+          // Softened whole, then cut, so the solid line ends where it would have.
+          const taken = s.doses.filter((d) => d.at <= minute).map((d) => d.at);
+          const line = soft(middle, s, taken).slice(0, solid);
+          up = soft(up, s, taken);
+          dn = soft(dn, s, taken);
           base.line = line.length ? pts(line) : "";
           base.band = up.length ? pts(up) + "L" + dn.reverse().map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L") + "Z" : "";
           if (s.stages.after) base.tail = tailPath(x, y, Math.min(solidEnd, t1), lastNow.at + mid.after * 3_600_000, t1);
