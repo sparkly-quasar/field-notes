@@ -344,7 +344,10 @@ export function heightFor(s: Series, amount: number): number {
 export function amountAt(s: Series, t: number, upTo: number): number {
   if (s.kind === "drinks") return drinksAt(s, t, upTo);
   if (s.kind === "shape") return combined(s, t, 0.5, upTo);
-  return taken(s, upTo).reduce((a, d) => a + (s.tiers ? d.amount ?? 0 : 1), 0);
+  // Only doses still felt at `t`: yesterday's dose isn't part of today's block.
+  return taken(s, upTo)
+    .filter((d) => feltEnd(s, d) > t)
+    .reduce((a, d) => a + (s.tiers ? d.amount ?? 0 : 1), 0);
 }
 
 // ---- words

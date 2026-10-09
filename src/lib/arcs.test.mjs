@@ -244,3 +244,24 @@ test("heightFor curves smoothly through the tier anchors", () => {
     prev = h;
   }
 });
+
+test("a block's height counts only the doses still felt, not yesterday's", () => {
+  // Kratom's reference gives only onset and a total, so it's drawn as a block.
+  const KRATOM = {
+    name: "Kratom", common_names: [], psychoactive: ["Opioid"], chemical: [], interactions: [],
+    roas: [
+      {
+        name: "oral", units: "g", threshold: 0.5,
+        light: range(0.5, 1.5), common: range(1.5, 3), strong: range(3, 6), heavy: 6,
+        onset: "10–40 minutes", come_up: null, peak: null, offset: null,
+        after_effects: "1–12 hours", total: "2–5 hours", half_life: null,
+      },
+    ],
+  };
+  const now = T0 + 24.5 * H;
+  const [s] = buildSeries([dose("Kratom", 3, "g", 0), dose("Kratom", 3, "g", 24)], () => KRATOM);
+  assert.equal(s.kind, "block");
+  assert.equal(amountAt(s, now, now), 3, "yesterday's 3 g is long past");
+  assert.equal(heightFor(s, amountAt(s, now, now)), TIER_HEIGHT.strong);
+  assert.equal(tierOf(s.roa, 3), "strong");
+});
