@@ -1173,6 +1173,27 @@ using the model switch and reading the screens as a first-timer would.
      turns out to be the thing that stops users. Pairing tokens and `EXPOSED` would
      carry over unchanged either way, since they sit above the transport.
 
+5. **Keep fine-tuning the active arcs' look (owner's request, 2026-10-09).** v0.29.4
+   smoothed the arcs in two ways: `heightFor` (`arcs.ts`) now draws a smooth curve
+   through the tier anchors instead of straight segments, and `ActiveArcs.svelte`
+   blurs the drawn line, band and preview by `SOFT_PX = 20`. The owner chose 20px
+   for now, knowing it costs some reading:
+   - **Onset blurs away.** The line starts lifting almost at the dose, hiding the
+     quiet half hour before onset that matters when deciding whether to redose.
+   - **A top-up's step becomes a slope**, and short shoulders (a brief level
+     stretch on the way down) mostly disappear.
+   - **It's in pixels, so the phone blurs more.** The phone's chart is narrower, so
+     20px spans more time there than on the desktop.
+   - **Moment dots sit on the unsoftened height**, so one on a knee can float a few
+     pixels off the line.
+
+   Things to try: blur over a fixed span of time rather than pixels (same look on
+   every screen); scale the blur to each stage's length so a short come-up rounds
+   without smearing the onset; keep the line flat until onset and only round the
+   knees; put moment dots on the softened line. Judge each against real entries on
+   the phone and the desktop, not just the sample dose (1.5 g, top-up 1 g at
+   +1.5 h) used so far.
+
 ---
 
 ## Companion design principles (peer-support model)

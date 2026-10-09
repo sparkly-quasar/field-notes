@@ -142,7 +142,7 @@
     // Round the knees where a line takes off or levels out: a short come-up is
     // only a few pixels wide, so its ends read as corners. Drawing only; every
     // number the chart reports still comes from the unsoftened values.
-    const SOFT_PX = 10;
+    const SOFT_PX = 20;
     const soft = (list: [number, number][]): [number, number][] => {
       if (list.length < 3) return list;
       const sig = SOFT_PX / Math.max(0.5, list[1][0] - list[0][0]);
