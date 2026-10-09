@@ -204,6 +204,15 @@ CREATE TABLE IF NOT EXISTS unit_kinds (
     UNIQUE (substance, label)
 );
 
+-- How long a substance lasts, in the person's own words, for one the dose
+-- reference has no timings for: a route and its stages, as `MyTimings` in JSON.
+-- `pw_lookup` fills only the timings the reference leaves empty.
+CREATE TABLE IF NOT EXISTS my_refs (
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    data           TEXT NOT NULL,
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Small facts about the person the journal is for, kept with the journal so the
 -- phone and the computer agree: `bedtime` ("23:00", "varies", or "skip" once
 -- asked and skipped; absent until asked).
@@ -1274,6 +1283,20 @@ pub fn pw_replace_all(conn: &mut Connection, subs: &[PwInfo]) -> rusqlite::Resul
 /// ([`name_index`]: "3meopcp" is 3-MeO-PCP), so an entry logged that way gets the
 /// same combination check and timing that Stats already counts it under.
 pub fn pw_lookup(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInfo>> {
+    let reference = pw_lookup_reference(conn, name)?;
+    // The person's own figures, saved under the name they logged or the
+    // reference's name for it.
+    let mine = match my_ref(conn, name)? {
+        Some(r) => Some(r),
+        None => match &reference {
+            Some(i) if !i.name.eq_ignore_ascii_case(name.trim()) => my_ref(conn, &i.name)?,
+            _ => None,
+        },
+    };
+    Ok(with_my_figures(reference, mine, name))
+}
+
+fn pw_lookup_reference(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInfo>> {
     if let Some(info) = pw_lookup_as_written(conn, name)? {
         return Ok(Some(info));
     }
@@ -1281,6 +1304,116 @@ pub fn pw_lookup(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInf
         Some(meant) if !meant.eq_ignore_ascii_case(name.trim()) => pw_lookup_as_written(conn, &meant),
         _ => Ok(None),
     }
+}
+
+const MY_TIMINGS: &str = "Timings you entered yourself.";
+const SOME_MY_TIMINGS: &str = "Some timings here are ones you entered yourself.";
+
+/// How long something lasts, as the person entered it: one route's stages, in the
+/// reference's own words ("30–60 minutes", "2 hours").
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MyTimings {
+    pub route: String,
+    pub onset: Option<String>,
+    pub come_up: Option<String>,
+    pub peak: Option<String>,
+    pub offset: Option<String>,
+    pub after_effects: Option<String>,
+    pub total: Option<String>,
+}
+
+/// The person's timings saved for `name`, as they entered them.
+pub fn my_ref(conn: &Connection, name: &str) -> rusqlite::Result<Option<MyTimings>> {
+    let data: Option<String> = conn
+        .query_row("SELECT data FROM my_refs WHERE name = ?1", [name.trim()], |r| r.get(0))
+        .optional()?;
+    Ok(data.and_then(|d| serde_json::from_str(&d).ok()))
+}
+
+pub fn set_my_ref(conn: &Connection, name: &str, t: &MyTimings) -> rusqlite::Result<()> {
+    let data = serde_json::to_string(t).expect("timings serialise");
+    conn.execute(
+        "INSERT INTO my_refs (name, data) VALUES (?1, ?2)
+         ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = datetime('now')",
+        params![name.trim(), data],
+    )?;
+    Ok(())
+}
+
+pub fn delete_my_ref(conn: &Connection, name: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM my_refs WHERE name = ?1", [name.trim()])?;
+    Ok(())
+}
+
+/// A route with only timings: no dose figures, so nothing is ever placed on tiers
+/// the person didn't get from the reference.
+fn timings_roa(t: &MyTimings) -> crate::pw::PwRoa {
+    crate::pw::PwRoa {
+        name: t.route.clone(),
+        units: None,
+        threshold: None,
+        light: Default::default(),
+        common: Default::default(),
+        strong: Default::default(),
+        heavy: None,
+        heavy_max: None,
+        onset: t.onset.clone(),
+        come_up: t.come_up.clone(),
+        peak: t.peak.clone(),
+        offset: t.offset.clone(),
+        after_effects: t.after_effects.clone(),
+        total: t.total.clone(),
+        half_life: None,
+    }
+}
+
+/// The reference entry with the person's timings filling its gaps: a route it
+/// lacks is added (timings only), and on a route it has, only empty stages are
+/// filled. The reference's own timings always win. With no reference entry, the
+/// person's timings stand alone.
+fn with_my_figures(reference: Option<PwInfo>, mine: Option<MyTimings>, name: &str) -> Option<PwInfo> {
+    let Some(mine) = mine else { return reference };
+    let Some(mut info) = reference else {
+        return Some(PwInfo {
+            name: name.trim().to_string(),
+            common_names: vec![],
+            psychoactive: vec![],
+            chemical: vec![],
+            roas: vec![timings_roa(&mine)],
+            interactions: vec![],
+            dose_note: Some(MY_TIMINGS.into()),
+            mine: true,
+        });
+    };
+    let mut used = false;
+    match info.roas.iter_mut().find(|r| r.name.eq_ignore_ascii_case(&mine.route)) {
+        Some(r) => {
+            let mut fill = |slot: &mut Option<String>, from: &Option<String>| {
+                if slot.is_none() && from.is_some() {
+                    *slot = from.clone();
+                    used = true;
+                }
+            };
+            fill(&mut r.onset, &mine.onset);
+            fill(&mut r.come_up, &mine.come_up);
+            fill(&mut r.peak, &mine.peak);
+            fill(&mut r.offset, &mine.offset);
+            fill(&mut r.after_effects, &mine.after_effects);
+            fill(&mut r.total, &mine.total);
+        }
+        None => {
+            info.roas.push(timings_roa(&mine));
+            used = true;
+        }
+    }
+    if used {
+        info.mine = true;
+        info.dose_note = Some(match info.dose_note.take() {
+            Some(n) => format!("{n} {SOME_MY_TIMINGS}"),
+            None => SOME_MY_TIMINGS.into(),
+        });
+    }
+    Some(info)
 }
 
 fn pw_lookup_as_written(conn: &Connection, name: &str) -> rusqlite::Result<Option<PwInfo>> {
@@ -1356,6 +1489,7 @@ mod tests {
             roas: vec![],
             interactions: vec![],
             dose_note: None,
+            mine: false,
         }
     }
 
@@ -1418,6 +1552,64 @@ mod tests {
         c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         c.execute_batch(SCHEMA).unwrap();
         c
+    }
+
+    fn my_timings(route: &str) -> MyTimings {
+        MyTimings {
+            route: route.into(),
+            onset: Some("30–60 minutes".into()),
+            peak: Some("1–2 hours".into()),
+            total: Some("6–8 hours".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn your_own_timings_stand_in_where_the_reference_has_nothing() {
+        let c = mem();
+        assert!(pw_lookup(&c, "Nurtec").unwrap().is_none());
+        set_my_ref(&c, "Nurtec", &my_timings("oral")).unwrap();
+        let info = pw_lookup(&c, "nurtec").unwrap().expect("found by any case");
+        assert!(info.mine);
+        assert_eq!(info.roas[0].total.as_deref(), Some("6–8 hours"));
+        assert_eq!(info.roas[0].common.min, None, "timings only, never dose figures");
+        assert_eq!(info.dose_note.as_deref(), Some(MY_TIMINGS));
+        // Saving again replaces; deleting removes.
+        let mut changed = my_timings("oral");
+        changed.total = Some("12 hours".into());
+        set_my_ref(&c, "NURTEC", &changed).unwrap();
+        assert_eq!(my_ref(&c, "Nurtec").unwrap().unwrap().total.as_deref(), Some("12 hours"));
+        delete_my_ref(&c, "Nurtec").unwrap();
+        assert!(pw_lookup(&c, "Nurtec").unwrap().is_none());
+    }
+
+    #[test]
+    fn your_own_timings_fill_only_what_the_reference_leaves_empty() {
+        let mut c = mem();
+        let mut reference = info("Caffeine", &[], &[], &[]);
+        let mut oral = timings_roa(&MyTimings { route: "oral".into(), total: Some("3–5 hours".into()), ..Default::default() });
+        oral.units = Some("mg".into());
+        oral.common = crate::pw::Range { min: Some(75.0), max: Some(250.0) };
+        reference.roas = vec![oral];
+        pw_replace_all(&mut c, &[reference]).unwrap();
+
+        let mut mine = my_timings("Oral");
+        mine.total = Some("10 hours".into());
+        set_my_ref(&c, "Caffeine", &mine).unwrap();
+        let got = pw_lookup(&c, "Caffeine").unwrap().unwrap();
+        let r = &got.roas[0];
+        assert_eq!(r.total.as_deref(), Some("3–5 hours"), "the reference wins");
+        assert_eq!(r.common.min, Some(75.0), "dose figures untouched");
+        assert_eq!(r.onset.as_deref(), Some("30–60 minutes"), "a gap is filled");
+        assert!(got.mine);
+        assert_eq!(got.dose_note.as_deref(), Some(SOME_MY_TIMINGS));
+
+        // A route the reference lacks is added, with timings only.
+        set_my_ref(&c, "Caffeine", &my_timings("sublingual")).unwrap();
+        let got = pw_lookup(&c, "Caffeine").unwrap().unwrap();
+        assert_eq!(got.roas.len(), 2);
+        assert_eq!(got.roas[0].onset, None, "oral is the reference's alone again");
+        assert_eq!(got.roas[1].common.min, None);
     }
 
     #[test]

@@ -142,6 +142,9 @@ pub struct PwInfo {
     /// Where the dose figures come from, when it isn't DoseWiki (see [`ROUTE_OVERRIDES`]).
     #[serde(default)]
     pub dose_note: Option<String>,
+    /// Some timings here are the person's own, entered in Field Notes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mine: bool,
 }
 
 fn range(g: &Option<DwRange>) -> Range {
@@ -243,6 +246,7 @@ fn map_sub(s: DwSub) -> PwInfo {
         roas,
         interactions,
         dose_note: None,
+        mine: false,
     };
     if let Some((_, note, routes)) = ROUTE_OVERRIDES.iter().find(|(n, ..)| n.eq_ignore_ascii_case(&info.name)) {
         info.roas = routes.iter().map(RouteSpec::roa).collect();

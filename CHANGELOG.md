@@ -11,6 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.30.0
+
+- **Add how long something lasts.** When the dose reference has no timings for a
+  substance (a prescription like Nurtec, say), tap it in the active-arcs chart
+  and choose **Add how long it lasts**. Enter when it starts working, how long
+  it builds up, peaks and wears off, or just how long it lasts in total. It's
+  saved in your journal and used on the chart and in "Likely still active", on
+  the computer and the phone. Your timings only fill gaps: where the reference
+  has its own, those are used. Change or remove them the same way.
+
 ## v0.29.4
 
 - **Smoother active arcs.** Lines curve through each dose tier instead of

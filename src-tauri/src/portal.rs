@@ -508,6 +508,11 @@ pub const EXPOSED: &[&str] = &[
     "emergency_resources",
     "pw_status",
     "pw_lookup",
+    // How long something lasts, in the person's own words, for a substance the
+    // reference has no timings for: in their journal, like their entries.
+    "my_ref_get",
+    "my_ref_set",
+    "my_ref_delete",
     // Names and street names from the (public) dose reference, for pasted logs.
     "pw_names",
     // Which substance a typed name means ("acid" → LSD), for saving a dose.
@@ -718,6 +723,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         // --- reference ---
         "pw_status" => done(commands::pw_status_in(db)),
         "pw_lookup" => done(commands::pw_lookup_in(db, arg(&args, "name")?)),
+        "my_ref_get" => done(commands::my_ref_get_in(db, arg(&args, "name")?)),
+        "my_ref_set" => done(commands::my_ref_set_in(db, arg(&args, "name")?, arg(&args, "timings")?)),
+        "my_ref_delete" => done(commands::my_ref_delete_in(db, arg(&args, "name")?)),
         "pw_names" => done(commands::pw_names_in(db)),
         "canonical_name" => done(commands::canonical_name_in(db, arg(&args, "name")?)),
         "knowledge_search" => ok(commands::knowledge_search(
@@ -1041,6 +1049,23 @@ mod tests {
         let status = start(&handle).expect("portal starts");
         let port = status.port.unwrap();
         (handle, port, token)
+    }
+
+    #[test]
+    fn a_phone_can_save_how_long_something_lasts() {
+        let (_h, port, token) = serving();
+        let timings = json!({ "route": "Oral", "onset": " 30–60 minutes ", "come_up": null, "peak": "1–2 hours",
+                              "offset": "", "after_effects": null, "total": "6–8 hours" });
+        assert_eq!(post(port, "my_ref_set", Some(&token), json!({ "name": "Nurtec", "timings": timings })).0, 200);
+        let (code, body) = post(port, "pw_lookup", Some(&token), json!({ "name": "nurtec" }));
+        assert_eq!(code, 200);
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["mine"], true, "{body}");
+        assert_eq!(v["roas"][0]["name"], "oral");
+        assert_eq!(v["roas"][0]["onset"], "30–60 minutes", "trimmed");
+        assert!(v["roas"][0]["offset"].is_null(), "an empty stage is left out");
+        assert_eq!(post(port, "my_ref_delete", Some(&token), json!({ "name": "Nurtec" })).0, 200);
+        assert_eq!(post(port, "pw_lookup", Some(&token), json!({ "name": "Nurtec" })).1, "null");
     }
 
     #[test]

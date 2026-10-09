@@ -39,6 +39,7 @@
     type Series,
   } from "$lib/arcs";
   import { shown as nameShown } from "$lib/discreet.svelte";
+  import MyTimings from "$lib/MyTimings.svelte";
 
   let {
     doses,
@@ -290,6 +291,20 @@
     focus = open && key !== "moments" ? key : null;
   }
   const keyId = (k: string) => `arc-key-${k.replace(/[^a-z0-9]+/gi, "-")}`;
+
+  // The person's own timings, for a substance the reference has none (or only a
+  // total) for. Saving looks every name on the line up again.
+  let editing = $state<string | null>(null);
+  const infoOf = (s: Series) => infos[(s.doses[0]?.dose.substance_name ?? "").trim().toLowerCase()] ?? null;
+  const canAddTimings = (s: Series) => s.kind !== "drinks" && (s.kind === "marker" || s.kind === "block" || !!infoOf(s)?.mine);
+  function refresh(s: Series) {
+    editing = null;
+    for (const n of new Set(s.doses.map((d) => d.dose.substance_name.trim()))) {
+      lookup(n)
+        .then((i) => (infos[n.toLowerCase()] = i ?? null))
+        .catch(() => {});
+    }
+  }
   const titleOf = (s: Series) => nameShown(s.name);
 </script>
 
@@ -396,8 +411,16 @@
         {:else if l}
           <strong>{titleOf(l.s)}{l.s.roa ? `, ${l.s.roa.name.toLowerCase()}` : ""}</strong>
           {#each aboutLines(l.s, minute, !past) as line}<p>{line}</p>{/each}
+          {#if infoOf(l.s)?.mine}<p>{infoOf(l.s)?.dose_note}</p>{/if}
         {/if}
       </div>
+      {#if l && open !== "moments" && canAddTimings(l.s)}
+        {#if editing === l.s.key}
+          <MyTimings name={l.s.name} label={titleOf(l.s)} route={l.s.roa?.name ?? l.s.doses[0]?.dose.route ?? "oral"} onsaved={() => refresh(l.s)} oncancel={() => (editing = null)} />
+        {:else}
+          <button type="button" class="act" onclick={() => (editing = l.s.key)}>{infoOf(l.s)?.mine ? "Change how long it lasts" : "Add how long it lasts"}</button>
+        {/if}
+      {/if}
     {/if}
     {/if}
 

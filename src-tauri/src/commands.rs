@@ -564,6 +564,46 @@ pub fn pw_lookup_in(db: &Db, name: String) -> Result<Option<PwInfo>, String> {
     db.with(|c| db::pw_lookup(c, &name))
 }
 
+/// How long a substance lasts, as the person entered it.
+#[tauri::command]
+pub fn my_ref_get(db: State<'_, Db>, name: String) -> Result<Option<db::MyTimings>, String> {
+    my_ref_get_in(&db, name)
+}
+
+pub fn my_ref_get_in(db: &Db, name: String) -> Result<Option<db::MyTimings>, String> {
+    db.with(|c| db::my_ref(c, &name))
+}
+
+/// Save how long a substance lasts, for one the dose reference has no timings
+/// for. It fills only the timings the reference leaves empty.
+#[tauri::command]
+pub fn my_ref_set(db: State<'_, Db>, name: String, timings: db::MyTimings) -> Result<(), String> {
+    my_ref_set_in(&db, name, timings)
+}
+
+pub fn my_ref_set_in(db: &Db, name: String, mut timings: db::MyTimings) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("Say which substance these timings are for.".into());
+    }
+    timings.route = timings.route.trim().to_lowercase();
+    if timings.route.is_empty() {
+        return Err("Say how it's taken (oral, for example).".into());
+    }
+    for t in [&mut timings.onset, &mut timings.come_up, &mut timings.peak, &mut timings.offset, &mut timings.after_effects, &mut timings.total] {
+        *t = t.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    }
+    db.with(|c| db::set_my_ref(c, &name, &timings))
+}
+
+#[tauri::command]
+pub fn my_ref_delete(db: State<'_, Db>, name: String) -> Result<(), String> {
+    my_ref_delete_in(&db, name)
+}
+
+pub fn my_ref_delete_in(db: &Db, name: String) -> Result<(), String> {
+    db.with(|c| db::delete_my_ref(c, &name))
+}
+
 // ---------- local AI setup (Ollama) ----------
 
 #[tauri::command]

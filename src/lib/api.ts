@@ -353,6 +353,8 @@ export interface PwInfo {
   interactions: PwInteraction[];
   /** Where the dose figures come from, when it isn't DoseWiki. */
   dose_note?: string | null;
+  /** Some timings are the person's own, entered in Field Notes. */
+  mine?: boolean;
 }
 export interface PwStatus {
   count: number;
@@ -361,6 +363,20 @@ export interface PwStatus {
 export const pwUpdate = () => invoke<number>("pw_update");
 export const pwStatus = () => invoke<PwStatus>("pw_status");
 export const pwLookup = (name: string) => invoke<PwInfo | null>("pw_lookup", { name });
+/** How long something lasts, in the person's own words ("30–60 minutes"): one
+ *  route's stages. They fill only the timings the reference leaves empty. */
+export interface MyTimings {
+  route: string;
+  onset: string | null;
+  come_up: string | null;
+  peak: string | null;
+  offset: string | null;
+  after_effects: string | null;
+  total: string | null;
+}
+export const myRefGet = (name: string) => invoke<MyTimings | null>("my_ref_get", { name });
+export const myRefSet = (name: string, timings: MyTimings) => invoke<void>("my_ref_set", { name, timings });
+export const myRefDelete = (name: string) => invoke<void>("my_ref_delete", { name });
 /** Every dose-reference substance with its street names — for matching pasted logs. */
 /** The substance a typed name clearly means ("acid" → LSD), or null to keep it as written. */
 export const canonicalName = (name: string) => invoke<string | null>("canonical_name", { name });

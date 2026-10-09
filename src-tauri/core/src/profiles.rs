@@ -190,6 +190,7 @@ mod tests {
             roas,
             interactions: vec![],
             dose_note: None,
+            mine: false,
         }
     }
 
