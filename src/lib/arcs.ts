@@ -55,15 +55,25 @@ export function stagesOf(roa: PwRoa | null): Stages {
   };
 }
 
+/** A route's name as one spelling: the form's "IM" and the reference's
+ *  "I.M." and "Intramuscular" are the same route. */
+export function routeKey(route: string): string {
+  const r = route.trim().toLowerCase().replace(/[.\s]/g, "");
+  if (r === "im" || r === "intramuscular") return "intramuscular";
+  if (r === "iv" || r === "intravenous") return "intravenous";
+  return r;
+}
+
 /** The reference's entry for the route a dose was logged by: the same route by
- *  name, IM read as IV as the combination check does, or the first route listed
- *  when no route was logged. */
+ *  name (however it's spelled), IM read as IV when the reference has no
+ *  intramuscular route, as the combination check does, or the first route
+ *  listed when no route was logged. */
 export function routeFor(info: PwInfo | null, route: string): PwRoa | null {
   if (!info || !info.roas.length) return null;
-  const r = route.trim().toLowerCase();
-  if (!r) return info.roas[0];
-  const want = r === "im" || r === "iv" ? "intravenous" : r;
-  return info.roas.find((x) => x.name.trim().toLowerCase() === want) ?? null;
+  const want = routeKey(route);
+  if (!want) return info.roas[0];
+  const find = (k: string) => info.roas.find((x) => routeKey(x.name) === k) ?? null;
+  return find(want) ?? (want === "intramuscular" ? find("intravenous") : null);
 }
 
 // ---- how a second dose behaves

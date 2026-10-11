@@ -76,6 +76,16 @@ test("a route is matched by name, IM as IV, and never swapped for another", () =
   assert.equal(routeFor(inf, "smoked"), null);
 });
 
+test("IM finds the reference's intramuscular route however it's spelled", () => {
+  // Ketamine's DoseWiki entry calls it "I.M."; others say "Intramuscular".
+  const im = { ...MDMA.roas[0], name: "I.M." };
+  const iv = { ...MDMA.roas[0], name: "Intravenous" };
+  assert.equal(routeFor({ ...MDMA, roas: [MDMA.roas[0], iv, im] }, "IM").name, "I.M.", "its own route before IV");
+  assert.equal(routeFor({ ...MDMA, roas: [{ ...im, name: "Intramuscular" }] }, "im").name, "Intramuscular");
+  assert.equal(routeFor({ ...MDMA, roas: [im] }, "intramuscular").name, "I.M.");
+  assert.equal(routeFor({ ...MDMA, roas: [MDMA.roas[0], im] }, "IV"), null, "IV is never read as IM");
+});
+
 test("a dose on the bottom of a tier is that tier", () => {
   const roa = MDMA.roas[0];
   assert.equal(tierOf(roa, 75), "common");

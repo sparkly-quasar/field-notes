@@ -32,6 +32,22 @@ const PROBE_TIMEOUT_MS = 4_000;
 /** How many experiences in progress to keep for offline checks. */
 const KEEP_OPEN = 5;
 
+/** Calls that read and write no journal, which the computer answers even while
+ *  a person's journal is locked (portal.rs, `LOCKED_OK`). They never wait behind
+ *  the outbox: unlocking is what lets the outbox send. */
+const NO_JOURNAL = [
+  "db_status",
+  "person_unlock",
+  "person_pin_unlock",
+  "check_combo",
+  "interaction_classes",
+  "emergency_resources",
+  "knowledge_search",
+  "knowledge_status",
+  "discreet_available",
+  "companion_enabled",
+];
+
 const TALK = ["companion_chat", "companion_chat_start", "companion_chat_poll", "companion_warm", "ai_status", "ai_start", "compute_status"];
 
 // ---------- status, for the page ----------
@@ -164,6 +180,9 @@ export async function clearKept() {
 
 let lastOk = 0;
 let downUntil = 0;
+/** The computer answered, but this person's journal there is locked, so what's
+ *  queued can't be sent until they unlock it. Not the same as away. */
+let journalLocked = false;
 
 function markOk() {
   lastOk = Date.now();
@@ -353,9 +372,17 @@ export function flush(): Promise<boolean> {
         try {
           const answer = next.cmd === "stretch_to_cover" ? await stretch(args.id, args.at) : await portalInvoke(next.cmd, args);
           update((t) => ob.sent(t, next.seq, answer));
+          journalLocked = false;
           markOk();
         } catch (e) {
-          if (e instanceof UnreachableError || e instanceof LockedError) {
+          if (e instanceof LockedError) {
+            // The computer is there; the page shows the password screen
+            // (portal.ts fired LOCKED_EVENT). Sent once it's unlocked.
+            journalLocked = true;
+            return false;
+          }
+          if (e instanceof UnreachableError) {
+            journalLocked = false;
             markDown();
             return false;
           }
@@ -414,12 +441,20 @@ export class NeedsComputerError extends Error {
 export async function phoneInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   args = structuredClone(args);
   let online = await reachable();
-  if (online && ob.pending(load()).length) online = await flush();
+  // What's queued goes first, so a read sees it and a new entry lands after it.
+  if (online && !NO_JOURNAL.includes(cmd) && ob.pending(load()).length && !(await flush())) {
+    if (journalLocked) throw new LockedError("Your journal is locked. Unlock it with your password.");
+    online = false;
+  }
   const resolved = ob.translate(load(), args);
   if (online && resolved) {
     try {
       const v = await portalInvoke<T>(cmd, args);
       markOk();
+      if (cmd === "person_unlock" || cmd === "person_pin_unlock") {
+        journalLocked = false;
+        void flush();
+      }
       remember(cmd, v);
       return v;
     } catch (e) {
