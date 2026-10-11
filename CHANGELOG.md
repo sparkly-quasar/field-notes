@@ -11,6 +11,19 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.30.2
+
+- **A locked journal on the phone now asks for your password.** If you share a
+  server and it restarted while your phone had entries waiting to send, the
+  phone said "Your computer can't be reached" and never showed the password
+  screen, so nothing could be sent. Now it shows the password screen, and
+  everything that was waiting is sent once you unlock.
+- **Doses logged as IM now get their arc.** "IM" didn't match the dose
+  reference's intramuscular route (ketamine's is written "I.M."), so the dose
+  had no timings or dose level and showed as "No duration data", even after you
+  added your own timings. It now uses the reference's intramuscular figures,
+  with your own timings filling any gaps.
+
 ## v0.30.1
 
 - **Fewer, more relevant interaction warnings.** When you log a dose, you now
