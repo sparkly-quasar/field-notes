@@ -155,6 +155,7 @@
     HIT_NOTE,
     recentDoses,
   } from "$lib/quicklog";
+  import { aboutDose } from "$lib/aboutdose";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
@@ -1164,7 +1165,7 @@
       taken_at: localInputToIso(dTime),
       ...dDetail,
     });
-    lastWarnings = res.warnings;
+    lastWarnings = aboutDose(res.warnings, res.dose.substance_name);
     dAsk = { s: res.dose.substance_name, n: dAsk.n + 1 };
     dSubstance = dAmount = "";
     dDetail = {};
@@ -1692,7 +1693,8 @@
     lastLogged = { id: r.id, label: `${r.substance_name}${r.amount != null ? ` ${describeAmount(r.substance_name, r.amount, r.unit, r)}` : ""}` };
     qSub = ""; qAmt = ""; qNote = "";
     qDetail = {};
-    if (res.warnings.length) lastWarnings = res.warnings;
+    const about = aboutDose(res.warnings, r.substance_name);
+    if (about.length) lastWarnings = about;
     await refreshSelected();
     await loadJournal();
   }

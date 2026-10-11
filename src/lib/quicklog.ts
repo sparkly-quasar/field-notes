@@ -37,6 +37,7 @@ import {
 } from "./api";
 import { deferStretch, NeedsComputerError } from "./offline";
 import { recentEntries } from "./arcs";
+import { aboutDose } from "./aboutdose";
 
 export interface QuickLogInput {
   substance: string;
@@ -112,7 +113,7 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
       amount: input.amount,
       unit: input.unit,
       ...(input.detail ?? {}),
-    }).catch(() => logged.warnings),
+    }).catch(() => aboutDose(logged.warnings, substance)),
     doseId: logged.dose.id,
     fresh,
   };
@@ -197,11 +198,12 @@ export async function allWarnings(
   const names = [...new Set(doses.map((d) => d.substance_name.trim()).filter(Boolean))];
   const wider = names.length > 1 ? await checkCombo(names, doses) : [];
 
-  // A pair is the same pair in either order: the entry's own check may report
-  // "Heroin + Alcohol" where the wider one says "Alcohol + Heroin", and showing the
-  // same danger twice reads as two dangers.
+  // Only pairs with this dose in them: the rest were shown when they were logged
+  // (aboutdose.ts). And a pair is the same pair in either order: the entry's own
+  // check may report "Heroin + Alcohol" where the wider one says "Alcohol + Heroin",
+  // and showing the same danger twice reads as two dangers.
   const seen = new Set<string>();
-  return [...own, ...wider].filter((w) => {
+  return aboutDose([...own, ...wider], substance).filter((w) => {
     const pair = [w.a, w.b].map((n) => n.trim().toLowerCase()).sort().join("|");
     const key = `${w.severity}|${pair}|${w.message}`;
     if (seen.has(key)) return false;
