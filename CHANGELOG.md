@@ -11,6 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.30.1
+
+- **Fewer, more relevant interaction warnings.** When you log a dose, you now
+  only see warnings about that dose. Pairs from earlier in the day, which you
+  were already shown when you logged them, no longer come back each time.
+- **"Good to know" notes only for doses that actually overlapped.** A low-level
+  note is no longer shown when two doses only meet in the extra hour the app
+  allows past each one's listed duration. "Use care" and "Higher risk" warnings
+  still count that hour, so a loosely timed dose isn't missed.
+
 ## v0.30.0
 
 - **Add how long something lasts.** When the dose reference has no timings for a
