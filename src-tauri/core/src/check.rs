@@ -75,14 +75,20 @@ pub struct TimedDose {
 /// Pairs that only meet once one of them is past its peak are softened rather than
 /// dropped (see [`soften_for_tail`]): the substance is fading, not gone, and for
 /// some pairs the fading is the risk.
+///
+/// A pair that is only ever a note, and only meets inside the margin, is dropped:
+/// the margin is there so a real risk isn't missed on a loose timestamp, and a
+/// note that needs it to fire is about a combination that, by the reference's own
+/// longest figures, didn't happen. Caution and danger keep the margin.
 pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning> {
     let mut names: Vec<String> = doses.iter().map(|d| d.name.clone()).collect();
     names.sort();
     names.dedup();
     let mut warnings = combo_warnings(r, &names);
 
-    // Each dose's windows, in minutes since the epoch: (name, taken, end of peak, end).
-    let windows: Vec<(String, f64, f64, f64)> = doses
+    // Each dose's windows, in minutes since the epoch:
+    // (name, taken, end of peak, end with the margin, end without it).
+    let windows: Vec<(String, f64, f64, f64, f64)> = doses
         .iter()
         .filter_map(|d| {
             let t = d.at_min?;
@@ -90,7 +96,7 @@ pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning>
             let dur = info.as_ref().and_then(|i| active_minutes(i, &d.route)).unwrap_or(UNKNOWN_DURATION_MIN);
             // No phase data: the whole window counts as the strong part.
             let peak = info.as_ref().and_then(|i| peak_end_minutes(i, &d.route)).map_or(dur, |p| p.min(dur));
-            Some((d.name.to_lowercase(), t, t + peak, t + dur + OVERLAP_MARGIN_MIN))
+            Some((d.name.to_lowercase(), t, t + peak, t + dur + OVERLAP_MARGIN_MIN, t + dur))
         })
         .collect();
     let of = |n: &str| windows.iter().filter(|w| w.0 == n.to_lowercase()).collect::<Vec<_>>();
@@ -103,6 +109,9 @@ pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning>
             return true;
         }
         if !wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.3, y.1, y.3))) {
+            return false;
+        }
+        if w.severity == "note" && !wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.4, y.1, y.4))) {
             return false;
         }
         let at_peak = wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.2, y.1, y.2)));
@@ -505,6 +514,31 @@ mod tests {
         let w = session_warnings(&bundled(), &[d("Amphetamine", 0.0), d("GHB", 7.0)]);
         assert!(!w.is_empty(), "{w:?}");
         assert!(w.iter().all(|w| !w.message.contains("past its peak")), "{w:?}");
+    }
+
+    /// When a dose taken at 0h stops counting as active, margin aside, in hours.
+    fn active_hours(r: &MemReference, name: &str) -> f64 {
+        active_minutes(&r.lookup(name).unwrap(), "oral").unwrap() / 60.0
+    }
+
+    #[test]
+    fn a_note_that_only_meets_in_the_margin_is_dropped() {
+        let r = bundled();
+        let end = active_hours(&r, "LSD");
+        let pair = |h: f64| session_warnings(&r, &[d("LSD", 0.0), d("Caffeine", h)]);
+        let inside = pair(end - 0.5);
+        assert!(!inside.is_empty() && inside.iter().all(|w| w.severity == "note"), "{inside:?}");
+        assert!(pair(end + 0.5).is_empty(), "{:?}", pair(end + 0.5));
+    }
+
+    #[test]
+    fn a_caution_keeps_the_margin() {
+        let r = bundled();
+        let end = active_hours(&r, "Dextroamphetamine");
+        let w = combo_warnings(&r, &["Dextroamphetamine".into(), "Caffeine".into()]);
+        assert!(w.iter().any(|w| w.severity == "caution"), "{w:?}");
+        let late = session_warnings(&r, &[d("Dextroamphetamine", 0.0), d("Caffeine", end + 0.5)]);
+        assert!(!late.is_empty(), "the margin still catches a caution: {late:?}");
     }
 
     #[test]
