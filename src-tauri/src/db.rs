@@ -1386,7 +1386,8 @@ fn with_my_figures(reference: Option<PwInfo>, mine: Option<MyTimings>, name: &st
         });
     };
     let mut used = false;
-    match info.roas.iter_mut().find(|r| r.name.eq_ignore_ascii_case(&mine.route)) {
+    let route = crate::pw::route_key(&mine.route);
+    match info.roas.iter_mut().find(|r| crate::pw::route_key(&r.name) == route) {
         Some(r) => {
             let mut fill = |slot: &mut Option<String>, from: &Option<String>| {
                 if slot.is_none() && from.is_some() {
@@ -1610,6 +1611,24 @@ mod tests {
         assert_eq!(got.roas.len(), 2);
         assert_eq!(got.roas[0].onset, None, "oral is the reference's alone again");
         assert_eq!(got.roas[1].common.min, None);
+    }
+
+    #[test]
+    fn your_own_im_timings_fill_the_references_im_route_however_its_spelled() {
+        // Ketamine's DoseWiki entry calls it "I.M."; the dose form says "IM".
+        let mut c = mem();
+        let mut reference = info("Ketamine", &[], &[], &[]);
+        let im = timings_roa(&MyTimings { route: "I.M.".into(), total: Some("1–2 hours".into()), ..Default::default() });
+        reference.roas = vec![im];
+        pw_replace_all(&mut c, &[reference]).unwrap();
+
+        let mine = MyTimings { route: "im".into(), come_up: Some("5 minutes".into()), offset: Some("1 hour".into()), ..Default::default() };
+        set_my_ref(&c, "Ketamine", &mine).unwrap();
+        let got = pw_lookup(&c, "Ketamine").unwrap().unwrap();
+        assert_eq!(got.roas.len(), 1, "no second IM route");
+        assert_eq!(got.roas[0].come_up.as_deref(), Some("5 minutes"));
+        assert_eq!(got.roas[0].total.as_deref(), Some("1–2 hours"));
+        assert!(got.mine);
     }
 
     #[test]

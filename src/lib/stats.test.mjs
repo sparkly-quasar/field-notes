@@ -2,7 +2,7 @@
 // `npm test`: where doses fall against bedtime (stats.ts), on the viewer's clock.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bedMinutes, closeToBed, hourBeforeBed, minutesBeforeBed } from "./stats.ts";
+import { bedMinutes, closeToBed, fisherP, hourBeforeBed, minutesBeforeBed } from "./stats.ts";
 
 const at = (h, m = 0) => new Date(2026, 8, 1, h, m).getTime();
 
@@ -59,4 +59,20 @@ test("sleep after a dose near bedtime, against other nights", async () => {
     near: { nights: 2, average: 2 },
     other: { nights: 2, average: 4.5 },
   });
+});
+
+test("Fisher's exact test: a change seen in a handful of entries isn't a pattern", () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-4, `${a} vs ${b}`);
+  // 2 of 30 lately against 1 of 3 before: easily chance.
+  near(fisherP(2, 30, 1, 3), 0.25587);
+  // Textbook tea-tasting: 3 of 4 against 1 of 4.
+  near(fisherP(3, 4, 1, 4), 0.48571);
+  // A real shift: 1 of 20 against 12 of 20.
+  assert.ok(fisherP(1, 20, 12, 20) < 0.001);
+  // Nothing to compare, or no difference at all.
+  assert.equal(fisherP(0, 5, 0, 5), 1);
+  assert.equal(fisherP(0, 0, 2, 3), 1);
+  near(fisherP(5, 10, 5, 10), 1);
+  // Hundreds of entries (a year of quick logs) don't overflow.
+  assert.ok(fisherP(30, 400, 80, 400) < 1e-5);
 });

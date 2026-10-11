@@ -13,7 +13,7 @@
 <script lang="ts">
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats } from "$lib/api";
-  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek } from "$lib/stats";
+  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek, fisherP } from "$lib/stats";
   import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
 
   let {
@@ -31,11 +31,18 @@
   const DAY = 86_400_000;
   const MIN_EACH = 3;
   const SHOW_FIRST = 4;
+  /** A share (redosing, combinations) changes only when a split this uneven
+   *  would be unlikely by chance (Fisher's exact test). With a handful of
+   *  entries, one either way moves the share a lot and means nothing. */
+  const P_MAX = 0.1;
+  /** Experiences drawn per period on a share card; the most recent are kept. */
+  const MAX_CELLS = 60;
 
   let data = $state<UsageStats | null>(null);
   let showAll = $state(false);
   let failed = $state(false);
-  /** What a tap opened: a bar or a dot (by index) on one card (by `tid`). */
+  /** What a tap opened: a bar or a dot (by index), or a square (by experience
+   *  id), on one card (by `tid`). */
   let pick = $state<{ card: string; i: number } | null>(null);
 
   const now = Date.now();
@@ -75,7 +82,8 @@
     | { kind: "often"; key: string | null; title: string; text: string; up: boolean; buckets: Bucket[]; before: number; lately: number; unit: string }
     | { kind: "gaps"; key: string; title: string; text: string; up: boolean; times: number[]; ids: number[]; note: string }
     | { kind: "dose"; key: string; title: string; text: string; up: boolean; unit: string; points: { t: number; v: number; id: number }[]; note: string | null }
-    | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; cells: { id: number; on: boolean; n: number | null; recent: boolean }[]; legend: string };
+    | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; rows: ChipRow[]; legend: string; what: (n: number) => string };
+  type ChipRow = { label: string; total: number; cells: { id: number; on: boolean; n: number }[] };
 
   /** Months for a long window, weeks for a short one, empty buckets included. */
   function buckets(times: number[]): { list: Bucket[]; unit: string } {
@@ -99,6 +107,15 @@
   }
 
   const changed = (before: number, lately: number, by = 1.5) => lately >= before * by || lately * by <= before;
+
+  /** The two periods as rows of every experience, the most recent kept if
+   *  there are more than fit. `n`: what the filled ones count. */
+  function chipRows(before: Exp[], lately: Exp[], on: (e: Exp) => boolean, n: (e: Exp) => number): ChipRow[] {
+    const row = (label: string, xs: Exp[]): ChipRow => ({
+      label, total: xs.length, cells: xs.slice(-MAX_CELLS).map((e) => ({ id: e.id, on: on(e), n: n(e) })),
+    });
+    return [row(`The ${periodWord} before`, before), row(`Last ${periodWord}`, lately)];
+  }
 
   const trends = $derived.by((): Trend[] => {
     if (!data) return [];
@@ -139,7 +156,7 @@
         out.push({
           kind: "gaps", key: k, up: !closer, times: mine.map((e) => e.t), ids: mine.map((e) => e.id),
           title: `${label(k)} experiences are ${closer ? "closer together" : "further apart"}`,
-          text: `Typically ${fmtNum(Math.round(gL))} days apart lately, ${fmtNum(Math.round(gB))} days before.`,
+          text: `Typically ${plural(Math.round(gL), "day")} apart lately, ${plural(Math.round(gB), "day")} before.`,
           note: closer ? "Closer together, more of the tolerance from one carries into the next, so the same amount does less." : "",
         });
       }
@@ -172,17 +189,17 @@
 
       // Redosing: the share of experiences with more than one dose of it.
       const dosesIn = (id: number) => sub.series.reduce((n, u) => n + u.points.filter((p) => p.experience_id === id).length, 0);
-      const share = (xs: Exp[]) => xs.filter((e) => dosesIn(e.id) > 1).length / xs.length;
-      const sB = share(before), sL = share(lately);
-      if (Math.abs(sL - sB) >= 0.25) {
-        const take = (xs: Exp[]) => xs.slice(-6);
-        const count = (xs: Exp[]) => xs.filter((e) => dosesIn(e.id) > 1).length;
+      const redosed = (e: Exp) => dosesIn(e.id) > 1;
+      const cB = before.filter(redosed).length, cL = lately.filter(redosed).length;
+      const sB = cB / before.length, sL = cL / lately.length;
+      if (Math.abs(sL - sB) >= 0.25 && fisherP(cL, lately.length, cB, before.length) < P_MAX) {
         out.push({
           kind: "chips", key: k, up: sL > sB,
-          cells: [...take(before), ...take(lately)].map((e) => ({ id: e.id, on: dosesIn(e.id) > 1, n: dosesIn(e.id), recent: recent(e.t) })),
+          rows: chipRows(before, lately, redosed, (e) => dosesIn(e.id)),
           title: `${sL > sB ? "More" : "Fewer"} ${label(k)} redoses`,
-          text: `Redosed in ${count(lately)} of ${lately.length} ${label(k)} experiences lately, ${count(before)} of ${before.length} before.`,
-          legend: "Filled: redosed (number = doses that day)",
+          text: `Redosed in ${cL} of ${lately.length} ${label(k)} experiences in the last ${periodWord}, against ${cB} of ${before.length} in the ${periodWord} before.`,
+          legend: "Each square is one experience. Filled: redosed, with how many doses.",
+          what: (n) => plural(n, "dose"),
         });
       }
     }
@@ -191,17 +208,17 @@
     if (!focus) {
       const before = experiences.filter((e) => !recent(e.t)), lately = experiences.filter((e) => recent(e.t));
       if (before.length >= MIN_EACH && lately.length >= MIN_EACH) {
-        const share = (xs: Exp[]) => xs.filter((e) => e.subs.length > 1).length / xs.length;
-        const sB = share(before), sL = share(lately);
-        if (Math.abs(sL - sB) >= 0.25) {
-          const take = (xs: Exp[]) => xs.slice(-6);
-          const count = (xs: Exp[]) => xs.filter((e) => e.subs.length > 1).length;
+        const combined = (e: Exp) => e.subs.length > 1;
+        const cB = before.filter(combined).length, cL = lately.filter(combined).length;
+        const sB = cB / before.length, sL = cL / lately.length;
+        if (Math.abs(sL - sB) >= 0.25 && fisherP(cL, lately.length, cB, before.length) < P_MAX) {
           out.push({
             kind: "chips", key: null, up: sL > sB,
-            cells: [...take(before), ...take(lately)].map((e) => ({ id: e.id, on: e.subs.length > 1, n: e.subs.length, recent: recent(e.t) })),
+            rows: chipRows(before, lately, combined, (e) => e.subs.length),
             title: `${sL > sB ? "More" : "Fewer"} combinations lately`,
-            text: `${count(lately)} of ${lately.length} experiences lately had more than one substance, ${count(before)} of ${before.length} before.`,
-            legend: "Filled: more than one substance (number = how many)",
+            text: `${cL} of ${lately.length} experiences in the last ${periodWord} had more than one substance, against ${cB} of ${before.length} in the ${periodWord} before.`,
+            legend: "Each square is one experience. Filled: more than one substance, with how many.",
+            what: (n) => plural(n, "substance"),
           });
         }
       }
@@ -350,14 +367,26 @@
           {/if}
           {#if tr.note}<p class="note">{tr.note}</p>{/if}
         {:else}
-          <div class="cells">
-            {#each tr.cells as c, i}
-              {#if i > 0 && c.recent && !tr.cells[i - 1].recent}<span class="sep" aria-hidden="true"></span>{/if}
-              <button class="cell" class:on={c.on} onclick={() => onOpen?.(c.id)}
-                aria-label="{c.on ? 'Yes' : 'No'}, {c.n}. Open this experience">{c.n}</button>
-            {/each}
-          </div>
-          <p class="note">{tr.legend}. Older on the left; tap one to open it.</p>
+          {#each tr.rows as row}
+            <div class="row-h">
+              <span>{row.label}</span>
+              <span>{row.total > row.cells.length ? `last ${row.cells.length} of ` : ""}{plural(row.total, "experience")}</span>
+            </div>
+            <div class="cells">
+              {#each row.cells as c (c.id)}
+                {@const e = byId.get(c.id)}
+                <button class="cell" class:on={c.on} class:sel={picked(tr, c.id)} onclick={() => toggle(tr, c.id)}
+                  aria-label="{e ? new Date(e.t).toLocaleDateString() : 'Experience'}: {tr.what(c.n)}">{c.on ? c.n : ""}</button>
+              {/each}
+            </div>
+          {/each}
+          {#if pick?.card === tid(tr) && byId.get(pick.i)}
+            {@const e = byId.get(pick.i)!}
+            {@const n = tr.rows.flatMap((r) => r.cells).find((c) => c.id === e.id)?.n ?? 0}
+            <StatsPick heading={new Date(e.t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+              note={tr.what(n)} items={items([e.id])} {onOpen} onClose={() => (pick = null)} />
+          {/if}
+          <p class="note">{tr.legend} Oldest first; tap one to see it.</p>
         {/if}
       </article>
     {/each}
@@ -404,9 +433,11 @@
   .legend { display: flex; gap: 0.9rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--tr-muted); margin-top: 0.3rem; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 0.3rem; vertical-align: -1px; background: var(--tr-accent); }
   .sw.before { background: var(--tr-surface-2); border: 1.5px solid var(--tr-edge); }
-  .cells { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .cell { width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 8px; border: 1.5px solid var(--tr-edge); background: transparent; color: var(--tr-muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .row-h { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.82rem; color: var(--tr-muted); margin: 0.55rem 0 0.3rem; }
+  .row-h span:first-child { color: var(--tr-text); font-weight: 600; }
+  .cells { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .cell { width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 6px; border: 1.5px solid var(--tr-edge); background: transparent; color: var(--tr-muted); font: inherit; font-size: 0.75rem; cursor: pointer; }
   .cell.on { background: var(--tr-accent); border-color: var(--tr-accent); color: var(--on-accent, var(--accent-ink, #0c0e12)); font-weight: 700; }
-  .sep { width: 1px; align-self: stretch; background: var(--tr-line); margin: 0 4px; }
+  .cell.sel { outline: 2px solid var(--tr-text); outline-offset: 1px; }
   .link { background: none; border: 0; color: var(--tr-accent); font: inherit; font-size: 0.92rem; font-weight: 600; padding: 0.3rem 0; min-height: 40px; cursor: pointer; }
 </style>

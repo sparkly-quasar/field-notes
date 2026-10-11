@@ -23,6 +23,18 @@ const EXTRA_ALIASES: &[(&str, &[&str])] = &[
     ("Dextroamphetamine", &["dexamp"]),
 ];
 
+/// A route's name as one spelling, for matching a logged route against the
+/// reference's: the form's "IM" and DoseWiki's "I.M." and "Intramuscular" are the
+/// same route.
+pub fn route_key(route: &str) -> String {
+    let r: String = route.chars().filter(|c| !c.is_whitespace() && *c != '.').collect::<String>().to_lowercase();
+    match r.as_str() {
+        "im" | "intramuscular" => "intramuscular".into(),
+        "iv" | "intravenous" => "intravenous".into(),
+        _ => r,
+    }
+}
+
 // ---- slimmed DoseWiki JSON shapes (see data/dosewiki/slim.py) ----
 
 #[derive(Deserialize)]

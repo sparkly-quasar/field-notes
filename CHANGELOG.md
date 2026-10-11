@@ -11,6 +11,30 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.30.2
+
+- **A locked journal on the phone now asks for your password.** If you share a
+  server and it restarted while your phone had entries waiting to send, the
+  phone said "Your computer can't be reached" and never showed the password
+  screen, so nothing could be sent. Now it shows the password screen, and
+  everything that was waiting is sent once you unlock.
+- **Doses logged as IM now get their arc.** "IM" didn't match the dose
+  reference's intramuscular route (ketamine's is written "I.M."), so the dose
+  had no timings or dose level and showed as "No duration data", even after you
+  added your own timings. It now uses the reference's intramuscular figures,
+  with your own timings filling any gaps.
+- **IM doses are no longer drawn on IV timings.** When the reference has no
+  intramuscular figures for something (morphine or hydromorphone, say), an IM
+  dose used to borrow the IV ones, which start and end sooner, so the arc could
+  end while the dose was still active. Now it shows "No duration data" and lets
+  you add how long it lasts. Combination warnings count it for the longest
+  duration the reference gives.
+- **Clearer redosing and combination trends in Stats.** These cards now appear
+  only when the change is unlikely to be chance, so a handful of entries in one
+  period no longer produces a "trend". When one shows, every experience in both
+  periods is drawn in two labelled rows, with the substance or dose count only
+  on the filled ones, and tapping one shows it before opening it.
+
 ## v0.30.1
 
 - **Fewer, more relevant interaction warnings.** When you log a dose, you now
