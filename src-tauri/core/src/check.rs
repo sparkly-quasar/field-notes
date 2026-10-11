@@ -139,11 +139,11 @@ fn max_minutes(s: &str) -> Option<f64> {
 }
 
 /// The reference's entry for a route, however it's spelled ("IM", "I.M.",
-/// "Intramuscular"), with IM read as IV when the reference lists no IM route.
+/// "Intramuscular"). Never another route's: IV figures run shorter than IM, so
+/// a route the reference lacks falls to the longest duration it gives instead.
 fn roa<'a>(info: &'a PwInfo, route: &str) -> Option<&'a crate::pw::PwRoa> {
     let want = crate::pw::route_key(route);
-    let find = |k: &str| info.roas.iter().find(|r| crate::pw::route_key(&r.name) == k);
-    find(&want).or_else(|| if want == "intramuscular" { find("intravenous") } else { None })
+    info.roas.iter().find(|r| crate::pw::route_key(&r.name) == want)
 }
 
 /// How long a dose of this lasts by the reference's "total" for the route, longest
@@ -514,6 +514,16 @@ mod tests {
     /// When a dose taken at 0h stops counting as active, margin aside, in hours.
     fn active_hours(r: &MemReference, name: &str) -> f64 {
         active_minutes(&r.lookup(name).unwrap(), "oral").unwrap() / 60.0
+    }
+
+    #[test]
+    fn an_im_dose_uses_the_im_route_or_the_longest_never_iv() {
+        let r = bundled();
+        // Ketamine's reference writes it "I.M.": 1–2 hours.
+        assert_eq!(active_minutes(&r.lookup("Ketamine").unwrap(), "IM"), Some(120.0));
+        // Hydromorphone lists no IM route. IV's 3–4 hours would end it early;
+        // the longest it gives (oral, insufflated: 4–6 hours) stands in.
+        assert_eq!(active_minutes(&r.lookup("Hydromorphone").unwrap(), "IM"), Some(360.0));
     }
 
     #[test]

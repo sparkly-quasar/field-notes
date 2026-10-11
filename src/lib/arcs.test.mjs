@@ -67,11 +67,12 @@ test("reference durations read as hours, whatever the unit", () => {
   assert.equal(parseSpan("2-4"), null, "no unit, no guess");
 });
 
-test("a route is matched by name, IM as IV, and never swapped for another", () => {
+test("a route is matched by name and never swapped for another", () => {
   const iv = { ...MDMA.roas[0], name: "Intravenous" };
   const inf = { ...MDMA, roas: [MDMA.roas[0], iv] };
   assert.equal(routeFor(inf, "Oral").name, "oral");
-  assert.equal(routeFor(inf, "IM").name, "Intravenous");
+  assert.equal(routeFor(inf, "IV").name, "Intravenous");
+  assert.equal(routeFor(inf, "IM"), null, "IM is never drawn on IV's timings");
   assert.equal(routeFor(inf, "").name, "oral", "no route logged: the first listed");
   assert.equal(routeFor(inf, "smoked"), null);
 });
@@ -80,7 +81,7 @@ test("IM finds the reference's intramuscular route however it's spelled", () => 
   // Ketamine's DoseWiki entry calls it "I.M."; others say "Intramuscular".
   const im = { ...MDMA.roas[0], name: "I.M." };
   const iv = { ...MDMA.roas[0], name: "Intravenous" };
-  assert.equal(routeFor({ ...MDMA, roas: [MDMA.roas[0], iv, im] }, "IM").name, "I.M.", "its own route before IV");
+  assert.equal(routeFor({ ...MDMA, roas: [MDMA.roas[0], iv, im] }, "IM").name, "I.M.");
   assert.equal(routeFor({ ...MDMA, roas: [{ ...im, name: "Intramuscular" }] }, "im").name, "Intramuscular");
   assert.equal(routeFor({ ...MDMA, roas: [im] }, "intramuscular").name, "I.M.");
   assert.equal(routeFor({ ...MDMA, roas: [MDMA.roas[0], im] }, "IV"), null, "IV is never read as IM");

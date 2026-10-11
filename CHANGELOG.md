@@ -23,6 +23,12 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   had no timings or dose level and showed as "No duration data", even after you
   added your own timings. It now uses the reference's intramuscular figures,
   with your own timings filling any gaps.
+- **IM doses are no longer drawn on IV timings.** When the reference has no
+  intramuscular figures for something (morphine or hydromorphone, say), an IM
+  dose used to borrow the IV ones, which start and end sooner, so the arc could
+  end while the dose was still active. Now it shows "No duration data" and lets
+  you add how long it lasts. Combination warnings count it for the longest
+  duration the reference gives.
 
 ## v0.30.1
 

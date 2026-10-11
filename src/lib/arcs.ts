@@ -65,15 +65,14 @@ export function routeKey(route: string): string {
 }
 
 /** The reference's entry for the route a dose was logged by: the same route by
- *  name (however it's spelled), IM read as IV when the reference has no
- *  intramuscular route, as the combination check does, or the first route
- *  listed when no route was logged. */
+ *  name (however it's spelled), or the first route listed when no route was
+ *  logged. Never another route's: IV timings run faster and shorter than IM, so
+ *  an IM dose drawn on them would end while it may still be active. */
 export function routeFor(info: PwInfo | null, route: string): PwRoa | null {
   if (!info || !info.roas.length) return null;
   const want = routeKey(route);
   if (!want) return info.roas[0];
-  const find = (k: string) => info.roas.find((x) => routeKey(x.name) === k) ?? null;
-  return find(want) ?? (want === "intramuscular" ? find("intravenous") : null);
+  return info.roas.find((x) => routeKey(x.name) === want) ?? null;
 }
 
 // ---- how a second dose behaves
