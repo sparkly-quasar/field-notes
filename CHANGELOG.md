@@ -29,6 +29,11 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   end while the dose was still active. Now it shows "No duration data" and lets
   you add how long it lasts. Combination warnings count it for the longest
   duration the reference gives.
+- **Clearer redosing and combination trends in Stats.** These cards now appear
+  only when the change is unlikely to be chance, so a handful of entries in one
+  period no longer produces a "trend". When one shows, every experience in both
+  periods is drawn in two labelled rows, with the substance or dose count only
+  on the filled ones, and tapping one shows it before opening it.
 
 ## v0.30.1
 

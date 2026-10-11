@@ -103,6 +103,32 @@ export function median(xs: number[]): number | null {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+const logFact = (n: number) => {
+  let s = 0;
+  for (let i = 2; i <= n; i++) s += Math.log(i);
+  return s;
+};
+
+/**
+ * Two-sided Fisher's exact test: how likely a split at least this uneven is
+ * when the two groups don't really differ. `a` of `n1` in one group, `b` of `n2`
+ * in the other. Exact at any size, so it holds for the handful of entries Trends
+ * starts from.
+ */
+export function fisherP(a: number, n1: number, b: number, n2: number): number {
+  const k = a + b, n = n1 + n2;
+  if (!n1 || !n2 || k === 0 || k === n) return 1;
+  const base = logFact(n1) + logFact(n2) + logFact(k) + logFact(n - k) - logFact(n);
+  const p = (x: number) => Math.exp(base - logFact(x) - logFact(n1 - x) - logFact(k - x) - logFact(n2 - k + x));
+  const seen = p(a) * (1 + 1e-7);
+  let sum = 0;
+  for (let x = Math.max(0, k - n2); x <= Math.min(k, n1); x++) {
+    const px = p(x);
+    if (px <= seen) sum += px;
+  }
+  return Math.min(1, sum);
+}
+
 /** A "nice" axis maximum and tick step for 0..max. */
 export function niceScale(max: number, ticks = 4): { max: number; step: number } {
   if (!(max > 0)) return { max: 1, step: 1 };
