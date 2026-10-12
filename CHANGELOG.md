@@ -11,6 +11,18 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.30.3
+
+- **After-effects now continue the arc.** The dotted after-effects line used to
+  start back at the bottom of the chart, apart from where the solid line ended.
+  It now picks up exactly where the solid line leaves off and eases down, so
+  each arc reads as one smooth line.
+- **A line no longer starts before its dose.** If you'd taken the same
+  substance in the last two days, its line on Today was drawn flat along the
+  bottom from that earlier dose, so it looked as if tonight's dose had started
+  hours before you took it. Lines are now drawn only where something is
+  counting.
+
 ## v0.30.2
 
 - **A locked journal on the phone now asks for your password.** If you share a

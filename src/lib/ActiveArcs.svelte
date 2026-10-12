@@ -140,6 +140,20 @@
     const y = (v: number) => m.t + (1 - v) * ph;
     const step = Math.max(60_000, (t1 - t0) / (pw / 2));
     const pts = (list: [number, number][]) => "M" + list.map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L");
+    // A line only where something is counting: a stretch along the baseline
+    // (before a dose, or between a finished dose and the next) isn't drawn, so
+    // an earlier, long-finished dose doesn't pull the line back to its time.
+    const above = (b: number) => b < y(0) - 0.5;
+    const live = (list: [number, number][]) => {
+      let d = "";
+      let pen = false;
+      list.forEach(([a, b], i) => {
+        const on = above(b) || (i > 0 && above(list[i - 1][1])) || (i < list.length - 1 && above(list[i + 1][1]));
+        if (on) d += `${pen ? "L" : "M"}${a.toFixed(1)},${b.toFixed(1)}`;
+        pen = on;
+      });
+      return d;
+    };
     // Round the knees where a line takes off or levels out. The blur is measured
     // in time, so the phone and the desktop look alike, and follows the nearest
     // come-up or comedown: 30% of its length, kept between 10 and 25 minutes so a
@@ -192,12 +206,17 @@
       const tick = s.doses.map((d) => ({ x: x(d.at), future: d.at > minute }));
       const hasFuture = s.doses.some((d) => d.at > minute);
       if (s.kind === "drinks") {
-        if (hasFuture) base.preview = pts(drinksTrack(s, t1, Infinity, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
+        if (hasFuture) base.preview = live(drinksTrack(s, t1, Infinity, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
         if (lastNow) {
           const clear = drinksClearAt(s, minute);
-          base.line = pts(drinksTrack(s, clear ? Math.min(t1, clear) : t1, minute, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
+          base.line = live(drinksTrack(s, clear ? Math.min(t1, clear) : t1, minute, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
           const after = s.stages.after;
-          if (clear && after) base.tail = tailPath(x, y, clear, clear + ((after[0] + after[1]) / 2) * 3_600_000, t1);
+          if (clear && after) {
+            const until = clear + ((after[0] + after[1]) / 2) * 3_600_000;
+            const tail: [number, number][] = [];
+            for (let t = clear; t <= Math.min(t1, until); t += step) tail.push([x(t), y(afterLift(t, clear, clear + 15 * 60_000, until))]);
+            if (tail.length > 1) base.tail = pts(tail);
+          }
         }
       } else if (s.kind === "shape") {
         const start = s.doses[0].at;
@@ -207,31 +226,42 @@
           const end = Math.min(t1, s.doses.at(-1)!.at + slow.off * 3_600_000);
           const p: [number, number][] = [];
           for (let t = start; t <= end; t += step) p.push([x(t), y(heightFor(s, combined(s, t, 0.5, Infinity)))]);
-          base.preview = pts(soft(p, s, s.doses.map((d) => d.at)));
+          base.preview = live(soft(p, s, s.doses.map((d) => d.at)));
         }
         if (lastNow) {
           const solidEnd = lastNow.at + mid.off * 3_600_000;
           const end = Math.min(t1, lastNow.at + slow.off * 3_600_000);
+          // The middle line runs on through the after-effects, so the dotted
+          // tail is the same curve as the solid line, not a second one.
+          const tailUntil = s.stages.after ? lastNow.at + mid.after * 3_600_000 : 0;
+          const lineEnd = Math.min(t1, Math.max(end, tailUntil));
+          const peakEnd = lastNow.at + mid.peak * 3_600_000;
           const middle: [number, number][] = [];
           let up: [number, number][] = [];
           let dn: [number, number][] = [];
           let solid = 0;
-          for (let t = start; t <= end; t += step) {
-            const a = combined(s, t, 0, minute);
-            const b = combined(s, t, 1, minute);
-            up.push([x(t), y(heightFor(s, Math.max(a, b)))]);
-            dn.push([x(t), y(heightFor(s, Math.min(a, b)))]);
-            middle.push([x(t), y(heightFor(s, combined(s, t, 0.5, minute)))]);
+          for (let t = start; t <= lineEnd; t += step) {
+            if (t <= end) {
+              const a = combined(s, t, 0, minute);
+              const b = combined(s, t, 1, minute);
+              up.push([x(t), y(heightFor(s, Math.max(a, b)))]);
+              dn.push([x(t), y(heightFor(s, Math.min(a, b)))]);
+            }
+            const h = heightFor(s, combined(s, t, 0.5, minute));
+            middle.push([x(t), y(tailUntil ? Math.max(h, afterLift(t, peakEnd, solidEnd, tailUntil)) : h)]);
             if (t <= solidEnd) solid++;
           }
-          // Softened whole, then cut, so the solid line ends where it would have.
+          // Softened whole, then cut, so the solid line ends where it would have
+          // and the dotted tail picks up from its last point.
           const taken = s.doses.filter((d) => d.at <= minute).map((d) => d.at);
-          const line = soft(middle, s, taken).slice(0, solid);
+          const softened = soft(middle, s, taken);
+          const line = softened.slice(0, solid);
           up = soft(up, s, taken);
           dn = soft(dn, s, taken);
-          base.line = line.length ? pts(line) : "";
+          base.line = live(line);
           base.band = up.length ? pts(up) + "L" + dn.reverse().map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L") + "Z" : "";
-          if (s.stages.after) base.tail = tailPath(x, y, Math.min(solidEnd, t1), lastNow.at + mid.after * 3_600_000, t1);
+          const rest = softened.slice(Math.max(0, solid - 1));
+          if (tailUntil && rest.length > 1) base.tail = live(rest);
         }
       } else if (s.kind === "block" && lastNow) {
         const on = s.stages.onset ? ((s.stages.onset[0] + s.stages.onset[1]) / 2) * 3_600_000 : 0;
@@ -269,13 +299,15 @@
     };
   });
 
-  function tailPath(x: (t: number) => number, y: (v: number) => number, from: number, until: number, t1: number): string {
+  /** The after-effects' height at `t`: easing up from nothing at `from` to a
+   *  low lift by `full`, then easing back down to nothing by `until`. Drawing
+   *  only; after-effects aren't dose. */
+  function afterLift(t: number, from: number, full: number, until: number): number {
     const lift = 0.06;
-    const rise = from + 15 * 60_000;
-    const end = Math.min(t1, until);
-    if (end <= rise) return "";
-    const frac = Math.max(0, 1 - (end - rise) / Math.max(1, until - rise));
-    return `M${x(from)},${y(0)}L${x(rise)},${y(lift)}L${x(end)},${y(lift * frac)}`;
+    const ease = (v: number) => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
+    if (t <= from || t >= until) return 0;
+    if (t < full) return lift * ease((t - from) / Math.max(1, full - from));
+    return lift * (1 - ease((t - full) / Math.max(1, until - full)));
   }
 
   const rows = $derived(
