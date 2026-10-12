@@ -140,6 +140,20 @@
     const y = (v: number) => m.t + (1 - v) * ph;
     const step = Math.max(60_000, (t1 - t0) / (pw / 2));
     const pts = (list: [number, number][]) => "M" + list.map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L");
+    // A line only where something is counting: a stretch along the baseline
+    // (before a dose, or between a finished dose and the next) isn't drawn, so
+    // an earlier, long-finished dose doesn't pull the line back to its time.
+    const above = (b: number) => b < y(0) - 0.5;
+    const live = (list: [number, number][]) => {
+      let d = "";
+      let pen = false;
+      list.forEach(([a, b], i) => {
+        const on = above(b) || (i > 0 && above(list[i - 1][1])) || (i < list.length - 1 && above(list[i + 1][1]));
+        if (on) d += `${pen ? "L" : "M"}${a.toFixed(1)},${b.toFixed(1)}`;
+        pen = on;
+      });
+      return d;
+    };
     // Round the knees where a line takes off or levels out. The blur is measured
     // in time, so the phone and the desktop look alike, and follows the nearest
     // come-up or comedown: 30% of its length, kept between 10 and 25 minutes so a
@@ -192,10 +206,10 @@
       const tick = s.doses.map((d) => ({ x: x(d.at), future: d.at > minute }));
       const hasFuture = s.doses.some((d) => d.at > minute);
       if (s.kind === "drinks") {
-        if (hasFuture) base.preview = pts(drinksTrack(s, t1, Infinity, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
+        if (hasFuture) base.preview = live(drinksTrack(s, t1, Infinity, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
         if (lastNow) {
           const clear = drinksClearAt(s, minute);
-          base.line = pts(drinksTrack(s, clear ? Math.min(t1, clear) : t1, minute, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
+          base.line = live(drinksTrack(s, clear ? Math.min(t1, clear) : t1, minute, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
           const after = s.stages.after;
           if (clear && after) {
             const until = clear + ((after[0] + after[1]) / 2) * 3_600_000;
@@ -212,7 +226,7 @@
           const end = Math.min(t1, s.doses.at(-1)!.at + slow.off * 3_600_000);
           const p: [number, number][] = [];
           for (let t = start; t <= end; t += step) p.push([x(t), y(heightFor(s, combined(s, t, 0.5, Infinity)))]);
-          base.preview = pts(soft(p, s, s.doses.map((d) => d.at)));
+          base.preview = live(soft(p, s, s.doses.map((d) => d.at)));
         }
         if (lastNow) {
           const solidEnd = lastNow.at + mid.off * 3_600_000;
@@ -244,10 +258,10 @@
           const line = softened.slice(0, solid);
           up = soft(up, s, taken);
           dn = soft(dn, s, taken);
-          base.line = line.length ? pts(line) : "";
+          base.line = live(line);
           base.band = up.length ? pts(up) + "L" + dn.reverse().map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L") + "Z" : "";
           const rest = softened.slice(Math.max(0, solid - 1));
-          if (tailUntil && rest.length > 1) base.tail = pts(rest);
+          if (tailUntil && rest.length > 1) base.tail = live(rest);
         }
       } else if (s.kind === "block" && lastNow) {
         const on = s.stages.onset ? ((s.stages.onset[0] + s.stages.onset[1]) / 2) * 3_600_000 : 0;
