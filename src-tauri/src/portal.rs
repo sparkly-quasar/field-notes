@@ -293,8 +293,11 @@ fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut r
         // unlock itself, and everything that needs no journal (Help, the
         // combination checker), still answers while it's locked.
         let locked = people.as_ref().and_then(|p| p.db(who.person)).is_none_or(|d| !d.is_unlocked());
-        // Owner-only commands fall through to dispatch's 403, locked or not.
-        if locked && !LOCKED_OK.contains(&command) && !OWNER_ONLY.contains(&command) {
+        // Owner-only commands fall through to dispatch's 403, locked or not, as do
+        // updates while the owner hasn't let others install them.
+        let refused = OWNER_ONLY.contains(&command)
+            || (OWNER_UNLESS_ALLOWED.contains(&command) && !others_may_update(app));
+        if locked && !LOCKED_OK.contains(&command) && !refused {
             let _ = req.respond(json_response(
                 503,
                 json!({ "error": "Your journal is locked. Unlock it with your password.", "locked": true }),
@@ -466,7 +469,8 @@ pub const EXPOSED: &[&str] = &[
     // that installs software: it's off until enabled at the computer, refuses
     // unless the server will come back by itself, and installs only a signed
     // release from the app's own update URL. See `server_update.rs`. The switch
-    // that enables it, `set_phone_can_update`, is deliberately absent.
+    // that enables it, `set_phone_can_update`, is deliberately absent, as is
+    // `set_others_can_update`, which extends it to other people's devices.
     "server_update_status",
     "server_update_install",
     "list_substances",
@@ -566,10 +570,19 @@ pub const EXPOSED: &[&str] = &[
     "tag_sent",
 ];
 
-/// Exposed to the owner's devices only. Installing an update restarts everyone's
-/// server, so only the owner may do it from a phone.
-pub const OWNER_ONLY: &[&str] =
-    &["server_update_status", "server_update_install", "owner_device_auth", "tag_set_owner_name"];
+/// Exposed to the owner's devices only.
+pub const OWNER_ONLY: &[&str] = &["owner_device_auth", "tag_set_owner_name"];
+
+/// Installing an update restarts everyone's server, so other people's devices
+/// reach these only once the owner allows it at the computer (`others_can_update`,
+/// on top of `phone_can_update`). Until then they're as unreachable as OWNER_ONLY.
+pub const OWNER_UNLESS_ALLOWED: &[&str] = &["server_update_status", "server_update_install"];
+
+/// The owner has let other people's devices install updates (OWNER_UNLESS_ALLOWED).
+fn others_may_update<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let p = app.state::<crate::prefs::Prefs>().get();
+    p.phone_can_update && p.others_can_update
+}
 
 /// Exposed to other people's devices only. The owner's journal unlocks at the desk,
 /// as it always has. (The owner may pair from a phone, but only with the journal's
@@ -627,6 +640,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
     if (is_owner && OTHERS_ONLY.contains(&command)) || (!is_owner && OWNER_ONLY.contains(&command)) {
         return Err(DispatchError::NotExposed);
     }
+    if !is_owner && OWNER_UNLESS_ALLOWED.contains(&command) && !others_may_update(app) {
+        return Err(DispatchError::NotExposed);
+    }
     // Whose journal. The owner's is the app's own `Db`; anyone else's comes from
     // `People`, by the person on the device record.
     let owner_db = app.state::<Db>();
@@ -654,10 +670,12 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "usage_stats" => done(commands::usage_stats_in(db, arg(&args, "since")?)),
         "offline_reference" => crate::pw::read_bundled(app).map(Value::String).map_err(DispatchError::Failed),
         "offline_corpus" => crate::knowledge::read_bundled(app).map(Value::String).map_err(DispatchError::Failed),
-        "server_update_status" => ok(crate::server_update::status(app)),
-        "server_update_install" => {
-            done(crate::server_update::install(app, arg::<Option<bool>>(&args, "anyway")?.unwrap_or(false)))
-        }
+        "server_update_status" => ok(crate::server_update::status(app, who.person)),
+        "server_update_install" => done(crate::server_update::install(
+            app,
+            who.person,
+            arg::<Option<bool>>(&args, "anyway")?.unwrap_or(false),
+        )),
         "list_substances" => done(commands::list_substances_in(db)),
         "db_status" => match &theirs {
             None => ok(commands::db_status(owner_db)),
@@ -1111,6 +1129,7 @@ mod tests {
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
         app.manage(crate::prefs::Prefs::load(dir.join("server.json")));
+        app.manage(crate::server_update::ServerUpdate::default());
         app.manage(crate::owner_auth::OwnerAuth::new(dir.join("phone_pin.json")));
         let people = People::load(&dir);
         let sam = people.add("Sam").unwrap();
@@ -1282,9 +1301,16 @@ mod tests {
     #[test]
     fn people_reach_only_their_own_commands_and_their_own_devices() {
         let (app, port, owner, sam) = serving_two();
-        // Only the owner may install an update; only others unlock from a phone.
+        // Only the owner may install an update until they let others; only others
+        // unlock from a phone.
         assert_eq!(post(port, "server_update_install", Some(&sam), json!({})).0, 403);
         assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
+        // Letting others alone isn't enough: phones installing has to be on too.
+        app.state::<crate::prefs::Prefs>().update(|p| p.others_can_update = true).unwrap();
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
+        app.state::<crate::prefs::Prefs>().update(|p| p.phone_can_update = true).unwrap();
+        // Allowed, but a locked journal unlocks first: nobody proved who's holding it.
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 503);
         assert_eq!(post(port, "person_unlock", Some(&owner), json!({ "password": "correct horse battery" })).0, 403);
         // The owner may pair from a phone, but only with the journal's password or
         // the phone PIN (owner_auth.rs); none is set here, so it's refused.
@@ -1296,6 +1322,12 @@ mod tests {
         assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
         let (_, body) = post(port, "my_devices", Some(&sam), json!({}));
         assert!(body.contains("Sam phone") && !body.contains("Owner phone"), "{body}");
+        // Unlocked and allowed, Sam can ask; with nothing waiting, install is refused
+        // by the updater's own rules rather than hidden.
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 200);
+        assert_eq!(post(port, "server_update_install", Some(&sam), json!({ "anyway": true })).0, 400);
+        app.state::<crate::prefs::Prefs>().update(|p| p.others_can_update = false).unwrap();
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
         let list: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(list[0]["this"], true, "the asking device is marked as itself");
 
@@ -1728,6 +1760,7 @@ mod tests {
         assert!(EXPOSED.contains(&"server_update_status"));
         assert!(EXPOSED.contains(&"server_update_install"));
         assert!(!EXPOSED.contains(&"set_phone_can_update"));
+        assert!(!EXPOSED.contains(&"set_others_can_update"));
         assert!(!EXPOSED.contains(&"set_server_prefs"));
         assert!(!EXPOSED.contains(&"set_menu_bar"));
     }

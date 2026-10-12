@@ -726,10 +726,8 @@
     sheet = "me";
     ownerPw = "";
     keptCleared = false;
-    if (!isOther) {
-      ownerDeviceAuth().then((m) => (ownerAuth = m)).catch(() => (ownerAuth = null));
-      loadServerUpdate();
-    }
+    if (!isOther) ownerDeviceAuth().then((m) => (ownerAuth = m)).catch(() => (ownerAuth = null));
+    loadServerUpdate();
     pairedNew = null;
     unpairAsk = null;
     rememberAsk = false;
@@ -860,12 +858,14 @@
   /** The server checks in the background and answers with what it last knew;
    *  when it says it's still checking, ask again shortly. */
   async function loadServerUpdate(retries = 2) {
-    // Installing restarts everyone's server, so only the owner's devices are offered it.
-    if (inTauri() || isOther || srvUpdStage !== "idle") return;
+    // Installing restarts everyone's server, so someone else's device is answered
+    // only once the owner has let other people install (a 403 until then).
+    if (inTauri() || srvUpdStage !== "idle") return;
     try {
       srvUpd = await serverUpdateStatus();
     } catch {
-      return; // an older server without this command, or out of reach: say nothing
+      srvUpd = null;
+      return; // not allowed for this person, an older server, or out of reach: say nothing
     }
     if (srvUpd?.checking && retries > 0) setTimeout(() => loadServerUpdate(retries - 1), 6000);
   }
@@ -1869,17 +1869,18 @@
 
 <!-- Settings that belong to this phone, for the owner and for anyone else alike. -->
 {#snippet thisPhone()}
-  {#if !isOther}
+  {#if !isOther || srvUpd}
+    {@const where = isOther ? "the server" : "your computer"}
     <h3 class="sec">Updates</h3>
     {#if srvUpd?.available}
       <p>
-        <strong>Field Notes v{srvUpd.available.version}</strong> is ready to install on your computer (it's on
+        <strong>Field Notes v{srvUpd.available.version}</strong> is ready to install on {where} (it's on
         v{srvUpd.current}).
       </p>
-      <button onclick={() => { srvUpdHidden = false; srvUpdStage = "confirm"; closeSheet(); goTo("today"); }}>Install on the computer…</button>
+      <button onclick={() => { srvUpdHidden = false; srvUpdStage = "confirm"; closeSheet(); goTo("today"); }}>Install on {isOther ? "the server" : "the computer"}…</button>
     {:else if srvUpd}
       <p class="muted small">
-        Your computer is on v{srvUpd.current}{srvUpd.checking ? ", checking for a newer one…" : srvUpd.error ? `. ${srvUpd.error}` : ", the newest version."}
+        {isOther ? "The server" : "Your computer"} is on v{srvUpd.current}{srvUpd.checking ? ", checking for a newer one…" : srvUpd.error ? `. ${srvUpd.error}` : ", the newest version."}
       </p>
       <button class="small" onclick={() => loadServerUpdate()}>Check again</button>
     {:else}

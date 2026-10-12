@@ -532,8 +532,9 @@ impl People {
     /// Whose journals are open only in memory, so a restart would lock them until
     /// they unlock them again from their own device. For the owner's update prompt,
     /// which shows only names and locked-or-unlocked: what Settings already shows (rule 3).
-    pub fn would_lock(&self) -> Vec<String> {
-        self.list().into_iter().filter(|p| p.unlocked && !p.remembered).map(|p| p.name).collect()
+    /// `except` is the person asking, whose own journal locking is their call.
+    pub fn would_lock(&self, except: u32) -> Vec<String> {
+        self.list().into_iter().filter(|p| p.id != except && p.unlocked && !p.remembered).map(|p| p.name).collect()
     }
 
     /// Who has a session that hasn't been ended, among the journals open right now.
@@ -704,10 +705,10 @@ mod tests {
         let p = people("restart");
         p.add("Sam").unwrap();
         p.add("Alex").unwrap();
-        assert!(p.would_lock().is_empty() && p.in_session().is_empty());
+        assert!(p.would_lock(0).is_empty() && p.in_session().is_empty());
         let sam = p.unlock(2, 1, "correct horse battery").unwrap();
         p.unlock(3, 2, "another good password").unwrap();
-        assert_eq!(p.would_lock(), vec!["Sam".to_string(), "Alex".to_string()]);
+        assert_eq!(p.would_lock(0), vec!["Sam".to_string(), "Alex".to_string()]);
         assert!(p.in_session().is_empty());
         sam.with(|c| c.execute("INSERT INTO experiences (kind, title, started_at) VALUES ('session', 'x', '2026-10-02T10:00:00Z')", []))
             .unwrap();
