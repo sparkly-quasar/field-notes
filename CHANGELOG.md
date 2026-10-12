@@ -11,6 +11,16 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.31.0
+
+- **Everyone on a shared server can install updates.** If other people use
+  your computer as their server, you can now let them install a Field Notes
+  update from their own phones too. Turn it on in Settings on the computer,
+  under "Let paired phones install Field Notes updates". It's off unless you
+  turn it on. They follow the same rules you do: nobody can install while a
+  trip report is live. If installing would lock someone's journal, only you
+  can choose to install anyway.
+
 ## v0.30.3
 
 - **After-effects now continue the arc.** The dotted after-effects line used to
