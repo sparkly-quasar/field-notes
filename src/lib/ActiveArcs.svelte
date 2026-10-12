@@ -197,7 +197,12 @@
           const clear = drinksClearAt(s, minute);
           base.line = pts(drinksTrack(s, clear ? Math.min(t1, clear) : t1, minute, step).map(([t, v]) => [x(t), y(heightFor(s, v))]));
           const after = s.stages.after;
-          if (clear && after) base.tail = tailPath(x, y, clear, clear + ((after[0] + after[1]) / 2) * 3_600_000, t1);
+          if (clear && after) {
+            const until = clear + ((after[0] + after[1]) / 2) * 3_600_000;
+            const tail: [number, number][] = [];
+            for (let t = clear; t <= Math.min(t1, until); t += step) tail.push([x(t), y(afterLift(t, clear, clear + 15 * 60_000, until))]);
+            if (tail.length > 1) base.tail = pts(tail);
+          }
         }
       } else if (s.kind === "shape") {
         const start = s.doses[0].at;
@@ -212,26 +217,37 @@
         if (lastNow) {
           const solidEnd = lastNow.at + mid.off * 3_600_000;
           const end = Math.min(t1, lastNow.at + slow.off * 3_600_000);
+          // The middle line runs on through the after-effects, so the dotted
+          // tail is the same curve as the solid line, not a second one.
+          const tailUntil = s.stages.after ? lastNow.at + mid.after * 3_600_000 : 0;
+          const lineEnd = Math.min(t1, Math.max(end, tailUntil));
+          const peakEnd = lastNow.at + mid.peak * 3_600_000;
           const middle: [number, number][] = [];
           let up: [number, number][] = [];
           let dn: [number, number][] = [];
           let solid = 0;
-          for (let t = start; t <= end; t += step) {
-            const a = combined(s, t, 0, minute);
-            const b = combined(s, t, 1, minute);
-            up.push([x(t), y(heightFor(s, Math.max(a, b)))]);
-            dn.push([x(t), y(heightFor(s, Math.min(a, b)))]);
-            middle.push([x(t), y(heightFor(s, combined(s, t, 0.5, minute)))]);
+          for (let t = start; t <= lineEnd; t += step) {
+            if (t <= end) {
+              const a = combined(s, t, 0, minute);
+              const b = combined(s, t, 1, minute);
+              up.push([x(t), y(heightFor(s, Math.max(a, b)))]);
+              dn.push([x(t), y(heightFor(s, Math.min(a, b)))]);
+            }
+            const h = heightFor(s, combined(s, t, 0.5, minute));
+            middle.push([x(t), y(tailUntil ? Math.max(h, afterLift(t, peakEnd, solidEnd, tailUntil)) : h)]);
             if (t <= solidEnd) solid++;
           }
-          // Softened whole, then cut, so the solid line ends where it would have.
+          // Softened whole, then cut, so the solid line ends where it would have
+          // and the dotted tail picks up from its last point.
           const taken = s.doses.filter((d) => d.at <= minute).map((d) => d.at);
-          const line = soft(middle, s, taken).slice(0, solid);
+          const softened = soft(middle, s, taken);
+          const line = softened.slice(0, solid);
           up = soft(up, s, taken);
           dn = soft(dn, s, taken);
           base.line = line.length ? pts(line) : "";
           base.band = up.length ? pts(up) + "L" + dn.reverse().map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join("L") + "Z" : "";
-          if (s.stages.after) base.tail = tailPath(x, y, Math.min(solidEnd, t1), lastNow.at + mid.after * 3_600_000, t1);
+          const rest = softened.slice(Math.max(0, solid - 1));
+          if (tailUntil && rest.length > 1) base.tail = pts(rest);
         }
       } else if (s.kind === "block" && lastNow) {
         const on = s.stages.onset ? ((s.stages.onset[0] + s.stages.onset[1]) / 2) * 3_600_000 : 0;
@@ -269,13 +285,15 @@
     };
   });
 
-  function tailPath(x: (t: number) => number, y: (v: number) => number, from: number, until: number, t1: number): string {
+  /** The after-effects' height at `t`: easing up from nothing at `from` to a
+   *  low lift by `full`, then easing back down to nothing by `until`. Drawing
+   *  only; after-effects aren't dose. */
+  function afterLift(t: number, from: number, full: number, until: number): number {
     const lift = 0.06;
-    const rise = from + 15 * 60_000;
-    const end = Math.min(t1, until);
-    if (end <= rise) return "";
-    const frac = Math.max(0, 1 - (end - rise) / Math.max(1, until - rise));
-    return `M${x(from)},${y(0)}L${x(rise)},${y(lift)}L${x(end)},${y(lift * frac)}`;
+    const ease = (v: number) => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
+    if (t <= from || t >= until) return 0;
+    if (t < full) return lift * ease((t - from) / Math.max(1, full - from));
+    return lift * (1 - ease((t - full) / Math.max(1, until - full)));
   }
 
   const rows = $derived(
