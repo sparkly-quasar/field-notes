@@ -2529,7 +2529,7 @@ pub fn set_server_prefs(app: AppHandle, prefs: State<'_, Prefs>, serve_on_launch
 /// install it. Exposed to the phone.
 #[tauri::command]
 pub fn server_update_status(app: AppHandle) -> crate::server_update::ServerUpdateStatus {
-    crate::server_update::status(&app)
+    crate::server_update::status(&app, crate::devices::OWNER)
 }
 
 /// Install the waiting update and restart, if every guard in `server_update.rs`
@@ -2540,7 +2540,7 @@ pub fn server_update_install(
     app: AppHandle,
     anyway: Option<bool>,
 ) -> Result<crate::server_update::ServerUpdateStatus, String> {
-    crate::server_update::install(&app, anyway.unwrap_or(false))
+    crate::server_update::install(&app, crate::devices::OWNER, anyway.unwrap_or(false))
 }
 
 /// Is discreet mode offered? Read by the phone, so enabling it in Settings on the
@@ -2569,6 +2569,13 @@ pub fn set_menu_bar(app: AppHandle, prefs: State<'_, Prefs>, on: bool) -> Result
 #[tauri::command]
 pub fn set_phone_can_update(prefs: State<'_, Prefs>, allowed: bool) -> Result<ServerPrefs, String> {
     prefs.update(|p| p.phone_can_update = allowed)
+}
+
+/// Let other people on this server install updates from their own devices.
+/// Desktop only: never on the portal allowlist.
+#[tauri::command]
+pub fn set_others_can_update(prefs: State<'_, Prefs>, allowed: bool) -> Result<ServerPrefs, String> {
+    prefs.update(|p| p.others_can_update = allowed)
 }
 
 /// How a phone proves it's the owner before pairing or un-pairing a device

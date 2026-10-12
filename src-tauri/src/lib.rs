@@ -253,6 +253,7 @@ pub fn run() {
             commands::server_update_status,
             commands::server_update_install,
             commands::set_phone_can_update,
+            commands::set_others_can_update,
             commands::phone_pin_status,
             commands::set_phone_pin,
             commands::set_menu_bar,

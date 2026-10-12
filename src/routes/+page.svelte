@@ -104,6 +104,7 @@
     serverPrefs,
     setServerPrefs,
     setPhoneCanUpdate,
+    setOthersCanUpdate,
     phonePinStatus,
     setPhonePin,
     type PhonePinStatus,
@@ -349,7 +350,7 @@
   let removeTyped = $state("");
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
-  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, builtin_tailnet: false, tailscale_app: false, phone_can_update: false, discreet_available: false, menu_bar: false });
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, builtin_tailnet: false, tailscale_app: false, phone_can_update: false, others_can_update: false, discreet_available: false, menu_bar: false });
   let loginStart = $state(false);
   let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
   let kcPass = $state("");
@@ -2141,6 +2142,15 @@
     portalErr = null;
     try {
       sprefs = await setPhoneCanUpdate(!sprefs.phone_can_update);
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleOthersCanUpdate() {
+    portalErr = null;
+    try {
+      sprefs = await setOthersCanUpdate(!sprefs.others_can_update);
     } catch (e) {
       portalErr = e instanceof Error ? e.message : String(e);
     }
@@ -4106,6 +4116,16 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 If it would lock someone else's journal, the phone says whose and lets you install anyway.
                 Only signed Field Notes releases can be installed.
               </p>
+              <label class="share">
+                <input type="checkbox" checked={sprefs.others_can_update} onchange={toggleOthersCanUpdate} />
+                Let other people on this server install them from their phones too
+              </label>
+              {#if sprefs.others_can_update}
+                <p class="muted small">
+                  The same rules apply to them. They can't install anyway past anything: if it would lock
+                  someone's journal, their phone tells them to ask you, without saying whose.
+                </p>
+              {/if}
             {/if}
             {#if kc.applicable}
               {#if kc.remembered}

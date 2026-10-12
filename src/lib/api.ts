@@ -792,6 +792,8 @@ export interface ServerPrefs {
   tailscale_app: boolean;
   /** Paired phones may install updates on this computer. Set only at the computer. */
   phone_can_update: boolean;
+  /** Other people on this server may install them too (only while phone_can_update is on). */
+  others_can_update: boolean;
   /** Discreet mode is offered (its toggle sits next to Help). */
   discreet_available: boolean;
   /** Runs from the menu bar / system tray instead of the Dock / taskbar. */
@@ -982,6 +984,8 @@ export const setDiscreetAvailable = (available: boolean) =>
 export const setMenuBar = (on: boolean) => invoke<ServerPrefs>("set_menu_bar", { on });
 /** Desktop only: let paired phones install updates here. Not on the portal allowlist. */
 export const setPhoneCanUpdate = (allowed: boolean) => invoke<ServerPrefs>("set_phone_can_update", { allowed });
+/** Desktop only: let other people's devices install updates here too. Not on the portal allowlist. */
+export const setOthersCanUpdate = (allowed: boolean) => invoke<ServerPrefs>("set_others_can_update", { allowed });
 
 // ---- updating the server from a phone (see src-tauri/src/server_update.rs) ----
 export interface ServerUpdateStatus {
@@ -989,7 +993,7 @@ export interface ServerUpdateStatus {
   available: { version: string; notes: string } | null;
   /** Why this phone can't install it now; null means it can. */
   blocked: string | null;
-  /** `blocked` only locks other people's journals: the owner may install anyway. */
+  /** `blocked` only locks other people's journals: the owner may install anyway. Never set for anyone else. */
   can_override: boolean;
   installing: boolean;
   /** A check is running on the server; ask again shortly. */
