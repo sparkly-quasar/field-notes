@@ -213,6 +213,23 @@ CREATE TABLE IF NOT EXISTS my_refs (
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Substances already asked about on a dose receipt (unknowns.rs): what kind of
+-- drug, how long it lasts. Answered or skipped, each is asked once.
+CREATE TABLE IF NOT EXISTS substance_asked (
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    at             TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- What the person chose to do with each suggestion for the reference (`suggest.rs`):
+-- `key` is "timings:<name>" or "substance:<name>"; `content` is exactly what was
+-- offered, so an edit afterwards is noticed; `state` is 'shared' (they opened the
+-- prefilled issue) or 'private' (never offer it again). Nothing is sent from here.
+CREATE TABLE IF NOT EXISTS ref_suggestions (
+    key            TEXT PRIMARY KEY,
+    content        TEXT NOT NULL,
+    state          TEXT NOT NULL
+);
+
 -- Small facts about the person the journal is for, kept with the journal so the
 -- phone and the computer agree: `bedtime` ("23:00", "varies", or "skip" once
 -- asked and skipped; absent until asked).

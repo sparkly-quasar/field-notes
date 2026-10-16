@@ -6,7 +6,6 @@
   import {
     listExperiences,
     listSubstances,
-    interactionClasses,
     usageBySubstance,
     getExperience,
     createExperience,
@@ -135,7 +134,9 @@
   import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
+  import SubstanceQuestion from "$lib/SubstanceQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
+  import RefSuggest from "$lib/RefSuggest.svelte";
   import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
@@ -173,6 +174,8 @@
   import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { exit } from "@tauri-apps/plugin-process";
+  import ClassPicker, { classLabel } from "$lib/ClassPicker.svelte";
+  import MyTimings, { referenceHasTimings } from "$lib/MyTimings.svelte";
 
   type Tab = "journal" | "companion" | "substances" | "bysub" | "stats" | "data";
 
@@ -256,7 +259,6 @@
     goTab("substances");
   }
   let substances = $state<Substance[]>([]);
-  let classesVocab = $state<string[]>([]);
   let usage = $state<SubstanceUsage[]>([]);
   let selected = $state<ExperienceDetail | null>(null);
   let lastWarnings = $state<Warning[]>([]);
@@ -421,6 +423,9 @@
   let nsName = $state("");
   let nsCategory = $state("");
   let nsClasses = $state<string[]>([]);
+  /** Just added and the reference has no timings for it: ask how long it lasts. */
+  let nsAskTimings = $state("");
+  let nsAddedNote = $state("");
   let nsDose = $state("");
   let nsNotes = $state("");
 
@@ -571,7 +576,6 @@
       location.replace(`/m${location.hash}`);
       return;
     }
-    interactionClasses().then((c) => (classesVocab = c));
     checkForUpdate();
     updateTimer = setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
     getVersion().then((v) => (appVersion = v)).catch(() => {});
@@ -1368,9 +1372,10 @@
   }
 
   async function submitSubstance() {
-    if (!nsName.trim()) return;
+    const name = nsName.trim();
+    if (!name) return;
     await addSubstance({
-      name: nsName.trim(),
+      name,
       category: nsCategory,
       classes: nsClasses,
       dose_note: nsDose,
@@ -1380,10 +1385,8 @@
     nsClasses = [];
     await loadSubstances();
     await loadContrib();
-  }
-
-  function toggleClass(c: string) {
-    nsClasses = nsClasses.includes(c) ? nsClasses.filter((x) => x !== c) : [...nsClasses, c];
+    nsAskTimings = (await referenceHasTimings(name)) ? "" : name;
+    nsAddedNote = nsAskTimings ? "" : `Added ${name}. The dose reference already has its timings.`;
   }
 
   async function loadAi() {
@@ -2618,6 +2621,9 @@
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
       {#if !selected}<SleepCheckin />{/if}
+      {#if !selected && !remote.connected}
+        <RefSuggest quiet={liveSession || experiences.some((e) => e.kind === "session" && !e.ended_at)} />
+      {/if}
       {#if !selected && activeDoses.length}
         <!-- Something logged lately may still be active, live trip report or not. -->
         <section class="card">
@@ -2746,6 +2752,7 @@
           <NameHint name={dSubstance} bind:saveAs={dSubstanceAs} />
           <DoseDetailFields substance={dSubstanceAs || dSubstance} unit={dUnit} amount={dAmount} bind:detail={dDetail} />
           <KindQuestion substance={dAsk.s} tick={dAsk.n} />
+          <SubstanceQuestion substance={dAsk.s} tick={dAsk.n} />
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
@@ -2912,6 +2919,7 @@
                   <button class="ghost small-btn" onclick={quickLogAnother}>Log another into it</button>
                 </p>
                 <KindQuestion substance={qlAsk.s} tick={qlAsk.n} />
+                <SubstanceQuestion substance={qlAsk.s} tick={qlAsk.n} />
               {/if}
             </div>
           {/if}
@@ -3404,17 +3412,21 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         <h2>Substances you track</h2>
         <p class="muted small">Your own list, separate from the reference above. Add a substance — especially one DoseWiki doesn't cover — so the interaction checker recognises it when you log. Assign classes and it can flag combinations; leave them blank and common ones are auto-classified. The optional dose note is just your own reminder.</p>
 
-        <div class="new-sub">
-          <input placeholder="Name" bind:value={nsName} />
-          <input placeholder="Category (optional)" bind:value={nsCategory} />
-          <input placeholder="Dose notes (optional)" bind:value={nsDose} />
-          <div class="classes">
-            {#each classesVocab as c}
-              <button type="button" class="chip" class:on={nsClasses.includes(c)} onclick={() => toggleClass(c)}>{c}</button>
-            {/each}
+        {#if nsAskTimings}
+          <div class="new-sub-timings">
+            <p class="muted small">Added {nsAskTimings}. The dose reference has no timings for it; add yours if you know them.</p>
+            <MyTimings name={nsAskTimings} cancelLabel="Skip" onsaved={() => (nsAskTimings = "")} oncancel={() => (nsAskTimings = "")} />
           </div>
-          <button class="primary small-btn" onclick={submitSubstance}>Add substance</button>
-        </div>
+        {:else}
+          <div class="new-sub">
+            <input placeholder="Name" bind:value={nsName} oninput={() => (nsAddedNote = "")} />
+            <input placeholder="Category (optional)" bind:value={nsCategory} />
+            <input placeholder="Dose notes (optional)" bind:value={nsDose} />
+            <div class="new-sub-classes"><ClassPicker bind:value={nsClasses} idPrefix="d-cls" /></div>
+            <button class="primary small-btn" onclick={submitSubstance}>Add substance</button>
+          </div>
+          {#if nsAddedNote}<p class="muted small" role="status">{nsAddedNote}</p>{/if}
+        {/if}
 
         {#if substances.length}
           <ul class="sub-list">
@@ -3425,7 +3437,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                   <button class="icon-btn" title="Delete substance" onclick={() => delSubstance(s.id)}>✕</button>
                 </div>
                 <div class="classes ro">
-                  {#each s.classes as c}<span class="chip on">{c}</span>{/each}
+                  {#each s.classes as c}<span class="chip on">{classLabel(c)}</span>{/each}
                 </div>
                 {#if s.dose_note}<div class="muted small">{s.dose_note}</div>{/if}
               </li>
@@ -4341,6 +4353,12 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           ></textarea>
           <button class="ghost small-btn" onclick={openFeedback}>Continue on GitHub →</button>
         </section>
+        {#if !remote.connected}
+          <section class="card">
+            <h2>Suggest to the reference</h2>
+            <RefSuggest mode="list" />
+          </section>
+        {/if}
       {/if}
     {/if}
 
@@ -4473,6 +4491,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if lastLogged}
             <p class="small live-saved">✓ Logged {lastLogged.label}. <button class="link" onclick={undoLastLogged}>Undo</button></p>
             <KindQuestion substance={qAsk.s} tick={qAsk.n} />
+            <SubstanceQuestion substance={qAsk.s} tick={qAsk.n} />
           {/if}
 
           <h3>Timeline</h3>
@@ -4739,6 +4758,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
   .new-exp, .dose-form, .new-sub { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; align-items: center; }
   .new-exp input, .new-sub input { flex: 1; min-width: 8rem; }
+  .new-sub-classes { flex-basis: 100%; min-width: 0; }
+  .new-sub-timings { margin: 0.8rem 0; display: grid; gap: 0.5rem; }
   .past-toggle { display: flex; align-items: center; gap: 0.45rem; margin: -0.3rem 0 0.8rem; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
   .past-toggle input { cursor: pointer; }
   .new-note { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }

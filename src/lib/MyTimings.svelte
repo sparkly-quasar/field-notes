@@ -4,6 +4,21 @@
   reference has no timings for. Saved in their journal (`my_refs`); the lookup
   fills only the timings the reference leaves empty, so its own always win.
 -->
+<script module lang="ts">
+  import { pwLookup } from "$lib/api";
+
+  /** The dose reference has timings of its own for this name, so there's no gap
+   *  for the person's to fill. False when it can't be asked. */
+  export async function referenceHasTimings(name: string): Promise<boolean> {
+    try {
+      const r = await pwLookup(name);
+      return !!r && !r.mine && r.roas.some((x) => x.onset || x.peak || x.total || x.offset);
+    } catch {
+      return false;
+    }
+  }
+</script>
+
 <script lang="ts">
   import { myRefDelete, myRefGet, myRefSet, type MyTimings } from "$lib/api";
   import { parseSpan } from "$lib/arcs";
@@ -14,6 +29,7 @@
     route = "oral",
     onsaved,
     oncancel,
+    cancelLabel = "Cancel",
   }: {
     /** The substance, as the reference (or the journal) names it. */
     name: string;
@@ -22,6 +38,8 @@
     route?: string;
     onsaved: () => void;
     oncancel: () => void;
+    /** "Skip" when it's offered as an optional step. */
+    cancelLabel?: string;
   } = $props();
 
   const ROUTES = ["oral", "sublingual", "buccal", "insufflated", "smoked", "vaporized", "intramuscular", "intravenous", "rectal", "transdermal"];
@@ -134,7 +152,7 @@
     {#if err}<p class="err" role="alert">{err}</p>{/if}
     <div class="actions">
       <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
-      <button type="button" class="ghost" onclick={oncancel} disabled={saving}>Cancel</button>
+      <button type="button" class="ghost" onclick={oncancel} disabled={saving}>{cancelLabel}</button>
       {#if existing}<button type="button" class="ghost" onclick={remove} disabled={saving}>Remove my timings</button>{/if}
     </div>
   {/if}

@@ -11,6 +11,38 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.33.0
+
+- **A reviewed dose reference.** The dose figures are now the Field Notes dose
+  reference: DoseWiki's, with substantial revisions. Errors in DoseWiki's data
+  are fixed as it loads, such as dose ranges in mixed units or out of order, and
+  durations longer than the whole experience. A dose is only ever compared with
+  the ranges for the way it was taken. DMT, ketamine, heroin, oxycodone,
+  mushrooms and DXM now use Erowid's figures, and pure psilocybin has its own
+  entry in mg. Ibogaine is flagged with drugs that affect heart rhythm (QT) and
+  with CYP2D6 inhibitors.
+- **Field Notes asks about substances it doesn't know.** After you log a dose
+  of something it can't place in a drug class, or has no timings for, the
+  receipt asks once what kind of drug it is and how long it lasts. Your answers
+  are saved to your substances and timings, so Stats, combination checks and
+  Today use them. Skip it and it won't ask about that substance again.
+- **Drug class and timings when adding a substance.** Adding one under Check
+  now offers its drug class by its everyday name, and asks how long it lasts
+  when the dose reference doesn't say.
+- **SR-17018 is in the directory,** as an opioid for Stats and combination
+  checks. Its oral timings are from the Field Notes maintainer's own use. It has
+  no dose figures, because it hasn't been studied in people.
+- **Suggest timings and missing substances.** Timings you entered yourself, and
+  substances you added that the reference doesn't have, can be suggested back
+  to Field Notes. It opens a prefilled GitHub issue in your own browser, which
+  you can submit or not; Field Notes sends nothing itself, and shows you exactly
+  what would be shared first, including any notes you wrote on a substance. Today
+  asks at most once a month, only when there's something new, and you can turn
+  that off.
+- **Fix: blocks on Today.** A substance drawn as a block, like kratom, counted
+  yesterday's dose in today's height, so two ordinary doses could be drawn at
+  the heavy line while the label said strong. Only doses still felt count now.
+
 ## v0.32.0
 
 - **Drug classes in Trends.** Trends in Stats has a new card on which drug

@@ -308,6 +308,18 @@ export interface PatternNote {
   text: string;
 }
 export const patternNote = (substance: string) => invoke<PatternNote | null>("pattern_note", { substance });
+/** Something just logged that Field Notes knows little about (unknowns.rs). */
+export interface SubstanceQuestion {
+  substance: string;
+  /** Stats can't place it in a drug class. */
+  ask_class: boolean;
+  /** Nothing gives timings for it. */
+  ask_timings: boolean;
+}
+export const substanceQuestion = (substance: string) => invoke<SubstanceQuestion | null>("substance_question", { substance });
+export const substanceQuestionDone = (substance: string) => invoke<null>("substance_question_done", { substance });
+export const setSubstanceClasses = (substance: string, classes: string[]) =>
+  invoke<null>("set_substance_classes", { substance, classes });
 export const answerKindQuestion = (substance: string, ask: string, answer: string) =>
   invoke<void>("answer_kind_question", { substance, ask, answer });
 /** "" (as experiences), "routine" or "as_needed". */
@@ -440,6 +452,42 @@ export const contributionDraft = (id: number) =>
   invoke<ContributionDraft>("contribution_draft", { id });
 export const contributionSave = (id: number, path: string) =>
   invoke<void>("contribution_save", { id, path });
+
+// ---- Suggesting reference data back to Field Notes (suggest.rs) ----
+// Nothing here touches the network either. `refSuggestionIssues` returns
+// prefilled GitHub new-issue URLs; the person opens one in their browser and
+// submits it there, or doesn't.
+export interface RefSuggestionItem {
+  key: string;
+  kind: "timings" | "substance";
+  name: string;
+  /** The reference has an entry under this name (so the gap is its timings). */
+  in_reference: boolean;
+  /** Exactly what would be shared, as [label, value]. */
+  fields: [string, string][];
+  /** Shared before, and changed since. */
+  changed: boolean;
+}
+export interface RefSuggestions {
+  items: RefSuggestionItem[];
+  /** Ask now: at most once every 30 days, only with something new. */
+  due: boolean;
+  /** The monthly reminder is on. */
+  reminder: boolean;
+}
+export interface RefIssue {
+  title: string;
+  url: string;
+  keys: string[];
+}
+/** `today` is the local date ("2026-10-16"), to say whether the reminder is due. */
+export const refSuggestions = (today: string | null) => invoke<RefSuggestions>("ref_suggestions", { today });
+export const refSuggestionIssues = (keys: string[]) => invoke<RefIssue[]>("ref_suggestion_issues", { keys });
+/** Shared (opened the issue) or kept private; either way the reminder has its answer. */
+export const refSuggestionMark = (keys: string[], priv: boolean, today: string) =>
+  invoke<void>("ref_suggestion_mark", { keys, private: priv, today });
+export const refSuggestionLater = (today: string) => invoke<void>("ref_suggestion_later", { today });
+export const setRefSuggestionReminder = (on: boolean) => invoke<void>("set_ref_suggestion_reminder", { on });
 
 export const interactionClasses = () => invoke<string[]>("interaction_classes");
 export const listSubstances = () => invoke<Substance[]>("list_substances");

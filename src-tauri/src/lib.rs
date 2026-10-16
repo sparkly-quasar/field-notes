@@ -27,9 +27,11 @@ pub mod pw;
 mod remote;
 mod server_update;
 mod stats;
+mod suggest;
 mod tagging;
 mod tailnet;
 mod tray;
+mod unknowns;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -274,6 +276,9 @@ pub fn run() {
             commands::pattern_note,
             commands::answer_kind_question,
             commands::set_substance_kind,
+            commands::substance_question,
+            commands::substance_question_done,
+            commands::set_substance_classes,
             commands::delete_timeline_event,
             commands::delete_substance,
             commands::ai_status,
@@ -315,6 +320,11 @@ pub fn run() {
             commands::contribution_candidates,
             commands::contribution_draft,
             commands::contribution_save,
+            commands::ref_suggestions,
+            commands::ref_suggestion_issues,
+            commands::ref_suggestion_mark,
+            commands::ref_suggestion_later,
+            commands::set_ref_suggestion_reminder,
             commands::portal_status,
             commands::set_companion_enabled,
             commands::portal_enable,

@@ -503,6 +503,9 @@ pub const EXPOSED: &[&str] = &[
     "pattern_note",
     "answer_kind_question",
     "set_substance_kind",
+    "substance_question",
+    "substance_question_done",
+    "set_substance_classes",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
     // here at the end of "Sync journal to server".
     "remove_duplicate_entries",
@@ -517,6 +520,14 @@ pub const EXPOSED: &[&str] = &[
     "my_ref_get",
     "my_ref_set",
     "my_ref_delete",
+    // Suggesting those timings, and substances the reference lacks, back to Field
+    // Notes. Read-and-bookkeeping only: they return prefilled GitHub URLs for the
+    // phone's browser to open, and send nothing themselves (`suggest.rs`).
+    "ref_suggestions",
+    "ref_suggestion_issues",
+    "ref_suggestion_mark",
+    "ref_suggestion_later",
+    "set_ref_suggestion_reminder",
     // Names and street names from the (public) dose reference, for pasted logs.
     "pw_names",
     // Which substance a typed name means ("acid" → LSD), for saving a dose.
@@ -719,6 +730,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "set_sleep_checkin" => done(commands::set_sleep_checkin_in(db, arg(&args, "on")?)),
         "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
         "pattern_note" => done(commands::pattern_note_in(db, arg(&args, "substance")?)),
+        "substance_question" => done(commands::substance_question_in(db, arg(&args, "substance")?)),
+        "substance_question_done" => done(commands::substance_question_done_in(db, arg(&args, "substance")?)),
+        "set_substance_classes" => done(commands::set_substance_classes_in(db, arg(&args, "substance")?, arg(&args, "classes")?)),
         "answer_kind_question" => done(commands::answer_kind_question_in(
             db,
             arg(&args, "substance")?,
@@ -744,6 +758,16 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "my_ref_get" => done(commands::my_ref_get_in(db, arg(&args, "name")?)),
         "my_ref_set" => done(commands::my_ref_set_in(db, arg(&args, "name")?, arg(&args, "timings")?)),
         "my_ref_delete" => done(commands::my_ref_delete_in(db, arg(&args, "name")?)),
+        "ref_suggestions" => done(commands::ref_suggestions_in(db, arg(&args, "today")?)),
+        "ref_suggestion_issues" => done(commands::ref_suggestion_issues_in(db, arg(&args, "keys")?)),
+        "ref_suggestion_mark" => done(commands::ref_suggestion_mark_in(
+            db,
+            arg(&args, "keys")?,
+            arg(&args, "private")?,
+            arg(&args, "today")?,
+        )),
+        "ref_suggestion_later" => done(commands::ref_suggestion_later_in(db, arg(&args, "today")?)),
+        "set_ref_suggestion_reminder" => done(commands::set_ref_suggestion_reminder_in(db, arg(&args, "on")?)),
         "pw_names" => done(commands::pw_names_in(db)),
         "canonical_name" => done(commands::canonical_name_in(db, arg(&args, "name")?)),
         "knowledge_search" => ok(commands::knowledge_search(

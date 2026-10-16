@@ -111,6 +111,33 @@ non-negotiables, each with a test:
   free-text dose note into structured ranges would mean guessing at figures and
   sending the guess upstream with authority it hasn't earned.
 
+### Reference suggestions (`suggest.rs`)
+
+Timings a person typed in themselves (`my_refs`) and catalogued substances the
+reference lacks can be suggested back to **this repo**, as a prefilled GitHub
+issue (template `.github/ISSUE_TEMPLATE/reference-data.md`, label
+`reference-data`) that the person opens in their own browser and submits, or
+doesn't. The same three non-negotiables, each with a test:
+- **No network. Ever.** `suggest.rs` returns URLs; it has no HTTP client and
+  must never get one. "Submit anonymously from the server" was considered
+  (2026-10-16) and turned down: a token shipped in the app would be extracted
+  and abused, and a relay would see each sender's IP next to the substance they
+  asked about, which is exactly the lookup leak the privacy rules forbid. The
+  cost is that submitting needs a GitHub account (any, including a new one).
+- **No journal data.** `my_refs` name and data, and the catalogue row, only.
+  Never `updated_at` or `created_at`. `issues_carry_no_journal_data`.
+- **No invented numbers.** Timings go out in the person's words; a dose note as
+  prose. Each issue says it is one person's report, not a source. Nothing goes
+  into the bundled reference (`ROUTE_OVERRIDES` and friends) until it has been
+  reviewed by hand, ideally with more than one report or a citable source.
+
+Each item is shared (offered again only if edited, tracked in `ref_suggestions`
+by its exact content) or kept private (never offered again). The reminder on
+Today, phone and desktop, asks at most once every 30 days and only with
+something pending; never during a live trip report, with names hidden, or on a
+desktop connected to a server. "Not now" counts as asked; "Don't ask me again"
+turns it off, and the list stays in Settings either way.
+
 ---
 
 ## Shipped in v0.6.0
@@ -126,6 +153,34 @@ non-negotiables, each with a test:
   `src/routes/m/+page.svelte` sliced raw UTC ISO strings, so times were off by
   the timezone offset and evening sessions showed the wrong date. Now converted
   to local time; stored data was always correct, no migration needed.
+
+---
+
+## Shipped in v0.33.0: the dose reference, and substances it doesn't know
+
+- **The Field Notes dose reference** (`pw.rs`): DoseWiki with structural fixes
+  on load, Erowid figures, pure psilocybin. See "Dose reference review" in this
+  file and `data/dosewiki/REVISIONS.txt`.
+- **Asked on the dose receipt** (`unknowns.rs`, `SubstanceQuestion.svelte`,
+  owner's request, 2026-10-16). After a dose of something Stats can't place in
+  a drug class (`families_of` gives only "other"), or with no timings from the
+  reference or the person: what kind of drug, and how long it lasts. A class is
+  saved as the catalogue entry's classes, changing nothing else on it; timings
+  as the person's own (`my_refs`). Asked once per substance, answered or
+  skipped (`substance_asked`). Most substances arrive by being logged, which is
+  why it's here and not only in the catalogue form.
+- **Class and timings in the catalogue form** (`ClassPicker.svelte`), phone and
+  computer: drug classes by their everyday names, the combination-only classes
+  (MAOI, SSRI, lithium...) one tap away; then the timings form when the
+  reference has none.
+- **SR-17018** (`EXTRA_SUBSTANCES`): an opioid, owner's oral timings, no dose
+  figures. An extra substance can now give its own classes when there's no
+  entry to share them with; a route with timings and no figures has no unit.
+  The built-in matcher classes it as an opioid too.
+- **Suggesting reference data** (`suggest.rs`): see "Reference suggestions"
+  above.
+- **Fix:** a block's height counts only doses still felt (`arcs.ts`
+  `amountAt`), from 2026-10-09, merged here.
 
 ---
 

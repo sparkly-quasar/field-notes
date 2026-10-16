@@ -15,6 +15,7 @@ use crate::portal::{self, Portal};
 use crate::pw::{self, PwInfo};
 use crate::{Db, Knowledge};
 use crate::stats::{self, parse_ts};
+use crate::suggest;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -370,6 +371,41 @@ pub fn answer_kind_question(db: State<'_, Db>, substance: String, ask: String, a
 /// [`answer_kind_question`] against any person's journal (the portal picks it by device).
 pub fn answer_kind_question_in(db: &Db, substance: String, ask: String, answer: String) -> Result<(), String> {
     db.with(|c| Ok(crate::kinds::answer(c, &substance, &ask, &answer, chrono::Utc::now())))?
+}
+
+/// What to ask about a substance just logged that Field Notes knows little about:
+/// its drug class, how long it lasts, or both (unknowns.rs). Asked once each.
+#[tauri::command]
+pub fn substance_question(db: State<'_, Db>, substance: String) -> Result<Option<crate::unknowns::UnknownQuestion>, String> {
+    substance_question_in(&db, substance)
+}
+
+/// [`substance_question`] against any person's journal (the portal picks it by device).
+pub fn substance_question_in(db: &Db, substance: String) -> Result<Option<crate::unknowns::UnknownQuestion>, String> {
+    db.with(|c| crate::unknowns::question(c, &substance))
+}
+
+/// That question was answered or skipped: don't ask it again.
+#[tauri::command]
+pub fn substance_question_done(db: State<'_, Db>, substance: String) -> Result<(), String> {
+    substance_question_done_in(&db, substance)
+}
+
+/// [`substance_question_done`] against any person's journal (the portal picks it by device).
+pub fn substance_question_done_in(db: &Db, substance: String) -> Result<(), String> {
+    db.with(|c| crate::unknowns::done(c, &substance))
+}
+
+/// Save what kind of drug a substance is, as its catalogue classes. Only the
+/// classes change on an existing entry.
+#[tauri::command]
+pub fn set_substance_classes(db: State<'_, Db>, substance: String, classes: Vec<String>) -> Result<(), String> {
+    set_substance_classes_in(&db, substance, classes)
+}
+
+/// [`set_substance_classes`] against any person's journal (the portal picks it by device).
+pub fn set_substance_classes_in(db: &Db, substance: String, classes: Vec<String>) -> Result<(), String> {
+    db.with(|c| crate::unknowns::set_classes(c, &substance, &classes))
 }
 
 /// Mark how a substance is taken, by hand: "" (as experiences), "routine" or
@@ -2663,6 +2699,79 @@ pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(),
     let draft = contribution_draft(db.clone(), id)?;
     std::fs::write(Path::new(&path), draft.json).map_err(err)?;
     db.with(|c| contribute::mark_contributed(c, id))
+}
+
+// ---------- suggesting reference data (suggest.rs) ----------
+//
+// Same rule as above: nothing here touches the network. `ref_suggestion_issues`
+// returns prefilled GitHub URLs; the person opens one in their browser and
+// submits it there, or doesn't.
+
+fn local_date(today: &str) -> Result<chrono::NaiveDate, String> {
+    chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|_| "A day is a date like 2026-10-16.".to_string())
+}
+
+/// Timings and substances the person added that the reference lacks, not yet
+/// shared or kept private, and (given `today`) whether the monthly reminder is due.
+#[tauri::command]
+pub fn ref_suggestions(db: State<'_, Db>, today: Option<String>) -> Result<suggest::Suggestions, String> {
+    ref_suggestions_in(&db, today)
+}
+
+/// [`ref_suggestions`] against any person's journal (the portal picks it by device).
+pub fn ref_suggestions_in(db: &Db, today: Option<String>) -> Result<suggest::Suggestions, String> {
+    let today = today.as_deref().map(local_date).transpose()?;
+    db.with(|c| suggest::suggestions(c, today))
+}
+
+/// Prefilled new-issue pages for the chosen items. Building them sends nothing.
+#[tauri::command]
+pub fn ref_suggestion_issues(db: State<'_, Db>, keys: Vec<String>) -> Result<Vec<suggest::Issue>, String> {
+    ref_suggestion_issues_in(&db, keys)
+}
+
+/// [`ref_suggestion_issues`] against any person's journal (the portal picks it by device).
+pub fn ref_suggestion_issues_in(db: &Db, keys: Vec<String>) -> Result<Vec<suggest::Issue>, String> {
+    db.with(|c| suggest::issues(c, &keys))
+}
+
+/// Remember what the person chose for these items, shared or kept private, and
+/// that the reminder has had its answer for `today`.
+#[tauri::command]
+pub fn ref_suggestion_mark(db: State<'_, Db>, keys: Vec<String>, private: bool, today: String) -> Result<(), String> {
+    ref_suggestion_mark_in(&db, keys, private, today)
+}
+
+/// [`ref_suggestion_mark`] against any person's journal (the portal picks it by device).
+pub fn ref_suggestion_mark_in(db: &Db, keys: Vec<String>, private: bool, today: String) -> Result<(), String> {
+    let today = local_date(&today)?;
+    db.with(|c| {
+        suggest::mark(c, &keys, private)?;
+        suggest::asked(c, today)
+    })
+}
+
+/// "Not now": the reminder asks again in a month, if there's still something to ask about.
+#[tauri::command]
+pub fn ref_suggestion_later(db: State<'_, Db>, today: String) -> Result<(), String> {
+    ref_suggestion_later_in(&db, today)
+}
+
+/// [`ref_suggestion_later`] against any person's journal (the portal picks it by device).
+pub fn ref_suggestion_later_in(db: &Db, today: String) -> Result<(), String> {
+    let today = local_date(&today)?;
+    db.with(|c| suggest::asked(c, today))
+}
+
+/// Turn the monthly reminder on or off. The list in Settings stays either way.
+#[tauri::command]
+pub fn set_ref_suggestion_reminder(db: State<'_, Db>, on: bool) -> Result<(), String> {
+    set_ref_suggestion_reminder_in(&db, on)
+}
+
+/// [`set_ref_suggestion_reminder`] against any person's journal (the portal picks it by device).
+pub fn set_ref_suggestion_reminder_in(db: &Db, on: bool) -> Result<(), String> {
+    db.with(|c| suggest::set_reminder(c, on))
 }
 
 #[cfg(test)]

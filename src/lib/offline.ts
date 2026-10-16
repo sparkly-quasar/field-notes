@@ -527,6 +527,7 @@ async function answerHere<T>(cmd: string, args: Record<string, any>): Promise<T>
       return { enabled: false, rating: null } as T;
     case "kind_question":
     case "pattern_note":
+    case "substance_question":
       // Asked or shown after a later dose, when the computer is back.
       return null as T;
     case "list_unit_kinds":
