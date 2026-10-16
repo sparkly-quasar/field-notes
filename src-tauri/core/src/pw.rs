@@ -2,7 +2,7 @@
 //! The Field Notes dose reference. Reads a bundled snapshot of the DoseWiki
 //! substance encyclopedia (dose ranges, durations, graded interactions), corrects
 //! it on load (units, band order, route names, impossible durations), replaces
-//! the routes it gets badly wrong ([`ROUTE_OVERRIDES`]), and maps the result into
+//! the routes it gets badly wrong ([`ROUTE_OVERRIDES`], [`ROUTE_PATCHES`]), and maps the result into
 //! the local reference cache. Based on DoseWiki, with substantial revisions. The data ships *with* the app as an offline
 //! resource, so there is no network call and every lookup is private.
 //!
@@ -438,6 +438,7 @@ fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
         interactions,
         dose_note: None,
     };
+    apply_patches(&mut info, log);
     if let Some((_, note, routes)) = ROUTE_OVERRIDES.iter().find(|(n, ..)| n.eq_ignore_ascii_case(&info.name)) {
         info.roas = routes.iter().map(RouteSpec::roa).collect();
         info.dose_note = Some(note.to_string());
@@ -446,41 +447,85 @@ fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
 }
 
 /// One route's figures, written out by hand (see [`ROUTE_OVERRIDES`]). Amounts in
-/// `units`; durations as display text, like DoseWiki's.
+/// `units`; durations as display text, like DoseWiki's. Start from [`BLANK`] and
+/// fill in what the source gives.
 struct RouteSpec {
     name: &'static str,
     units: &'static str,
     threshold: Option<f64>,
-    light: (f64, f64),
-    common: (f64, f64),
-    strong: (f64, f64),
+    light: Option<(f64, f64)>,
+    common: Option<(f64, f64)>,
+    strong: Option<(f64, f64)>,
     heavy: Option<(f64, Option<f64>)>,
+    stages: Stages,
+}
+
+/// Timings, as display text. Start from [`NO_STAGES`].
+#[derive(Clone, Copy)]
+struct Stages {
     onset: Option<&'static str>,
+    come_up: Option<&'static str>,
     peak: Option<&'static str>,
+    offset: Option<&'static str>,
     after_effects: Option<&'static str>,
     total: Option<&'static str>,
 }
 
+const NO_STAGES: Stages = Stages { onset: None, come_up: None, peak: None, offset: None, after_effects: None, total: None };
+const BLANK: RouteSpec = RouteSpec {
+    name: "", units: "mg", threshold: None, light: None, common: None, strong: None, heavy: None, stages: NO_STAGES,
+};
+
+fn range_of(r: Option<(f64, f64)>) -> Range {
+    r.map(|(a, b)| Range { min: Some(a), max: Some(b) }).unwrap_or_default()
+}
+
 impl RouteSpec {
     fn roa(&self) -> PwRoa {
-        let r = |(a, b): (f64, f64)| Range { min: Some(a), max: Some(b) };
-        PwRoa {
+        let mut roa = PwRoa {
             name: self.name.to_string(),
-            units: Some(self.units.to_string()),
-            threshold: self.threshold,
-            light: r(self.light),
-            common: r(self.common),
-            strong: r(self.strong),
-            heavy: self.heavy.map(|h| h.0),
-            heavy_max: self.heavy.and_then(|h| h.1),
-            onset: self.onset.map(String::from),
+            units: None,
+            threshold: None,
+            light: Range::default(),
+            common: Range::default(),
+            strong: Range::default(),
+            heavy: None,
+            heavy_max: None,
+            onset: None,
             come_up: None,
-            peak: self.peak.map(String::from),
+            peak: None,
             offset: None,
-            after_effects: self.after_effects.map(String::from),
-            total: self.total.map(String::from),
+            after_effects: None,
+            total: None,
             half_life: None,
-        }
+        };
+        self.set_bands(&mut roa);
+        self.stages.set(&mut roa);
+        roa
+    }
+
+    fn set_bands(&self, roa: &mut PwRoa) {
+        roa.units = Some(self.units.to_string());
+        roa.threshold = self.threshold;
+        roa.light = range_of(self.light);
+        roa.common = range_of(self.common);
+        roa.strong = range_of(self.strong);
+        roa.heavy = self.heavy.map(|h| h.0);
+        roa.heavy_max = self.heavy.and_then(|h| h.1);
+    }
+}
+
+impl Stages {
+    /// Replaces every timing, so one the source doesn't give is cleared rather than
+    /// left as the wrong figure it replaces.
+    fn set(&self, roa: &mut PwRoa) {
+        let s = |x: Option<&str>| x.map(String::from);
+        roa.onset = s(self.onset);
+        roa.come_up = s(self.come_up);
+        roa.peak = s(self.peak);
+        roa.offset = s(self.offset);
+        roa.after_effects = s(self.after_effects);
+        roa.total = s(self.total);
     }
 }
 
@@ -497,22 +542,140 @@ const ROUTE_OVERRIDES: &[(&str, &str, &[RouteSpec])] = &[(
     "Smoked and insufflated ranges from Erowid. Intramuscular ranges from the Field Notes maintainer. Not orally active.",
     &[
         RouteSpec {
-            name: "vaporized", units: "mg", threshold: Some(1.0),
-            light: (2.0, 5.0), common: (5.0, 10.0), strong: (10.0, 20.0), heavy: None,
-            onset: Some("0–30 seconds"), peak: Some("1–15 minutes"), after_effects: Some("1 hour"), total: Some("30 minutes"),
+            name: "vaporized", threshold: Some(1.0),
+            light: Some((2.0, 5.0)), common: Some((5.0, 10.0)), strong: Some((10.0, 20.0)),
+            stages: Stages { onset: Some("0–30 seconds"), peak: Some("1–15 minutes"), after_effects: Some("1 hour"), total: Some("30 minutes"), ..NO_STAGES },
+            ..BLANK
         },
         RouteSpec {
-            name: "insufflated", units: "mg", threshold: Some(3.0),
-            light: (5.0, 10.0), common: (8.0, 15.0), strong: (10.0, 25.0), heavy: None,
-            onset: Some("5 minutes"), peak: Some("10–30 minutes"), after_effects: Some("1–3 hours"), total: Some("30–45 minutes"),
+            name: "insufflated", threshold: Some(3.0),
+            light: Some((5.0, 10.0)), common: Some((8.0, 15.0)), strong: Some((10.0, 25.0)),
+            stages: Stages { onset: Some("5 minutes"), peak: Some("10–30 minutes"), after_effects: Some("1–3 hours"), total: Some("30–45 minutes"), ..NO_STAGES },
+            ..BLANK
         },
         RouteSpec {
-            name: "IM", units: "mg", threshold: None,
-            light: (0.5, 1.0), common: (1.5, 3.0), strong: (5.0, 7.0), heavy: Some((8.0, Some(12.0))),
-            onset: None, peak: None, after_effects: None, total: None,
+            name: "IM",
+            light: Some((0.5, 1.0)), common: Some((1.5, 3.0)), strong: Some((5.0, 7.0)), heavy: Some((8.0, Some(12.0))),
+            ..BLANK
         },
     ],
 )];
+
+/// A change to one route, keeping the rest of the substance's entry.
+enum Patch {
+    /// Put this route in place of the reference's, or add it.
+    Route(RouteSpec),
+    /// Replace the route's dose bands, keeping its timings.
+    Bands(&'static str, RouteSpec),
+    /// Replace every timing on the route, keeping its dose bands.
+    Stages(&'static str, Stages),
+    /// Remove a route the substance isn't taken by.
+    Drop(&'static str),
+}
+
+/// Erowid's figures where they disagree with DoseWiki, by the owner's rule:
+/// Erowid wins, but each disagreement is decided by the owner first (ROADMAP,
+/// "Dose reference review"). Checked against Erowid's pages as saved on
+/// 2026-10-07 (`data/sources/erowid/`). Erowid gives a threshold as a range; the
+/// low end is used, as for 5-MeO-DMT. Opioid figures assume no tolerance.
+/// (name, where the figures come from, patches)
+const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
+    (
+        "DMT",
+        "Smoked/vaporized figures from Erowid (checked 2026-10-07). Not orally active without an MAOI. Insufflated and IV figures are DoseWiki's.",
+        &[
+            Patch::Route(RouteSpec {
+                name: "vaporized", threshold: Some(2.0),
+                light: Some((10.0, 20.0)), common: Some((20.0, 40.0)), strong: Some((40.0, 60.0)),
+                stages: Stages {
+                    onset: Some("0–1 minutes"), come_up: Some("0–30 seconds"), peak: Some("3–15 minutes"),
+                    offset: Some("3–5 minutes"), after_effects: Some("15–60 minutes"), total: Some("6–20 minutes"),
+                },
+                ..BLANK
+            }),
+            Patch::Drop("oral"),
+        ],
+    ),
+    (
+        "Ketamine",
+        "Oral doses, and insufflated and oral timings, from Erowid (checked 2026-10-07); its other doses agree with Erowid. Heavy is Erowid's “K-hole” range.",
+        &[
+            Patch::Route(RouteSpec {
+                name: "oral", threshold: Some(40.0),
+                light: Some((50.0, 100.0)), common: Some((75.0, 300.0)), strong: Some((200.0, 450.0)), heavy: Some((500.0, None)),
+                stages: Stages { onset: Some("5–20 minutes"), after_effects: Some("4–8 hours"), total: Some("90 minutes"), ..NO_STAGES },
+                ..BLANK
+            }),
+            Patch::Stages("insufflated", Stages {
+                onset: Some("5–15 minutes"), come_up: Some("10–30 minutes"), peak: Some("20–40 minutes"),
+                offset: Some("30–60 minutes"), after_effects: Some("1–3 hours"), total: Some("45–60 minutes"),
+            }),
+        ],
+    ),
+    (
+        "Heroin",
+        "Doses assume no opioid tolerance. Oral range and all timings from Erowid (checked 2026-10-07); other dose bands are DoseWiki's.",
+        &[
+            Patch::Bands("oral", RouteSpec { common: Some((50.0, 70.0)), ..BLANK }),
+            // Erowid's "10 to 30 minutes to peak" is the time to reach it, so it's
+            // the come-up; no peak length is given, so none is guessed.
+            Patch::Stages("insufflated", Stages { onset: Some("30–120 seconds"), come_up: Some("10–30 minutes"), total: Some("3–5 hours"), ..NO_STAGES }),
+            Patch::Stages("IV", Stages { onset: Some("10–20 seconds"), total: Some("4–5 hours"), ..NO_STAGES }),
+            Patch::Stages("vaporized", Stages {
+                onset: Some("5–10 seconds"), come_up: Some("10 minutes"), peak: Some("5–6 minutes"), total: Some("3–5 hours"), ..NO_STAGES
+            }),
+        ],
+    ),
+    (
+        "Psilocybin Mushrooms",
+        "Timings from Erowid (checked 2026-10-07); dose ranges agree with Erowid's for dried P. cubensis.",
+        &[Patch::Stages("oral", Stages {
+            onset: Some("15–60 minutes"), come_up: Some("15–30 minutes"), peak: Some("2–4 hours"),
+            offset: Some("1–3 hours"), after_effects: Some("0–6 hours"), total: Some("4–7 hours"),
+        })],
+    ),
+    (
+        "Dextromethorphan",
+        "Dose ranges from Erowid (checked 2026-10-07), which lists 2,500–20,000 mg as a risk-of-death range.",
+        &[Patch::Bands("oral", RouteSpec {
+            light: Some((100.0, 200.0)), common: Some((200.0, 400.0)), strong: Some((300.0, 600.0)), heavy: Some((600.0, Some(1500.0))),
+            ..BLANK
+        })],
+    ),
+];
+
+fn apply_patches(info: &mut PwInfo, log: &mut Vec<String>) {
+    let Some((_, note, patches)) = ROUTE_PATCHES.iter().find(|(n, ..)| n.eq_ignore_ascii_case(&info.name)) else { return };
+    let name = info.name.clone();
+    for p in patches.iter() {
+        let route = match p {
+            Patch::Route(spec) => spec.name,
+            Patch::Bands(r, _) | Patch::Stages(r, _) | Patch::Drop(r) => r,
+        };
+        let at = info.roas.iter().position(|x| x.name == route);
+        match (p, at) {
+            (Patch::Route(spec), Some(i)) => info.roas[i] = spec.roa(),
+            (Patch::Route(spec), None) => info.roas.push(spec.roa()),
+            (Patch::Bands(_, spec), Some(i)) => spec.set_bands(&mut info.roas[i]),
+            (Patch::Stages(_, st), Some(i)) => st.set(&mut info.roas[i]),
+            (Patch::Drop(_), Some(i)) => {
+                info.roas.remove(i);
+            }
+            (_, None) => {
+                log.push(format!("{name} [{route}]: patch not applied, the reference has no such route"));
+                continue;
+            }
+        }
+        let what = match p {
+            Patch::Route(_) => "replaced",
+            Patch::Bands(..) => "dose bands replaced",
+            Patch::Stages(..) => "timings replaced",
+            Patch::Drop(_) => "removed",
+        };
+        log.push(format!("{name} [{route}]: {what} (see ROUTE_PATCHES)"));
+    }
+    info.dose_note = Some(note.to_string());
+}
 
 /// Parse the slimmed DoseWiki JSON (the bundled `dosewiki.json`) into our shape.
 pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
@@ -609,6 +772,40 @@ mod tests {
         // DMT listed Vaporized and Inhaled; the first is kept.
         let dmt = subs.iter().find(|s| s.name == "DMT").unwrap();
         assert_eq!(dmt.roas.iter().filter(|r| r.name == "vaporized").count(), 1);
+    }
+
+    #[test]
+    fn every_patch_finds_its_route() {
+        let (_, log) = parse_slim_logged(include_str!("../../resources/dosewiki.json")).unwrap();
+        let missed: Vec<&String> = log.iter().filter(|l| l.contains("patch not applied")).collect();
+        assert!(missed.is_empty(), "{missed:?}");
+    }
+
+    #[test]
+    fn erowid_patches_are_applied() {
+        let subs = bundled();
+        let dmt = subs.iter().find(|s| s.name == "DMT").unwrap();
+        assert!(dmt.roas.iter().all(|r| r.name != "oral"), "DMT isn't orally active alone");
+        let v = route(&subs, "DMT", "vaporized");
+        assert_eq!((v.threshold, v.common.min, v.strong.max, v.heavy), (Some(2.0), Some(20.0), Some(60.0), None));
+        assert!(dmt.dose_note.as_deref().unwrap().contains("Erowid"));
+
+        let k = route(&subs, "Ketamine", "oral");
+        assert_eq!((k.threshold, k.heavy, k.onset.as_deref()), (Some(40.0), Some(500.0), Some("5–20 minutes")));
+        let ki = route(&subs, "Ketamine", "insufflated");
+        assert_eq!((ki.peak.as_deref(), ki.total.as_deref()), (Some("20–40 minutes"), Some("45–60 minutes")));
+        assert_eq!(ki.heavy, Some(100.0), "DoseWiki's insufflated bands are kept");
+
+        let h = route(&subs, "Heroin", "oral");
+        assert_eq!((h.common.min, h.strong.min, h.heavy), (Some(50.0), None, None));
+        assert!(h.onset.is_some(), "a bands patch keeps the timings");
+        let iv = route(&subs, "Heroin", "IV");
+        assert_eq!((iv.peak.as_deref(), iv.onset.as_deref()), (None, Some("10–20 seconds")));
+        assert_eq!(iv.common.min, Some(5.0), "a timings patch keeps the bands");
+
+        let d = route(&subs, "Dextromethorphan", "oral");
+        assert_eq!((d.threshold, d.heavy, d.heavy_max), (None, Some(600.0), Some(1500.0)));
+        assert_eq!(route(&subs, "Psilocybin Mushrooms", "oral").come_up.as_deref(), Some("15–30 minutes"));
     }
 
     #[test]

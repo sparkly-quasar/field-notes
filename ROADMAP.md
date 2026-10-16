@@ -1305,6 +1305,35 @@ every 4–6 h (Roxicodone); trial doses 22 or 30 mg/70 kg (Griffiths 2016) and
 - **Dextromethorphan:** plateau-based ranges, overlapping moderate/strong.
 - **Alcohol:** the existing drinks/units item (above).
 
+**Step 2, shipped (2026-10-16): Erowid figures, checked against saved pages.**
+Hermes saved Erowid's pages on 2026-10-07 (`data/sources/erowid/`, with a
+manifest of URLs, times and hashes); every figure below was read off those
+copies. `ROUTE_PATCHES` in `pw.rs` can now replace one route, its bands or its
+timings, or drop it, keeping the rest of DoseWiki's entry. Owner's calls:
+- **DMT:** Erowid's smoked bands (threshold 2, light 10–20, common 20–40, strong
+  40–60 mg; no heavy band) and timings; oral route removed (Erowid: inactive or
+  weakly active without an MAOI). Insufflated and IV stay DoseWiki's
+  (no Erowid table). The "IM 30 mg / 50–70 mg" research figure was not on Erowid's
+  page (Info #2 is an archived user FAQ), so IM isn't added.
+- **Ketamine:** Erowid's oral bands (40 / 50–100 / 75–300 / 200–450 / K-hole 500+
+  mg) and oral and insufflated timings. Heavy is shown as Erowid's K-hole range
+  (owner: yes). Insufflated, rectal and IM bands already matched Erowid.
+- **Heroin:** DoseWiki's bands kept (finer, so "strong" flags earlier; owner's
+  call). Oral corrected to Erowid's 50–70 mg common (no tolerance): DoseWiki made
+  30 mg oral "heavy". Timings from Erowid on every route; the wrong IV peak is gone.
+- **Mushrooms:** Erowid's timings (doses already matched).
+- **DXM:** Erowid's bands (heavy 600–1500 mg), and its 2,500–20,000 mg
+  risk-of-death range in the note.
+
+**Still to decide (found while checking, not yet shown to the owner):**
+- Ketamine IM and rectal timings: DoseWiki's look swapped between the two
+  (IM onset 5–20 min / total 1–2 h; rectal onset 1–5 min / total 30–60 min).
+  Erowid: IM onset 1–5 min, total 30–60 min; rectal onset 5–20 min, total 1–2 h.
+- DXM duration: DoseWiki 8–12 h; Erowid 4–8 h (HBr), 6–12 h (polistirex).
+- No pure psilocybin entry (Erowid: 3–4 / 4–8 / 6–20 / 20–40 / 35+ mg).
+- Oxycodone and heroin effects pages 404'd: Erowid files them under
+  `/pharms/oxycodone/` and a different heroin path. Re-fetch.
+
 **Step 3, to do (coverage gaps).**
 - **Ibogaine had no interactions at all.** Added to `interactions.rs`: ibogaine
   + QT-prolonging drug (methadone, cocaine, alcohol, as the source names them)
