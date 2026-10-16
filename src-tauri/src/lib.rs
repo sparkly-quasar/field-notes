@@ -27,6 +27,7 @@ pub mod pw;
 mod remote;
 mod server_update;
 mod stats;
+mod suggest;
 mod tagging;
 mod tailnet;
 mod tray;
@@ -315,6 +316,11 @@ pub fn run() {
             commands::contribution_candidates,
             commands::contribution_draft,
             commands::contribution_save,
+            commands::ref_suggestions,
+            commands::ref_suggestion_issues,
+            commands::ref_suggestion_mark,
+            commands::ref_suggestion_later,
+            commands::set_ref_suggestion_reminder,
             commands::portal_status,
             commands::set_companion_enabled,
             commands::portal_enable,

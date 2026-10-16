@@ -517,6 +517,14 @@ pub const EXPOSED: &[&str] = &[
     "my_ref_get",
     "my_ref_set",
     "my_ref_delete",
+    // Suggesting those timings, and substances the reference lacks, back to Field
+    // Notes. Read-and-bookkeeping only: they return prefilled GitHub URLs for the
+    // phone's browser to open, and send nothing themselves (`suggest.rs`).
+    "ref_suggestions",
+    "ref_suggestion_issues",
+    "ref_suggestion_mark",
+    "ref_suggestion_later",
+    "set_ref_suggestion_reminder",
     // Names and street names from the (public) dose reference, for pasted logs.
     "pw_names",
     // Which substance a typed name means ("acid" → LSD), for saving a dose.
@@ -744,6 +752,16 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "my_ref_get" => done(commands::my_ref_get_in(db, arg(&args, "name")?)),
         "my_ref_set" => done(commands::my_ref_set_in(db, arg(&args, "name")?, arg(&args, "timings")?)),
         "my_ref_delete" => done(commands::my_ref_delete_in(db, arg(&args, "name")?)),
+        "ref_suggestions" => done(commands::ref_suggestions_in(db, arg(&args, "today")?)),
+        "ref_suggestion_issues" => done(commands::ref_suggestion_issues_in(db, arg(&args, "keys")?)),
+        "ref_suggestion_mark" => done(commands::ref_suggestion_mark_in(
+            db,
+            arg(&args, "keys")?,
+            arg(&args, "private")?,
+            arg(&args, "today")?,
+        )),
+        "ref_suggestion_later" => done(commands::ref_suggestion_later_in(db, arg(&args, "today")?)),
+        "set_ref_suggestion_reminder" => done(commands::set_ref_suggestion_reminder_in(db, arg(&args, "on")?)),
         "pw_names" => done(commands::pw_names_in(db)),
         "canonical_name" => done(commands::canonical_name_in(db, arg(&args, "name")?)),
         "knowledge_search" => ok(commands::knowledge_search(

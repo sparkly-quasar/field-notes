@@ -128,6 +128,7 @@
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
+  import RefSuggest from "$lib/RefSuggest.svelte";
   import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
@@ -2214,6 +2215,7 @@
         </section>
       {/each}
       <SleepCheckin />
+      <RefSuggest quiet={!!session} />
       {#if backupNudge}
         <section class="pane" role="status">
           <p>
@@ -3196,6 +3198,9 @@
           {@render tagging()}
 
           {@render thisPhone()}
+
+          <h3 class="sec">Suggest to the reference</h3>
+          <RefSuggest mode="list" />
 
           {#if isOther && me}
           <h3 class="sec">Back up your journal</h3>

@@ -136,6 +136,7 @@
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
+  import RefSuggest from "$lib/RefSuggest.svelte";
   import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
@@ -2616,6 +2617,9 @@
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
       {#if !selected}<SleepCheckin />{/if}
+      {#if !selected && !remote.connected}
+        <RefSuggest quiet={liveSession || experiences.some((e) => e.kind === "session" && !e.ended_at)} />
+      {/if}
       {#if !selected && activeDoses.length}
         <!-- Something logged lately may still be active, live trip report or not. -->
         <section class="card">
@@ -4339,6 +4343,12 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           ></textarea>
           <button class="ghost small-btn" onclick={openFeedback}>Continue on GitHub →</button>
         </section>
+        {#if !remote.connected}
+          <section class="card">
+            <h2>Suggest to the reference</h2>
+            <RefSuggest mode="list" />
+          </section>
+        {/if}
       {/if}
     {/if}
 

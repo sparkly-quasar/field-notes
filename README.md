@@ -158,6 +158,13 @@ show you how to get past it.
   never includes journal data.
 - **Send feedback** — a link in Settings opens a prefilled bug report or feature
   request on GitHub, in your browser. Nothing is sent from the app itself.
+- **Suggest to the reference** — timings you entered yourself, and substances
+  you added that the reference doesn't have, can be suggested back so the next
+  person doesn't have to type them. You see exactly what would be shared (never
+  your journal, a dose, or when), and it opens as a prefilled GitHub issue in
+  your browser for you to submit or close. At most once a month, and only when
+  there's something new, Today asks if you'd like to; "Don't ask me again" stops
+  it, and the list stays in Settings. Nothing is sent from the app itself.
 
 ## Screenshots
 
@@ -291,6 +298,8 @@ passing Field Notes along to a harm reduction group help too.
   the offline check. `keychain.rs` is the opt-in
   "remember the password" for a server that must unlock itself after a reboot.
 - `contribute.rs` — upstream draft exports, with no HTTP client in the file at all.
+- `suggest.rs` — reference suggestions as prefilled GitHub issue URLs, likewise
+  with no HTTP client; the person's browser opens them.
 - The AI features (Companion, text import) talk only to a local
   [Ollama](https://ollama.com) instance on `127.0.0.1` — the app can install it
   and download a model for you on first use.
