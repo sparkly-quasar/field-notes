@@ -10,9 +10,14 @@
   Psychedelic doses that rise are shown with a note that working up gradually is a
   common way to work with them; nothing is ever marked as a concern.
 
-  The drug-family card says which families most experiences lately had in them
+  The drug-class card says which classes most experiences lately had in them
   (stimulants, dissociatives...) and which of those moved, counted in
   experiences rather than doses so a night of redosing reads as one time.
+
+  Routine doses (kinds.rs: the morning coffee, a daily prescription) are no part
+  of Trends at all (owner's decision, 2026-10-16): taken daily on purpose, they'd
+  only crowd out what's worth seeing. The dose chart and the rest of Stats still
+  show them, so a habit filed as routine by mistake stays visible there.
 -->
 <script lang="ts">
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
@@ -76,13 +81,17 @@
   );
   const recent = (t: number) => t >= mid;
 
-  // Routine and as-needed substances (kinds.rs) aren't experiences: the overall
-  // "how often" and combinations count only entries with something else in them.
-  // A routine one has no "how often" or "time between" of its own (daily is the
-  // point), but keeps its amount trends; an as-needed one keeps everything, since
-  // taking it more often is exactly what's worth seeing.
+  // Routine substances (kinds.rs) are left out of every trend, and an entry with
+  // nothing else in it isn't an experience here. As-needed ones aren't
+  // experiences either: the overall "how often" counts only entries with
+  // something else in them. But an as-needed one keeps every trend of its own,
+  // since taking it more often is exactly what's worth seeing.
   const kindOf = (key: string) => data?.substances.find((s) => s.key === key)?.kind ?? "";
+  const routine = (key: string) => kindOf(key) === "routine";
   const experiences = $derived(exps.filter((e) => e.subs.some((k) => !kindOf(k))));
+  /** What's in an entry, routine doses left out. */
+  const counted = (e: Exp) => e.subs.filter((k) => !routine(k));
+  const anyRoutine = $derived((data?.substances ?? []).some((s) => s.kind === "routine"));
 
   // ---- the trends ----
   type Bucket = { start: number; count: number; recent: boolean };
@@ -132,7 +141,7 @@
   /** "were stimulants", "were in no family" */
   const FAMILY_MANY: Record<string, string> = {
     psychedelics: "psychedelics", entactogens: "entactogens", dissociatives: "dissociatives", stimulants: "stimulants",
-    depressants: "depressants", opioids: "opioids", cannabinoids: "cannabinoids", other: "substances with no family",
+    depressants: "depressants", opioids: "opioids", cannabinoids: "cannabinoids", other: "substances with no class",
   };
   const many = (f: string) => FAMILY_MANY[f] ?? f;
   const famLabel = (f: string) => FAMILY_LABEL[f] ?? f;
@@ -140,7 +149,7 @@
    *  morning coffee, a daily prescription) would outweigh everything else, so
    *  they're left out, as they are from "how often". */
   const famOf = (e: Exp) =>
-    [...new Set(e.subs.filter((k) => kindOf(k) !== "routine").flatMap((k) => data?.substances.find((s) => s.key === k)?.families ?? []))];
+    [...new Set(counted(e).flatMap((k) => data?.substances.find((s) => s.key === k)?.families ?? []))];
   const famExps = $derived(exps.map((e) => ({ ...e, families: famOf(e) })).filter((e) => e.families.length));
   /** The same, over the whole rhythm look-back. */
   const famTimes = $derived.by(() => {
@@ -200,16 +209,14 @@
     const moves = [ups.length ? `${list(ups)} more often` : "", downs.length ? `${list(downs)} less often` : ""].filter(Boolean).join(", ");
     const rhythms = steady.map((x) => x.text);
     const multi = famExps.some((e) => e.families.length > 1);
-    const routine = (data?.substances ?? []).some((s) => s.kind === "routine");
     out.push({
       kind: "mix", key: null, rows, before, lately, title,
       up: top ? (top.moved ? top.trend === "up" || top.trend === "new" : lately > before) : false,
       text: [first, moves ? `${cap(moves)}.` : "", rhythms.length ? `${cap(list(rhythms))}.` : ""].filter(Boolean).join(" "),
       note: [
-        "Each experience counts once for every family in it, however many doses it had.",
-        multi ? "One with more than one family counts toward each, so the rows can add up to more than the total." : "",
+        "Each experience counts once for every drug class in it, however many doses it had.",
+        multi ? "One with more than one class counts toward each, so the rows can add up to more than the total." : "",
         steady.length ? `A steady rhythm is read from ${lookStart < start ? "the last year" : "both periods"}.` : "",
-        routine ? "Routine doses aren't counted here." : "",
       ].filter(Boolean).join(" "),
     });
   }
@@ -219,7 +226,7 @@
   const trends = $derived.by((): Trend[] => {
     if (!data) return [];
     const out: Trend[] = [];
-    const keys = (data.substances ?? []).map((s) => s.key).filter((k) => !focus || focus.has(k));
+    const keys = (data.substances ?? []).map((s) => s.key).filter((k) => !routine(k) && (!focus || focus.has(k)));
 
     // How often: overall (when nothing is picked), then per substance.
     const often = (key: string | null) => {
@@ -238,7 +245,7 @@
     };
     if (!focus) often(null);
     if (!focus) mix(out);
-    for (const k of keys) if (kindOf(k) !== "routine") often(k);
+    for (const k of keys) often(k);
 
     for (const k of keys) {
       const sub = data.substances.find((s) => s.key === k)!;
@@ -251,7 +258,7 @@
       // Time between: the typical gap in each period.
       const gaps = (xs: Exp[]) => xs.slice(1).map((e, i) => (e.t - xs[i].t) / DAY);
       const gB = median(gaps(before)), gL = median(gaps(lately));
-      if (kindOf(k) !== "routine" && gB != null && gL != null && gB > 0 && changed(gB, gL)) {
+      if (gB != null && gL != null && gB > 0 && changed(gB, gL)) {
         const closer = gL < gB;
         out.push({
           kind: "gaps", key: k, up: !closer, times: mine.map((e) => e.t), ids: mine.map((e) => e.id),
@@ -308,13 +315,13 @@
     if (!focus) {
       const before = experiences.filter((e) => !recent(e.t)), lately = experiences.filter((e) => recent(e.t));
       if (before.length >= MIN_EACH && lately.length >= MIN_EACH) {
-        const combined = (e: Exp) => e.subs.length > 1;
+        const combined = (e: Exp) => counted(e).length > 1;
         const cB = before.filter(combined).length, cL = lately.filter(combined).length;
         const sB = cB / before.length, sL = cL / lately.length;
         if (Math.abs(sL - sB) >= 0.25 && fisherP(cL, lately.length, cB, before.length) < P_MAX) {
           out.push({
             kind: "chips", key: null, up: sL > sB,
-            rows: chipRows(before, lately, combined, (e) => e.subs.length),
+            rows: chipRows(before, lately, combined, (e) => counted(e).length),
             title: `${sL > sB ? "More" : "Fewer"} combinations lately`,
             text: `${cL} of ${lately.length} experiences in the last ${periodWord} had more than one substance, against ${cB} of ${before.length} in the ${periodWord} before.`,
             legend: "Each square is one experience. Filled: more than one substance, with how many.",
@@ -328,7 +335,7 @@
 
   const shown = $derived(showAll ? trends : trends.slice(0, SHOW_FIRST));
   const enough = $derived(
-    exps.filter((e) => recent(e.t)).length >= MIN_EACH && exps.filter((e) => !recent(e.t)).length >= MIN_EACH,
+    experiences.filter((e) => recent(e.t)).length >= MIN_EACH && experiences.filter((e) => !recent(e.t)).length >= MIN_EACH,
   );
 
   /** A card's identity, so a tap stays on its card when the list changes. */
@@ -345,7 +352,7 @@
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "long", year: "numeric" })
       : `Week of ${new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 
-  const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern", mix: "Drug families" };
+  const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern", mix: "Drug classes" };
   const fmtMonth = (t: number, unit: string) =>
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "short" }) : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -360,7 +367,9 @@
       Differences between the last {periodWord} and the {periodWord} before. Tap a bar or a dot for its experiences.
     </p>
 
-    {#if !enough && !trends.length}
+    {#if focus && [...focus].every(routine)}
+      <p class="note">This is marked routine, so it isn't part of Trends. Its doses are in the charts below.</p>
+    {:else if !enough && !trends.length}
       <p class="note">Trends appear once each period has at least {MIN_EACH} experiences{focus ? " of this" : ""}.</p>
     {:else if !trends.length}
       <p class="note">No clear changes between the two periods.</p>
@@ -410,7 +419,7 @@
           {#if pick?.card === tid(tr) && tr.buckets[pick.i]}
             {@const b = tr.buckets[pick.i]}
             {@const end = tr.buckets[pick.i + 1]?.start ?? Infinity}
-            {@const ids = exps.filter((e) => e.t >= b.start && e.t < end && (tr.key == null || e.subs.includes(tr.key))).map((e) => e.id)}
+            {@const ids = (tr.key == null ? experiences : exps).filter((e) => e.t >= b.start && e.t < end && (tr.key == null || e.subs.includes(tr.key))).map((e) => e.id)}
             <StatsPick heading={fmtLong(b.start, tr.unit)} note={plural(ids.length, "experience")} items={items(ids)}
               empty="No experiences in this {tr.unit}." {onOpen} onClose={() => (pick = null)} />
           {/if}
@@ -471,7 +480,7 @@
           {@const H = T + tr.rows.length * RH}
           {@const top = Math.max(1, ...tr.rows.flatMap((r) => [r.before, r.lately]))}
           {@const w = (v: number) => (v / top) * BW}
-          <svg viewBox="0 0 {W} {H}" role="img" aria-label="{tr.title}: experiences per drug family, before and lately">
+          <svg viewBox="0 0 {W} {H}" role="img" aria-label="{tr.title}: experiences per drug class, before and lately">
             {#each tr.rows as r, i}
               {@const y0 = T + i * RH}
               <text class="axis hi fam-l" x="0" y={y0 + 12}>{famLabel(r.family)}</text>
@@ -498,7 +507,7 @@
             <StatsPick heading="{famLabel(r.family)}, {lately ? `last ${periodWord}` : `the ${periodWord} before`}" note={plural(ids.length, "experience")}
               items={items(ids)} {onOpen} onClose={() => (pick = null)} />
           {/if}
-          <p class="note">{tr.note} Tap a family to see its experiences.</p>
+          <p class="note">{tr.note} Tap a class to see its experiences.</p>
         {:else}
           {#each tr.rows as row}
             <div class="row-h">
@@ -527,6 +536,7 @@
     {#if trends.length > SHOW_FIRST}
       <button class="link" onclick={() => (showAll = !showAll)}>{showAll ? "Show fewer" : `Show all trends (${trends.length})`}</button>
     {/if}
+    {#if anyRoutine && !(focus && [...focus].every(routine))}<p class="note">Routine doses, like a daily prescription, aren't part of Trends.</p>{/if}
     {#if hiding()}<p class="note">Names are hidden by discreet mode.</p>{/if}
   </section>
 {/if}

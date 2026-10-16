@@ -6,9 +6,10 @@
 //!
 //! The one rule: **the kind changes where doses are shown, never whether they're
 //! tracked.** Routine and as-needed doses leave the experience views in Stats
-//! (how often, the calendar, time between), but the dose chart, time of day,
-//! amount trends and the combination checker always count them. A habit filed
-//! as routine by mistake must still be visible.
+//! (how often, the calendar, time between), but the dose chart, time of day
+//! and the combination checker always count them. A habit filed as routine by
+//! mistake must still be visible. Trends leaves routine doses out entirely
+//! (owner's decision, 2026-10-16); the dose chart is where they stay visible.
 //!
 //! The app asks rather than making people tag things, and the asking is
 //! careful (owner's decisions, 2026-10-05):

@@ -126,8 +126,9 @@
 
   // ---- routine and as-needed (kinds.rs) ----
   // They leave the experience views (how often, the calendar, time between,
-  // "days since"), never the rest: the dose chart, time of day, combinations and
-  // amount trends count every dose. Picking one shows it on its own.
+  // "days since"), never the rest: the dose chart, time of day and combinations
+  // count every dose. Trends leaves routine ones out entirely (Trends.svelte).
+  // Picking one shows it on its own.
   const careKeys = $derived(new Set((data?.substances ?? []).filter((x) => x.kind).map((x) => x.key)));
   const KIND_LABEL: Record<string, string> = { "": "As experiences", routine: "Routine", as_needed: "As needed" };
 
@@ -525,7 +526,7 @@
     <p class="msg">No doses logged {range === "all" ? "yet" : "in this range"}.</p>
   {:else}
     {#if families.length > 1 || families[0] === "other"}
-      <div class="chips fams" role="group" aria-label="Drug family">
+      <div class="chips fams" role="group" aria-label="Drug class">
         <button class:on={!family && !current} aria-pressed={!family && !current} onclick={() => pickFamily("")}>All</button>
         {#each families as f}
           <button class:on={family === f} aria-pressed={family === f} onclick={() => pickFamily(f)}>{FAMILY_LABEL[f]}</button>
@@ -568,7 +569,7 @@
         <div class="tile"><span class="big">{famDoses}</span><span class="cap">{famDoses === 1 ? "dose" : "doses"}</span></div>
       </div>
       {#if family === "other"}
-        <p class="note pickhint">Substances Field Notes couldn't place in a family. Give one classes in your catalogue, under Check, to sort it.</p>
+        <p class="note pickhint">Substances Field Notes couldn't place in a drug class. Give one classes in your catalogue, under Check, to sort it.</p>
       {/if}
     {:else}
       <div class="tiles">
@@ -576,7 +577,7 @@
         <div class="tile"><span class="big">{data.total_doses}</span><span class="cap">{data.total_doses === 1 ? "dose" : "doses"}</span></div>
         <div class="tile"><span class="big">{data.substances.length}</span><span class="cap">{data.substances.length === 1 ? "substance" : "substances"}</span></div>
       </div>
-      <p class="note pickhint">Pick a family or a substance to narrow everything below to it.</p>
+      <p class="note pickhint">Pick a drug class or a substance to narrow everything below to it.</p>
     {/if}
     {#if sub}
       <div class="kindrow" role="group" aria-label="How you take {label(sub.key)}">
