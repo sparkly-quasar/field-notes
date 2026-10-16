@@ -512,7 +512,10 @@ impl RouteSpec {
             total: None,
             half_life: None,
         };
-        self.set_bands(&mut roa);
+        // Timings only: no figures, so no unit to show beside them.
+        if self.threshold.is_some() || self.light.is_some() || self.common.is_some() || self.strong.is_some() || self.heavy.is_some() {
+            self.set_bands(&mut roa);
+        }
         self.stages.set(&mut roa);
         roa
     }
@@ -696,8 +699,11 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
 struct ExtraSubstance {
     name: &'static str,
     aliases: &'static [&'static str],
-    /// The entry whose classes and interactions it shares.
-    like: &'static str,
+    /// The entry whose classes and interactions it shares, if there is one.
+    like: Option<&'static str>,
+    /// Its classes, when there's no entry to share them with.
+    psychoactive: &'static [&'static str],
+    chemical: &'static [&'static str],
     note: &'static str,
     routes: &'static [RouteSpec],
 }
@@ -707,10 +713,24 @@ struct ExtraSubstance {
 /// Pure psilocybin: DoseWiki has psilocin and mushrooms (in grams) but nothing for
 /// psilocybin itself in mg, the way trials and pharmaceutical products dose it.
 /// It's the same drug as in the mushrooms, so it shares their interactions.
+///
+/// SR-17018 (owner's request, 2026-10-16): a mu-opioid agonist sold as a research
+/// chemical, often to come off other opioids. No human studies, so no dose
+/// figures; the oral timings are the owner's, from three doses of their own, and
+/// three doses from one person can't support a range for a novel opioid. Sources
+/// for the note: Schmid et al. 2017, Cell 171:1165 (in mice, less respiratory
+/// depression than morphine at pain-relieving doses); Gillis et al. 2020, Sci.
+/// Signal. 13:eaaz3140 (explained by low intrinsic efficacy rather than
+/// signalling bias); Grim et al. 2020 (blocked morphine withdrawal in mice); NDEWS
+/// web monitoring, 2025-11-14 (people's reports: slow onset, very different doses
+/// from person to person, redosing, and overdose on going back to other opioids
+/// after tolerance fell).
 const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
     name: "Psilocybin",
     aliases: &["pure psilocybin", "synthetic psilocybin", "COMP360"],
-    like: "Psilocybin Mushrooms",
+    like: Some("Psilocybin Mushrooms"),
+    psychoactive: &[],
+    chemical: &[],
     note: "Doses and timings from Erowid's psilocybin page (checked 2026-10-07), for pure psilocybin in mg, not mushrooms. Trial doses for reference: 22 or 30 mg/70 kg (Griffiths 2016), 0.3 mg/kg (Ross 2016).",
     routes: &[RouteSpec {
         name: "oral", threshold: Some(3.0),
@@ -721,26 +741,45 @@ const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
         },
         ..BLANK
     }],
+}, ExtraSubstance {
+    name: "SR-17018",
+    aliases: &["SR17018", "SR 17018"],
+    like: None,
+    psychoactive: &["Opioid"],
+    chemical: &["Benzimidazolone"],
+    note: "No dose figures: SR-17018 hasn't been studied in people. Its oral timings are from the Field Notes maintainer's own use, not a study, and others report a slower onset, which can lead to redosing. It's a mu-opioid agonist. In mice it slowed breathing less than morphine, likely because it activates the receptor only weakly, and it blocked morphine withdrawal. People who use it to come off other opioids report very different doses from one person to the next. Treat it as an opioid in combinations. If it lowers your tolerance, a dose of another opioid you used to take can become an overdose.",
+    routes: &[RouteSpec {
+        name: "oral",
+        stages: Stages {
+            onset: Some("20 minutes"), come_up: Some("30 minutes"), peak: Some("2–3 hours"), offset: Some("2–3 hours"), total: Some("6 hours"),
+            ..NO_STAGES
+        },
+        ..BLANK
+    }],
 }];
 
 fn add_extra_substances(infos: &mut Vec<PwInfo>, log: &mut Vec<String>) {
-    for ExtraSubstance { name, aliases, like, note, routes } in EXTRA_SUBSTANCES {
+    for ExtraSubstance { name, aliases, like, psychoactive, chemical, note, routes } in EXTRA_SUBSTANCES {
         if infos.iter().any(|i| i.name.eq_ignore_ascii_case(name)) {
             log.push(format!("{name}: not added, the reference now has its own entry; check it against EXTRA_SUBSTANCES"));
             continue;
         }
-        let base = infos.iter().find(|i| i.name.eq_ignore_ascii_case(like));
+        let base = like.and_then(|l| infos.iter().find(|i| i.name.eq_ignore_ascii_case(l)));
+        let own = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         infos.push(PwInfo {
             name: name.to_string(),
             common_names: aliases.iter().map(|a| a.to_string()).collect(),
-            psychoactive: base.map(|b| b.psychoactive.clone()).unwrap_or_default(),
-            chemical: base.map(|b| b.chemical.clone()).unwrap_or_default(),
+            psychoactive: base.map(|b| b.psychoactive.clone()).unwrap_or_else(|| own(psychoactive)),
+            chemical: base.map(|b| b.chemical.clone()).unwrap_or_else(|| own(chemical)),
             roas: routes.iter().map(RouteSpec::roa).collect(),
             interactions: base.map(|b| b.interactions.clone()).unwrap_or_default(),
             dose_note: Some(note.to_string()),
             mine: false,
         });
-        log.push(format!("{name}: added (see EXTRA_SUBSTANCES), sharing {like}'s interactions"));
+        log.push(match like {
+            Some(like) => format!("{name}: added (see EXTRA_SUBSTANCES), sharing {like}'s interactions"),
+            None => format!("{name}: added (see EXTRA_SUBSTANCES)"),
+        });
     }
 }
 
@@ -952,6 +991,23 @@ mod tests {
              see src-tauri/core/src/pw.rs. Hand-written replacements (ROUTE_OVERRIDES) are listed there.\n\n"
         );
         std::fs::write(path, head + &log.join("\n") + "\n").unwrap();
+    }
+
+    #[test]
+    fn adds_substances_dosewiki_lacks() {
+        let subs = parse_slim(include_str!("../../resources/dosewiki.json")).unwrap();
+        let s = subs.iter().find(|s| s.name == "SR-17018").expect("SR-17018 is in the directory");
+        assert_eq!(s.psychoactive, ["Opioid"]);
+        assert!(s.common_names.iter().any(|a| a == "SR17018"));
+        let oral = &s.roas[..];
+        assert_eq!(oral.len(), 1);
+        assert_eq!((oral[0].name.as_str(), oral[0].total.as_deref()), ("oral", Some("6 hours")));
+        assert_eq!(oral[0].onset.as_deref(), Some("20 minutes"));
+        let r = &oral[0];
+        assert!(r.units.is_none() && r.threshold.is_none() && r.common.min.is_none() && r.heavy.is_none(), "no dose figures");
+        let note = s.dose_note.as_deref().unwrap();
+        assert!(note.contains("hasn't been studied in people") && note.contains("maintainer's own use"));
+        assert_eq!(subs.iter().filter(|s| s.name == "SR-17018").count(), 1);
     }
 
     #[test]

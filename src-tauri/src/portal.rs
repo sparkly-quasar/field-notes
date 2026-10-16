@@ -503,6 +503,9 @@ pub const EXPOSED: &[&str] = &[
     "pattern_note",
     "answer_kind_question",
     "set_substance_kind",
+    "substance_question",
+    "substance_question_done",
+    "set_substance_classes",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
     // here at the end of "Sync journal to server".
     "remove_duplicate_entries",
@@ -719,6 +722,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "set_sleep_checkin" => done(commands::set_sleep_checkin_in(db, arg(&args, "on")?)),
         "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
         "pattern_note" => done(commands::pattern_note_in(db, arg(&args, "substance")?)),
+        "substance_question" => done(commands::substance_question_in(db, arg(&args, "substance")?)),
+        "substance_question_done" => done(commands::substance_question_done_in(db, arg(&args, "substance")?)),
+        "set_substance_classes" => done(commands::set_substance_classes_in(db, arg(&args, "substance")?, arg(&args, "classes")?)),
         "answer_kind_question" => done(commands::answer_kind_question_in(
             db,
             arg(&args, "substance")?,

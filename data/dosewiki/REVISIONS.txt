@@ -103,3 +103,4 @@ Tizanidine [oral]: dropped threshold band (0.025 mg once converted), more than 1
 UR-144: route "Inhaled" renamed vaporized
 Zolazepam: route "Intramuscular" renamed IM
 Psilocybin: added (see EXTRA_SUBSTANCES), sharing Psilocybin Mushrooms's interactions
+SR-17018: added (see EXTRA_SUBSTANCES)
