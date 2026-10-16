@@ -11,6 +11,24 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.32.0
+
+- **Drug classes in Trends.** Trends in Stats has a new card on which drug
+  classes your recent experiences had in them (stimulants, depressants,
+  dissociatives and so on) and which have come up more or less often than in
+  the period before. It counts experiences, not doses, so a night of redosing
+  counts once. A class is only called "more often" or "less often" when the
+  change is too big to be chance. With just a few entries, the card says
+  nothing rather than guess.
+- **Steady rhythms.** Something you do about once a week, once a month or every
+  few months shows as a steady rhythm, read from the last year, even when the
+  30-day view has only one or two of it. Tap a class to see its experiences.
+- **Routine doses are no longer part of Trends.** Doses marked routine, like a
+  daily prescription or the morning coffee, no longer appear in any trend.
+  Before, they could make almost every entry look like a combination. They're
+  still in the dose chart and the rest of Stats.
+- **"Drug class" instead of "family"** in the Stats filter.
+
 ## v0.31.0
 
 - **Everyone on a shared server can install updates.** If other people use

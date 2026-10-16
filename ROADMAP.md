@@ -129,6 +129,29 @@ non-negotiables, each with a test:
 
 ---
 
+## Shipped in v0.32.0: drug classes in Trends (owner's request, 2026-10-16)
+
+- **Drug-class card** (`Trends.svelte`, `familyMix` in `stats.ts`). Which drug
+  classes recent experiences had in them and which moved. Counted per
+  experience, not per dose, so redosing doesn't read as more often (the
+  redosing card covers that). A class moves only when the bigger period has at
+  least 3, one period has 1.5 times the other, and a two-sided exact test on
+  the two counts (`splitP`, periods of equal length) is under 0.1, the same
+  cut-off Trends' Fisher tests use. Too few to tell isn't shown.
+- **Steady rhythms** (`rhythm`, `rhythmWord`). For a class that hasn't clearly
+  moved, a regular rhythm over the last year (or both periods, if longer):
+  at least 4 occasions (doses within 2 days are one), a typical gap of 6 to 120
+  days, three in four gaps within half to double it, the last within two gaps
+  of now. Once a month is a pattern even when the 30-day view has 1 against 1.
+- **Routine doses are no part of Trends** (owner's decision, 2026-10-16). Before,
+  a routine substance kept its amount and redosing trends and counted as a
+  second substance in combinations. The dose chart and the rest of Stats still
+  count them, so a habit filed as routine by mistake stays visible there.
+- **"Drug class"** replaces "family" in what people read. Code names keep
+  `families`.
+
+---
+
 ## Shipped in v0.29.0 — active arcs
 
 - **Active arcs** (`arcs.ts`, `ActiveArcs.svelte`, desktop live view and the phone's
@@ -1313,7 +1336,8 @@ in g there).
 whether it's tracked.** Routine doses leave the *experience* views, but daily
 totals, days per week, gradual increase, time of day and the combination
 checker always include them. A habit that gets filed as routine by mistake must
-still be visible.
+still be visible. (Since v0.32.0, Trends leaves routine doses out entirely; the
+dose chart is where they stay visible.)
 
 #### Order of work
 
@@ -1371,7 +1395,8 @@ still be visible.
    and a quarter of the amount (one late dose shouldn't hide a routine). The
    overview, families and Trends' "how often" and combinations count
    experiences only; a routine substance has no "how often" or "time between"
-   trend but keeps its amount trends; an as-needed one keeps everything. A
+   trend but keeps its amount trends (since v0.32.0, no trends at all); an
+   as-needed one keeps everything. A
    picked substance gets "How you take it" (any substance, by hand) and, when
    routine or as needed, days taken in the last 28 and the 28 before, usual
    time and amount. **Not built yet:** the dependence notes ("Patterns to watch,

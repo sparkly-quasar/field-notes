@@ -140,7 +140,9 @@ show you how to get past it.
 - **Stats** (desktop and phone): dose over time against the reference's dose
   ranges, spacing between experiences, how often, a calendar, and what you've taken
   together, plus **Trends**: what changed lately against the period before (how
-  often, time between, amount per experience, redosing), each with a small chart.
+  often, time between, amount per experience, redosing, which drug classes your
+  experiences had in them, and steady rhythms read from the last year), each with
+  a small chart. Routine doses aren't part of Trends.
   Tap a day, bar, hour or dot to see the experiences behind it.
   **Dose-aware**: each dose shown as what it was logged as against the
   reference's ranges, microdoses recognised, mushroom forms (fresh, capsules,
