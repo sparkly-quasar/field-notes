@@ -519,8 +519,8 @@ mod tests {
     #[test]
     fn an_im_dose_uses_the_im_route_or_the_longest_never_iv() {
         let r = bundled();
-        // Ketamine's reference writes it "I.M.": 1–2 hours.
-        assert_eq!(active_minutes(&r.lookup("Ketamine").unwrap(), "IM"), Some(120.0));
+        // Ketamine's IM route (DoseWiki's "I.M."): 30–60 minutes, Erowid's figure.
+        assert_eq!(active_minutes(&r.lookup("Ketamine").unwrap(), "IM"), Some(60.0));
         // Hydromorphone lists no IM route. IV's 3–4 hours would end it early;
         // the longest it gives (oral, insufflated: 4–6 hours) stands in.
         assert_eq!(active_minutes(&r.lookup("Hydromorphone").unwrap(), "IM"), Some(360.0));

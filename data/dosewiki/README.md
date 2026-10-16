@@ -1,5 +1,14 @@
 # DoseWiki data pack
 
+**The Field Notes dose reference is based on this snapshot, with substantial
+revisions.** `src-tauri/core/src/pw.rs` corrects it on load (units mixed within a
+route, bands out of order, route names, durations longer than the whole) and
+replaces the routes it gets badly wrong from Erowid and published sources
+(`ROUTE_OVERRIDES`, each with a source note shown in-app). Every on-load change
+is listed in [`REVISIONS.txt`](./REVISIONS.txt); regenerate it after a refresh with
+`cargo test -p field_notes_core write_revision_log -- --ignored`. The review that
+led to this is in `ROADMAP.md` ("Dose reference review").
+
 `SubstanceIndex.json` is a static snapshot of the **DoseWiki** substance
 encyclopedia (<https://dose.wiki>), dedicated to the **public domain under CC0**
 (the DoseWiki site code is MIT). No attribution is legally required; we credit

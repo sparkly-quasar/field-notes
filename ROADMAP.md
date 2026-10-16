@@ -1677,6 +1677,153 @@ and no tier, and gets opioid wording in the checker.
   cutoffs, and published thresholds come from treatment populations, not
   journal users.
 
+### Dose reference review (owner's request, 2026-10-05)
+
+A review of the bundled DoseWiki snapshot (577 substances, 2026-07-08) found two
+kinds of problem: entries that are wrong, and entries malformed in a way the app
+read wrongly without saying so. The second kind was worse, since the app showed a
+confident label. **Owner's decision:** the reference becomes our own, "the Field
+Notes dose reference, based on DoseWiki with substantial revisions". Erowid is
+the preferred source for replacement figures, then drug labels and peer-reviewed
+literature. PsychonautWiki and TripSit are a cross-check only (CC BY-SA).
+
+**Step 1, done (structural fixes on load, `pw.rs`).** Every change is logged to
+`data/dosewiki/REVISIONS.txt` (regenerate with
+`cargo test -p field_notes_core write_revision_log -- --ignored`), so a refresh
+gets the same treatment and shows what changed.
+- **Mixed units within a route** (8 entries): the app read every band in one
+  unit, so psilocin's "heavy 5 g" read as 5 mg and a 10 mg dose showed "heavy";
+  butyrfentanyl's strong/heavy (mg) read as µg. Bands are now converted to the
+  route's majority unit. A band in a unit that can't convert (Alcohol's US
+  "drinks" among UK units) is dropped, and so is a converted band more than 10x
+  off the rest (psilocin's gram figures were psilocybin mushroom figures).
+- **Bands out of order** (14 inverted): the classifier reads from heavy down, so
+  an inverted band mislabels doses. The longest rising run of tiers is kept and
+  the rest dropped (MDAI, 6-APDB, 5-MAPB, ALD-52, 5-MeO-DiBF, Meclofenoxate).
+  Overlaps that still rise (oxycodone "moderate 5–5 mg", heroin smoked heavy
+  inside strong, ketamine's routes, DXM) are left for step 2.
+- **Route names** match the dose form: smoked/inhaled → vaporized, I.M. /
+  intramuscular → IM, intravenous → IV. Duplicates after renaming are dropped,
+  first kept (DMT, 5-MeO-DMT, 5-MeO-MiPT, DPT, Kanna, N-Ethylhexedrone, DET,
+  5-MeO-DALT). The dose form no longer falls back to the first route when the
+  logged one isn't listed (ketamine IM was being classified against
+  insufflated), and the combo checker's IM lookup finds IM before IV.
+- **Impossible durations:** a stage longer than the total is dropped (buspirone
+  peak "40–90 hours", nicotine buccal offset).
+- In-app credit, NOTICE and READMEs now say "based on DoseWiki with substantial
+  revisions". The prose corpus is still credited as DoseWiki's, as written.
+
+**Step 2, to do (replacement figures, `ROUTE_OVERRIDES`).** Erowid first. Each
+override carries a `dose_note` naming its sources.
+**Owner's decisions (2026-10-07):** Erowid wins by default where sources
+disagree, but each disagreement goes to the owner first (e.g. DMT smoked: Erowid
+20–40 mg common vs TIHKAL 60–100 mg). Opioid bands assume no tolerance. No
+figure ships until it has been read on its source page; search excerpts don't
+count. A research pass found candidate figures, but erowid.org refuses the
+web-fetch tool (403), so the Erowid figures are still unverified. Verified so
+far, from labels and PMC: buspirone Tmax 40–90 min (label); esketamine 56/84 mg,
+Tmax 20–40 min, at least 2 h observation (Spravato); ketamine anaesthetic IV
+1–4.5 mg/kg, IM 6.5–13 mg/kg (Ketalar); oxycodone opioid-naive start 5–15 mg
+every 4–6 h (Roxicodone); trial doses 22 or 30 mg/70 kg (Griffiths 2016) and
+0.3 mg/kg (Ross 2016).
+- **DMT:** oral route listed as active by itself (onset "15–60 seconds"); it isn't
+  without an MAOI. Vaporized and Inhaled disagreed (the first was kept).
+- **Ketamine:** oral timings look like injection figures (onset 1–3 min, total
+  1–2 h); insufflated peak 45–90 min / offset 3–6 h, no total; overlapping bands
+  on every route.
+- **Psilocin:** after step 1 it has light–strong only; needs threshold and heavy.
+- **Oxycodone:** oral "moderate 5–5 mg"; IV peak 3–5 h.
+- **Heroin:** insufflated onset "10–60 s"; IV peak 1–4 h; IV/oral missing light.
+- **Butyrfentanyl:** units now consistent, figures still unverified.
+- **Buspirone:** real peak/Tmax from the label.
+- **Dextromethorphan:** plateau-based ranges, overlapping moderate/strong.
+- **Alcohol:** the existing drinks/units item (above).
+
+**Step 2, shipped (2026-10-16): Erowid figures, checked against saved pages.**
+Hermes saved Erowid's pages on 2026-10-07 (`data/sources/erowid/`, with a
+manifest of URLs, times and hashes); every figure below was read off those
+copies. `ROUTE_PATCHES` in `pw.rs` can now replace one route, its bands or its
+timings, or drop it, keeping the rest of DoseWiki's entry. Owner's calls:
+- **DMT:** Erowid's smoked bands (threshold 2, light 10–20, common 20–40, strong
+  40–60 mg; no heavy band) and timings; oral route removed (Erowid: inactive or
+  weakly active without an MAOI). Insufflated and IV stay DoseWiki's
+  (no Erowid table). The "IM 30 mg / 50–70 mg" research figure was not on Erowid's
+  page (Info #2 is an archived user FAQ), so IM isn't added.
+- **Ketamine:** Erowid's oral bands (40 / 50–100 / 75–300 / 200–450 / K-hole 500+
+  mg) and oral and insufflated timings. Heavy is shown as Erowid's K-hole range
+  (owner: yes). Insufflated, rectal and IM bands already matched Erowid.
+- **Heroin:** DoseWiki's bands kept (finer, so "strong" flags earlier; owner's
+  call). Oral corrected to Erowid's 50–70 mg common (no tolerance): DoseWiki made
+  30 mg oral "heavy". Timings from Erowid on every route; the wrong IV peak is gone.
+- **Mushrooms:** Erowid's timings (doses already matched).
+- **DXM:** Erowid's bands (heavy 600–1500 mg), and its 2,500–20,000 mg
+  risk-of-death range in the note.
+
+**Also shipped (owner: "use Erowid", 2026-10-16):**
+- Ketamine IM and rectal timings from Erowid. DoseWiki's were each other's.
+- DXM total 4–8 h (HBr); the note gives 6–12 h for extended-release. DoseWiki's
+  onset and peak are dropped, since they didn't fit inside Erowid's total.
+- **Pure psilocybin** added as its own entry (`EXTRA_SUBSTANCES`), in mg, from
+  Erowid's psilocybin page (3 / 4–8 / 6–20 / 20–40 / 35+ mg), sharing the
+  mushrooms' interactions. The note gives verified trial doses (Griffiths 2016,
+  Ross 2016).
+
+**Oxycodone (owner: Erowid, 2026-10-16):** Erowid's oral (2.5–5 / 5–10 / 10–30
+mg) and insufflated (2.5–5 / 5–10 mg) bands and timings, no tolerance. Unlike
+heroin, Erowid's bands flag "strong" earlier than DoseWiki's (20 mg oral and 12
+mg snorted were "common"), and fit the Roxicodone label's 5–15 mg opioid-naive
+start. No heavy band (Erowid has none). IV and smoked stay DoseWiki's; the IV
+"peak 3–5 h" looks wrong but has no source to replace it yet. Erowid has no
+heroin effects page; its dose page (already used) carries the timings.
+
+**Erowid's terms.** Its pages say "Permission required before publicly
+reproducing Erowid info", and this repo is public. The saved page copies were
+taken out of the tree (still in commit 7f1d382 on this branch; delete the branch
+after merging to drop them from GitHub); `data/sources/erowid/manifest.json`
+keeps URLs, dates and sha256 fingerprints.
+
+- [ ] **Ask Erowid for permission** to use its dose tables, credited, in this
+  non-commercial harm-reduction app (owner to send, via Erowid's contact page).
+  One request covers every substance using Erowid figures: DMT, 5-MeO-DMT,
+  ketamine, heroin, oxycodone, psilocybin, mushrooms, DXM. If Erowid says no,
+  replace those figures with sources needing no permission (labels, studies)
+  where they exist. Draft:
+
+  > Subject: Permission to use Erowid dose tables in a non-commercial harm-reduction app
+  >
+  > Hello Erowid team,
+  >
+  > I'm a psychedelic therapy researcher and clinician, and I maintain Field Notes, a free, non-commercial, offline journal and safety companion for people who use psychedelics and other substances (github.com/sparkly-quasar/field-notes). It shows dose ranges and durations when someone logs a dose, and flags risky combinations. Nothing leaves the user's device.
+  >
+  > Our reference was built on an open-licensed dataset that turned out to have serious errors, such as oral DMT listed as active and a 1–4 hour IV heroin peak. We've been correcting it against Erowid's dosage tables, because they're the most trusted source we know. So far that covers DMT, 5-MeO-DMT, ketamine, heroin, oxycodone, psilocybin, mushrooms and DXM.
+  >
+  > Could we have permission to include those figures, the numbers only and not your page text, with a credit to Erowid on every entry that uses them and a link to the source page? We're glad to word the credit however you prefer, and to send you the errors we found in case they're useful.
+  >
+  > Thank you for decades of honest information.
+  >
+  > [Your name]
+
+**Step 3, to do (coverage gaps).**
+- **Ibogaine had no interactions at all.** Added to `interactions.rs`: ibogaine
+  + QT-prolonging drug (methadone, cocaine, alcohol, as the source names them)
+  and ibogaine + CYP2D6 inhibitor (methadone so far), both danger, with new
+  `qt_prolonging` / `cyp2d6_inhibitor` classes people can give their own meds.
+  Sources: Koenig & Hilber 2015 (PMC4382526), Knuijver 2024 (PMC11102648).
+  Still to source before adding: opioids generally, alcohol/benzo withdrawal
+  seizures, serotonergic drugs, and the named strong CYP2D6 inhibitors
+  (paroxetine, fluoxetine, bupropion; Glue 2015 not yet read). Its doses are
+  mg/kg, which the form can't take, so they're never classified.
+- **No dose data:** 30 entries (incl. Salvia, Lithium, Khat, Tobacco), plus empty
+  routes for Ayahuasca (defensible), Datura, Scopolamine and others.
+- **Missing:** Peyote, San Pedro, Salvia divinorum by that name, esketamine.
+- **24 street names map to more than one substance** ("speed", "dexedrine",
+  "smiles", "death"). They fail safe (the name index refuses ambiguity) but
+  don't resolve.
+- **230 entries have no psychoactive class.** Low impact: combo checks get
+  classes from `interactions.rs`, not DoseWiki.
+- DoseWiki's own interaction lists agree with each other (no pair is dangerous
+  one way and caution the other).
+
 ### Phone settings for the owner — v0.22.1 (owner's request, 2026-10-03)
 
 The gear next to Help used to appear only for other people on the server; the
