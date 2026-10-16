@@ -15,7 +15,7 @@
   import {
     RANGES, type RangeKey, sinceFor, ts, frequency, perDay, byHour, daysSince, median,
     niceScale, fmtNum, startOfDay, startOfWeek, dayKey, SPACING_NOTE, spacingNotes,
-    bedMinutes, closeToBed, hourBeforeBed, fmtBedtime, sleepCompare,
+    bedMinutes, closeToBed, hourBeforeBed, fmtBedtime, sleepCompare, FAMILY_ORDER, FAMILY_LABEL, FAMILY_ONE,
   } from "$lib/stats";
 
   let {
@@ -100,16 +100,6 @@
   const sub = $derived(current?.sub ?? null);
 
   // ---- drug families ----
-  const FAMILY_ORDER = ["psychedelics", "entactogens", "dissociatives", "stimulants", "depressants", "opioids", "cannabinoids", "other"];
-  const FAMILY_LABEL: Record<string, string> = {
-    psychedelics: "Psychedelics", entactogens: "Entactogens", dissociatives: "Dissociatives", stimulants: "Stimulants",
-    depressants: "Depressants", opioids: "Opioids", cannabinoids: "Cannabinoids", other: "Other",
-  };
-  /** "days since the last psychedelic" */
-  const FAMILY_ONE: Record<string, string> = {
-    psychedelics: "psychedelic", entactogens: "entactogen", dissociatives: "dissociative", stimulants: "stimulant",
-    depressants: "depressant", opioids: "opioid", cannabinoids: "cannabinoid", other: "of these",
-  };
   const families = $derived(
     FAMILY_ORDER.filter((f) => (data?.substances ?? []).some((s) => (s.families ?? []).includes(f))),
   );

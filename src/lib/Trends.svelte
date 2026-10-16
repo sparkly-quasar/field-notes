@@ -9,11 +9,15 @@
   It loads its own data (twice the chosen range), so the rest of Stats is untouched.
   Psychedelic doses that rise are shown with a note that working up gradually is a
   common way to work with them; nothing is ever marked as a concern.
+
+  The drug-family card says which families most experiences lately had in them
+  (stimulants, dissociatives...) and which of those moved, counted in
+  experiences rather than doses so a night of redosing reads as one time.
 -->
 <script lang="ts">
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats } from "$lib/api";
-  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek, fisherP } from "$lib/stats";
+  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek, fisherP, familyMix, FAMILY_LABEL, type FamilyRow } from "$lib/stats";
   import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
 
   let {
@@ -82,7 +86,8 @@
     | { kind: "often"; key: string | null; title: string; text: string; up: boolean; buckets: Bucket[]; before: number; lately: number; unit: string }
     | { kind: "gaps"; key: string; title: string; text: string; up: boolean; times: number[]; ids: number[]; note: string }
     | { kind: "dose"; key: string; title: string; text: string; up: boolean; unit: string; points: { t: number; v: number; id: number }[]; note: string | null }
-    | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; rows: ChipRow[]; legend: string; what: (n: number) => string };
+    | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; rows: ChipRow[]; legend: string; what: (n: number) => string }
+    | { kind: "mix"; key: null; title: string; text: string; up: boolean; rows: FamilyRow[]; before: number; lately: number; note: string };
   type ChipRow = { label: string; total: number; cells: { id: number; on: boolean; n: number }[] };
 
   /** Months for a long window, weeks for a short one, empty buckets included. */
@@ -117,6 +122,60 @@
     return [row(`The ${periodWord} before`, before), row(`Last ${periodWord}`, lately)];
   }
 
+  // ---- drug families ----
+  /** "were stimulants", "were in no family" */
+  const FAMILY_MANY: Record<string, string> = {
+    psychedelics: "psychedelics", entactogens: "entactogens", dissociatives: "dissociatives", stimulants: "stimulants",
+    depressants: "depressants", opioids: "opioids", cannabinoids: "cannabinoids", other: "substances with no family",
+  };
+  const many = (f: string) => FAMILY_MANY[f] ?? f;
+  const famLabel = (f: string) => FAMILY_LABEL[f] ?? f;
+  /** Each experience with the families of what was in it. Routine doses (the
+   *  morning coffee, a daily prescription) would outweigh everything else, so
+   *  they're left out, as they are from "how often". */
+  const famOf = (e: Exp) =>
+    [...new Set(e.subs.filter((k) => kindOf(k) !== "routine").flatMap((k) => data?.substances.find((s) => s.key === k)?.families ?? []))];
+  const famExps = $derived(exps.map((e) => ({ ...e, families: famOf(e) })).filter((e) => e.families.length));
+  const MOVED: FamilyRow["trend"][] = ["up", "down", "new", "gone"];
+  const TREND_WORD: Record<FamilyRow["trend"], string> = {
+    up: "↑ more often", down: "↓ less often", same: "about the same", new: "↑ new lately", gone: "↓ none lately", few: "too few to tell",
+  };
+
+  function mix(out: Trend[]) {
+    const before = famExps.filter((e) => !recent(e.t)).length;
+    const lately = famExps.filter((e) => recent(e.t)).length;
+    if (before < MIN_EACH || lately < MIN_EACH) return;
+    const rows = familyMix(famExps, mid, MIN_EACH, 1.5, P_MAX);
+    if (rows.length < 2) return;
+    // The lead: the family in the most experiences lately, or two that tie.
+    const lead = rows.filter((r) => r.lately === rows[0].lately).slice(0, 2);
+    const top = lead[0];
+    const most = top.lately * 2 > lately;
+    const leadWords = lead.map((r) => many(r.family)).join(" and ");
+    const title = lead.length > 1
+      ? `${cap(leadWords)} led your experiences lately`
+      : most ? `Most experiences lately had ${many(top.family)}` : `${cap(leadWords)} led your experiences lately`;
+    const was = top.trend === "up" || top.trend === "new" ? "up from" : top.trend === "down" ? "down from" : "against";
+    const first = `${cap(many(top.family))} were in ${top.lately} of ${lately} experiences in the last ${periodWord}, ${was} ${top.before} of ${before} in the ${periodWord} before.`;
+    const ups = rows.filter((r) => r !== top && (r.trend === "up" || r.trend === "new")).map((r) => many(r.family));
+    const downs = rows.filter((r) => r !== top && (r.trend === "down" || r.trend === "gone")).map((r) => many(r.family));
+    const moves = [ups.length ? `${list(ups)} more often` : "", downs.length ? `${list(downs)} less often` : ""].filter(Boolean).join(", ");
+    const multi = famExps.some((e) => e.families.length > 1);
+    const routine = (data?.substances ?? []).some((s) => s.kind === "routine");
+    out.push({
+      kind: "mix", key: null, rows, before, lately, title,
+      up: MOVED.includes(top.trend) ? top.trend === "up" || top.trend === "new" : lately > before,
+      text: moves ? `${first} ${cap(moves)}.` : first,
+      note: [
+        "Each experience counts once for every family in it, however many doses it had.",
+        multi ? "One with more than one family counts toward each, so the rows can add up to more than the total." : "",
+        routine ? "Routine doses aren't counted here." : "",
+      ].filter(Boolean).join(" "),
+    });
+  }
+  const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+  const list = (xs: string[]) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
   const trends = $derived.by((): Trend[] => {
     if (!data) return [];
     const out: Trend[] = [];
@@ -138,6 +197,7 @@
       });
     };
     if (!focus) often(null);
+    if (!focus) mix(out);
     for (const k of keys) if (kindOf(k) !== "routine") often(k);
 
     for (const k of keys) {
@@ -245,7 +305,7 @@
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "long", year: "numeric" })
       : `Week of ${new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 
-  const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern" };
+  const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern", mix: "Drug families" };
   const fmtMonth = (t: number, unit: string) =>
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "short" }) : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -268,7 +328,7 @@
 
     {#each shown as tr}
       <article class="card">
-        <span class="kind">{tr.kind === "dose" && tr.note ? "" : tr.up ? "↑ " : "↓ "}{tr.kind === "chips" ? (tr.key ? "Redosing" : "Combinations") : KIND[tr.kind]}</span>
+        <span class="kind">{(tr.kind === "dose" && tr.note) || tr.kind === "mix" ? "" : tr.up ? "↑ " : "↓ "}{tr.kind === "chips" ? (tr.key ? "Redosing" : "Combinations") : KIND[tr.kind]}</span>
         <h4>{tr.title}</h4>
         <p>{tr.text}</p>
 
@@ -366,6 +426,39 @@
               items={items([p.id])} {onOpen} onClose={() => (pick = null)} />
           {/if}
           {#if tr.note}<p class="note">{tr.note}</p>{/if}
+        {:else if tr.kind === "mix"}
+          {@const RH = 46}{@const T = 2}{@const BW = W - 34}
+          {@const H = T + tr.rows.length * RH}
+          {@const top = Math.max(1, ...tr.rows.flatMap((r) => [r.before, r.lately]))}
+          {@const w = (v: number) => (v / top) * BW}
+          <svg viewBox="0 0 {W} {H}" role="img" aria-label="{tr.title}: experiences per drug family, before and lately">
+            {#each tr.rows as r, i}
+              {@const y0 = T + i * RH}
+              <text class="axis hi fam-l" x="0" y={y0 + 12}>{famLabel(r.family)}</text>
+              <text class="axis" class:hi={MOVED.includes(r.trend)} x={W} y={y0 + 12} text-anchor="end">{TREND_WORD[r.trend]}</text>
+              <rect class="bar before" class:sel={picked(tr, i)} x="0" y={y0 + 18} width={Math.max(2, w(r.before))} height="8" rx="2" />
+              <text class="axis" x={Math.max(2, w(r.before)) + 5} y={y0 + 26}>{r.before}</text>
+              <rect class="bar" class:sel={picked(tr, i)} x="0" y={y0 + 30} width={Math.max(2, w(r.lately))} height="8" rx="2" />
+              <text class="axis hi" x={Math.max(2, w(r.lately)) + 5} y={y0 + 38}>{r.lately}</text>
+              <rect class="hit" x="0" y={y0} width={W} height={RH - 4} role="button" tabindex="0"
+                aria-label="{famLabel(r.family)}: {plural(r.lately, 'experience')} lately, {r.before} before, {TREND_WORD[r.trend].replace(/^[↑↓] /, '')}"
+                onclick={() => toggle(tr, i)} onkeydown={(e) => keyTap(e, () => toggle(tr, i))}>
+                <title>{famLabel(r.family)}: {r.before} before, {r.lately} lately</title>
+              </rect>
+            {/each}
+          </svg>
+          <div class="legend">
+            <span><i class="sw before"></i>The {periodWord} before: {plural(tr.before, "experience")}</span>
+            <span><i class="sw"></i>Last {periodWord}: {plural(tr.lately, "experience")}</span>
+          </div>
+          {#if pick?.card === tid(tr) && tr.rows[pick.i]}
+            {@const r = tr.rows[pick.i]}
+            {@const lately = r.lately > 0}
+            {@const ids = famExps.filter((e) => e.families.includes(r.family) && recent(e.t) === lately).map((e) => e.id).reverse()}
+            <StatsPick heading="{famLabel(r.family)}, {lately ? `last ${periodWord}` : `the ${periodWord} before`}" note={plural(ids.length, "experience")}
+              items={items(ids)} {onOpen} onClose={() => (pick = null)} />
+          {/if}
+          <p class="note">{tr.note} Tap a family to see its experiences.</p>
         {:else}
           {#each tr.rows as row}
             <div class="row-h">
@@ -429,6 +522,7 @@
   .pt { fill: var(--tr-accent); stroke: var(--tr-surface); stroke-width: 2; pointer-events: none; }
   .pt.before { fill: var(--tr-surface-2); stroke: var(--tr-edge); stroke-width: 1.5; }
   .bar.sel, .pt.sel { stroke: var(--tr-text); stroke-width: 2; }
+  .fam-l { font-weight: 600; }
   .line { fill: none; stroke: var(--tr-accent); stroke-width: 2; }
   .legend { display: flex; gap: 0.9rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--tr-muted); margin-top: 0.3rem; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 0.3rem; vertical-align: -1px; background: var(--tr-accent); }
