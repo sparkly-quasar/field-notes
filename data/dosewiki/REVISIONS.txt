@@ -33,6 +33,7 @@ Deschloroketamine: route "smoked" renamed vaporized
 DET: route "smoked" renamed vaporized
 DET: dropped duplicate route "vaporized" (already have vaporized)
 Dextromethorphan [oral]: dose bands replaced (see ROUTE_PATCHES)
+Dextromethorphan [oral]: timings replaced (see ROUTE_PATCHES)
 Dichloropane: route "Smoked" renamed vaporized
 DiPT: route "Smoked" renamed vaporized
 DMT: dropped duplicate route "Inhaled" (already have vaporized)
@@ -57,6 +58,8 @@ Kanna: dropped duplicate route "Inhaled" (already have vaporized)
 Ketamine: route "I.M." renamed IM
 Ketamine [oral]: replaced (see ROUTE_PATCHES)
 Ketamine [insufflated]: timings replaced (see ROUTE_PATCHES)
+Ketamine [IM]: timings replaced (see ROUTE_PATCHES)
+Ketamine [rectal]: timings replaced (see ROUTE_PATCHES)
 Lagochilus-Inebrians: route "Inhaled" renamed vaporized
 Lorazepam: route "intramuscular" renamed IM
 MDAI [oral]: dropped heavy band (from 150), out of order with the bands around it
@@ -97,3 +100,4 @@ Tiletamine: route "Intramuscular" renamed IM
 Tizanidine [oral]: dropped threshold band (0.025 mg once converted), more than 10x off the other bands
 UR-144: route "Inhaled" renamed vaporized
 Zolazepam: route "Intramuscular" renamed IM
+Psilocybin: added (see EXTRA_SUBSTANCES), sharing Psilocybin Mushrooms's interactions

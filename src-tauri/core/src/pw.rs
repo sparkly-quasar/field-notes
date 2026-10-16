@@ -598,7 +598,7 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
     ),
     (
         "Ketamine",
-        "Oral doses, and insufflated and oral timings, from Erowid (checked 2026-10-07); its other doses agree with Erowid. Heavy is Erowid's “K-hole” range.",
+        "Oral doses and all timings from Erowid (checked 2026-10-07); its other doses agree with Erowid. Heavy is Erowid's “K-hole” range.",
         &[
             Patch::Route(RouteSpec {
                 name: "oral", threshold: Some(40.0),
@@ -609,6 +609,14 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
             Patch::Stages("insufflated", Stages {
                 onset: Some("5–15 minutes"), come_up: Some("10–30 minutes"), peak: Some("20–40 minutes"),
                 offset: Some("30–60 minutes"), after_effects: Some("1–3 hours"), total: Some("45–60 minutes"),
+            }),
+            // DoseWiki's IM and rectal timings were each other's.
+            Patch::Stages("IM", Stages {
+                onset: Some("1–5 minutes"), come_up: Some("5–20 minutes"), peak: Some("20–45 minutes"),
+                offset: Some("20–60 minutes"), after_effects: Some("2–4 hours"), total: Some("30–60 minutes"),
+            }),
+            Patch::Stages("rectal", Stages {
+                onset: Some("5–20 minutes"), peak: Some("30–60 minutes"), after_effects: Some("1–4 hours"), total: Some("1–2 hours"), ..NO_STAGES
             }),
         ],
     ),
@@ -636,13 +644,69 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
     ),
     (
         "Dextromethorphan",
-        "Dose ranges from Erowid (checked 2026-10-07), which lists 2,500–20,000 mg as a risk-of-death range.",
-        &[Patch::Bands("oral", RouteSpec {
-            light: Some((100.0, 200.0)), common: Some((200.0, 400.0)), strong: Some((300.0, 600.0)), heavy: Some((600.0, Some(1500.0))),
-            ..BLANK
-        })],
+        "Dose ranges and duration from Erowid (checked 2026-10-07), which lists 2,500–20,000 mg as a risk-of-death range. The duration is for DXM HBr; extended-release (polistirex) lasts 6–12 hours.",
+        &[
+            Patch::Bands("oral", RouteSpec {
+                light: Some((100.0, 200.0)), common: Some((200.0, 400.0)), strong: Some((300.0, 600.0)), heavy: Some((600.0, Some(1500.0))),
+                ..BLANK
+            }),
+            // Erowid gives only the total; DoseWiki's onset and peak (up to 2 h and
+            // 6 h) don't fit inside it, so they go too.
+            Patch::Stages("oral", Stages { total: Some("4–8 hours"), ..NO_STAGES }),
+        ],
     ),
 ];
+
+/// A substance DoseWiki has no entry for, added on load (see [`EXTRA_SUBSTANCES`]).
+struct ExtraSubstance {
+    name: &'static str,
+    aliases: &'static [&'static str],
+    /// The entry whose classes and interactions it shares.
+    like: &'static str,
+    note: &'static str,
+    routes: &'static [RouteSpec],
+}
+
+/// Substances DoseWiki has no entry for, added on load.
+///
+/// Pure psilocybin: DoseWiki has psilocin and mushrooms (in grams) but nothing for
+/// psilocybin itself in mg, the way trials and pharmaceutical products dose it.
+/// It's the same drug as in the mushrooms, so it shares their interactions.
+const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
+    name: "Psilocybin",
+    aliases: &["pure psilocybin", "synthetic psilocybin", "COMP360"],
+    like: "Psilocybin Mushrooms",
+    note: "Doses and timings from Erowid's psilocybin page (checked 2026-10-07), for pure psilocybin in mg, not mushrooms. Trial doses for reference: 22 or 30 mg/70 kg (Griffiths 2016), 0.3 mg/kg (Ross 2016).",
+    routes: &[RouteSpec {
+        name: "oral", threshold: Some(3.0),
+        light: Some((4.0, 8.0)), common: Some((6.0, 20.0)), strong: Some((20.0, 40.0)), heavy: Some((35.0, None)),
+        stages: Stages {
+            onset: Some("30–60 minutes"), peak: Some("90–180 minutes"), after_effects: Some("up to 8 hours"), total: Some("2–6 hours"),
+            ..NO_STAGES
+        },
+        ..BLANK
+    }],
+}];
+
+fn add_extra_substances(infos: &mut Vec<PwInfo>, log: &mut Vec<String>) {
+    for ExtraSubstance { name, aliases, like, note, routes } in EXTRA_SUBSTANCES {
+        if infos.iter().any(|i| i.name.eq_ignore_ascii_case(name)) {
+            log.push(format!("{name}: not added, the reference now has its own entry; check it against EXTRA_SUBSTANCES"));
+            continue;
+        }
+        let base = infos.iter().find(|i| i.name.eq_ignore_ascii_case(like));
+        infos.push(PwInfo {
+            name: name.to_string(),
+            common_names: aliases.iter().map(|a| a.to_string()).collect(),
+            psychoactive: base.map(|b| b.psychoactive.clone()).unwrap_or_default(),
+            chemical: base.map(|b| b.chemical.clone()).unwrap_or_default(),
+            roas: routes.iter().map(RouteSpec::roa).collect(),
+            interactions: base.map(|b| b.interactions.clone()).unwrap_or_default(),
+            dose_note: Some(note.to_string()),
+        });
+        log.push(format!("{name}: added (see EXTRA_SUBSTANCES), sharing {like}'s interactions"));
+    }
+}
 
 fn apply_patches(info: &mut PwInfo, log: &mut Vec<String>) {
     let Some((_, note, patches)) = ROUTE_PATCHES.iter().find(|(n, ..)| n.eq_ignore_ascii_case(&info.name)) else { return };
@@ -687,7 +751,8 @@ pub fn parse_slim_logged(json: &str) -> Result<(Vec<PwInfo>, Vec<String>), Strin
     let subs: Vec<DwSub> =
         serde_json::from_str(json).map_err(|e| format!("Couldn't parse the bundled dose reference: {e}"))?;
     let mut log = Vec::new();
-    let infos = subs.into_iter().map(|s| map_sub(s, &mut log)).collect();
+    let mut infos: Vec<PwInfo> = subs.into_iter().map(|s| map_sub(s, &mut log)).collect();
+    add_extra_substances(&mut infos, &mut log);
     Ok((infos, log))
 }
 
@@ -806,6 +871,25 @@ mod tests {
         let d = route(&subs, "Dextromethorphan", "oral");
         assert_eq!((d.threshold, d.heavy, d.heavy_max), (None, Some(600.0), Some(1500.0)));
         assert_eq!(route(&subs, "Psilocybin Mushrooms", "oral").come_up.as_deref(), Some("15–30 minutes"));
+
+        let im = route(&subs, "Ketamine", "IM");
+        assert_eq!((im.onset.as_deref(), im.total.as_deref()), (Some("1–5 minutes"), Some("30–60 minutes")));
+        let rec = route(&subs, "Ketamine", "rectal");
+        assert_eq!((rec.onset.as_deref(), rec.total.as_deref()), (Some("5–20 minutes"), Some("1–2 hours")));
+        let d = route(&subs, "Dextromethorphan", "oral");
+        assert_eq!((d.total.as_deref(), d.peak.as_deref()), (Some("4–8 hours"), None));
+    }
+
+    #[test]
+    fn pure_psilocybin_is_its_own_entry_in_mg() {
+        let subs = bundled();
+        assert_eq!(subs.iter().filter(|s| s.name == "Psilocybin").count(), 1);
+        let p = route(&subs, "Psilocybin", "oral");
+        assert_eq!((p.units.as_deref(), p.threshold, p.common.max, p.heavy), (Some("mg"), Some(3.0), Some(20.0), Some(35.0)));
+        let ps = subs.iter().find(|s| s.name == "Psilocybin").unwrap();
+        let mush = subs.iter().find(|s| s.name == "Psilocybin Mushrooms").unwrap();
+        assert_eq!(ps.interactions.len(), mush.interactions.len(), "shares the mushrooms' interactions");
+        assert!(ps.interactions.iter().any(|i| i.name == "Lithium" && i.severity == "danger"));
     }
 
     #[test]

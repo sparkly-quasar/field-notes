@@ -1325,14 +1325,17 @@ timings, or drop it, keeping the rest of DoseWiki's entry. Owner's calls:
 - **DXM:** Erowid's bands (heavy 600–1500 mg), and its 2,500–20,000 mg
   risk-of-death range in the note.
 
-**Still to decide (found while checking, not yet shown to the owner):**
-- Ketamine IM and rectal timings: DoseWiki's look swapped between the two
-  (IM onset 5–20 min / total 1–2 h; rectal onset 1–5 min / total 30–60 min).
-  Erowid: IM onset 1–5 min, total 30–60 min; rectal onset 5–20 min, total 1–2 h.
-- DXM duration: DoseWiki 8–12 h; Erowid 4–8 h (HBr), 6–12 h (polistirex).
-- No pure psilocybin entry (Erowid: 3–4 / 4–8 / 6–20 / 20–40 / 35+ mg).
-- Oxycodone and heroin effects pages 404'd: Erowid files them under
-  `/pharms/oxycodone/` and a different heroin path. Re-fetch.
+**Also shipped (owner: "use Erowid", 2026-10-16):**
+- Ketamine IM and rectal timings from Erowid. DoseWiki's were each other's.
+- DXM total 4–8 h (HBr); the note gives 6–12 h for extended-release. DoseWiki's
+  onset and peak are dropped, since they didn't fit inside Erowid's total.
+- **Pure psilocybin** added as its own entry (`EXTRA_SUBSTANCES`), in mg, from
+  Erowid's psilocybin page (3 / 4–8 / 6–20 / 20–40 / 35+ mg), sharing the
+  mushrooms' interactions. The note gives verified trial doses (Griffiths 2016,
+  Ross 2016).
+
+**Still to do:** oxycodone (Erowid's pages are under `/pharms/oxycodone/`) and
+heroin effects, both 404'd on the first fetch.
 
 **Step 3, to do (coverage gaps).**
 - **Ibogaine had no interactions at all.** Added to `interactions.rs`: ibogaine
