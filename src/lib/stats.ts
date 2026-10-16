@@ -214,7 +214,9 @@ export function familyMix(exps: { t: number; families: string[] }[], mid: number
 /** How a steady rhythm reads, by its typical gap in days; null past what
  *  reads as a rhythm at all. */
 export function rhythmWord(days: number): string | null {
-  if (days < 7) return null;
+  // From 6: a weekly habit logged a little early now and then has a typical gap
+  // just under 7.
+  if (days < 6) return null;
   if (days <= 10) return "about once a week";
   if (days <= 20) return "about every two weeks";
   if (days <= 45) return "about once a month";
@@ -227,8 +229,8 @@ export function rhythmWord(days: number): string | null {
  * A steady rhythm in a set of times, for what's too infrequent for two short
  * periods to compare: once a month is 1 then 1 in a 30-day view, but a pattern
  * over a year. Times within 2 days of an occasion's start are one occasion (a
- * weekend). A rhythm needs at least `minTimes` occasions, a typical gap of a week
- * or more, three in four gaps within half to double that, and the last one
+ * weekend). A rhythm needs at least `minTimes` occasions, a typical gap of about a
+ * week or more, three in four gaps within half to double that, and the last one
  * recent enough to still be going (no more than two gaps ago).
  */
 export function rhythm(times: number[], now = Date.now(), minTimes = 4): { gapDays: number; since: number; times: number } | null {

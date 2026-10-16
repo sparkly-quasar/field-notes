@@ -66,3 +66,10 @@ test("not a rhythm: too few, too irregular, too frequent, or stopped", () => {
   assert.equal(rhythm(ago(3, 6, 9, 12, 15), NOW), null, "every few days isn't a slow rhythm");
   assert.equal(rhythm(ago(100, 130, 160, 190), NOW), null, "stopped months ago");
 });
+
+test("weekly with a little jitter is still weekly", () => {
+  const r = rhythm(ago(3, 9.9, 16.8, 23.7, 30.6, 37.5), NOW);
+  assert.ok(r);
+  assert.equal(rhythmWord(r.gapDays), "about once a week");
+  assert.equal(rhythmWord(5.5), null);
+});
