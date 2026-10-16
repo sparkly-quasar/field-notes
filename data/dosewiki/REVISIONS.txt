@@ -84,6 +84,8 @@ Nitrous: route "Inhaled" renamed vaporized
 Opium: route "Smoked" renamed vaporized
 Oxycodone: route "Smoked" renamed vaporized
 Oxycodone: route "Intravenous" renamed IV
+Oxycodone [oral]: replaced (see ROUTE_PATCHES)
+Oxycodone [insufflated]: replaced (see ROUTE_PATCHES)
 PCP: route "inhaled" renamed vaporized
 Pentazocine: route "Intramuscular" renamed IM
 Pentazocine: route "Intravenous" renamed IV

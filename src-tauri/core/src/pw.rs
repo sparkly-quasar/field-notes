@@ -635,6 +635,28 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
         ],
     ),
     (
+        "Oxycodone",
+        "Oral and insufflated figures from Erowid (checked 2026-10-16), assuming no opioid tolerance; Erowid gives no heavy band. IV and smoked figures are DoseWiki's.",
+        &[
+            // DoseWiki called 20 mg oral or 12 mg snorted "common"; for someone
+            // without tolerance Erowid has both as strong.
+            Patch::Route(RouteSpec {
+                name: "oral",
+                light: Some((2.5, 5.0)), common: Some((5.0, 10.0)), strong: Some((10.0, 30.0)),
+                // Erowid's plateau (2–4 h) is the app's peak length.
+                stages: Stages { onset: Some("10–30 minutes"), come_up: Some("30–60 minutes"), peak: Some("2–4 hours"), total: Some("3–6 hours"), ..NO_STAGES },
+                ..BLANK
+            }),
+            // "Peak: 10–30 minutes" is the time to reach it, as for heroin.
+            Patch::Route(RouteSpec {
+                name: "insufflated",
+                common: Some((2.5, 5.0)), strong: Some((5.0, 10.0)),
+                stages: Stages { onset: Some("1–15 minutes"), come_up: Some("10–30 minutes"), total: Some("3–5 hours"), ..NO_STAGES },
+                ..BLANK
+            }),
+        ],
+    ),
+    (
         "Psilocybin Mushrooms",
         "Timings from Erowid (checked 2026-10-07); dose ranges agree with Erowid's for dried P. cubensis.",
         &[Patch::Stages("oral", Stages {
@@ -871,6 +893,11 @@ mod tests {
         let d = route(&subs, "Dextromethorphan", "oral");
         assert_eq!((d.threshold, d.heavy, d.heavy_max), (None, Some(600.0), Some(1500.0)));
         assert_eq!(route(&subs, "Psilocybin Mushrooms", "oral").come_up.as_deref(), Some("15–30 minutes"));
+
+        let o = route(&subs, "Oxycodone", "oral");
+        assert_eq!((o.threshold, o.strong.min, o.strong.max, o.heavy), (None, Some(10.0), Some(30.0), None));
+        assert_eq!(route(&subs, "Oxycodone", "insufflated").strong.min, Some(5.0));
+        assert!(route(&subs, "Oxycodone", "IV").common.min.is_some(), "routes Erowid lacks are kept");
 
         let im = route(&subs, "Ketamine", "IM");
         assert_eq!((im.onset.as_deref(), im.total.as_deref()), (Some("1–5 minutes"), Some("30–60 minutes")));

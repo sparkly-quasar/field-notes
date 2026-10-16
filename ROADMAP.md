@@ -1334,8 +1334,20 @@ timings, or drop it, keeping the rest of DoseWiki's entry. Owner's calls:
   mushrooms' interactions. The note gives verified trial doses (Griffiths 2016,
   Ross 2016).
 
-**Still to do:** oxycodone (Erowid's pages are under `/pharms/oxycodone/`) and
-heroin effects, both 404'd on the first fetch.
+**Oxycodone (owner: Erowid, 2026-10-16):** Erowid's oral (2.5–5 / 5–10 / 10–30
+mg) and insufflated (2.5–5 / 5–10 mg) bands and timings, no tolerance. Unlike
+heroin, Erowid's bands flag "strong" earlier than DoseWiki's (20 mg oral and 12
+mg snorted were "common"), and fit the Roxicodone label's 5–15 mg opioid-naive
+start. No heavy band (Erowid has none). IV and smoked stay DoseWiki's; the IV
+"peak 3–5 h" looks wrong but has no source to replace it yet. Erowid has no
+heroin effects page; its dose page (already used) carries the timings.
+
+**Erowid's terms.** Its pages say "Permission required before publicly
+reproducing Erowid info", and this repo is public. The saved page copies were
+taken out of the tree (still in commit 7f1d382 on this branch; delete the branch
+after merging to drop them from GitHub); `data/sources/erowid/manifest.json`
+keeps URLs, dates and sha256 fingerprints. **To do:** ask Erowid for permission
+to use its dose tables, credited, in this non-commercial harm-reduction app.
 
 **Step 3, to do (coverage gaps).**
 - **Ibogaine had no interactions at all.** Added to `interactions.rs`: ibogaine
