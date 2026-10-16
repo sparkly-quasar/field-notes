@@ -17,7 +17,7 @@
 <script lang="ts">
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats } from "$lib/api";
-  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek, fisherP, familyMix, FAMILY_LABEL, type FamilyRow } from "$lib/stats";
+  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek, fisherP, familyMix, rhythm, rhythmWord, FAMILY_LABEL, type FamilyRow } from "$lib/stats";
   import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
 
   let {
@@ -52,9 +52,13 @@
   const now = Date.now();
   const mid = $derived(startOfDay(now) - (days - 1) * DAY);
   const start = $derived(mid - days * DAY);
+  /** How far back a steady rhythm is looked for: a year, or both periods if longer.
+   *  Every other card reads only from `start` on. */
+  const RHYTHM_DAYS = 365;
+  const lookStart = $derived(Math.min(start, startOfDay(now) - RHYTHM_DAYS * DAY));
 
   $effect(() => {
-    const since = new Date(start).toISOString();
+    const since = new Date(lookStart).toISOString();
     failed = false;
     usageStats(since).then((d) => (data = d)).catch(() => (failed = true));
   });
@@ -87,7 +91,9 @@
     | { kind: "gaps"; key: string; title: string; text: string; up: boolean; times: number[]; ids: number[]; note: string }
     | { kind: "dose"; key: string; title: string; text: string; up: boolean; unit: string; points: { t: number; v: number; id: number }[]; note: string | null }
     | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; rows: ChipRow[]; legend: string; what: (n: number) => string }
-    | { kind: "mix"; key: null; title: string; text: string; up: boolean; rows: FamilyRow[]; before: number; lately: number; note: string };
+    | { kind: "mix"; key: null; title: string; text: string; up: boolean; rows: MixRow[]; before: number; lately: number; note: string };
+  /** A family as the card shows it: how it moved, or its steady rhythm. */
+  type MixRow = FamilyRow & { word: string; moved: boolean };
   type ChipRow = { label: string; total: number; cells: { id: number; on: boolean; n: number }[] };
 
   /** Months for a long window, weeks for a short one, empty buckets included. */
@@ -136,39 +142,73 @@
   const famOf = (e: Exp) =>
     [...new Set(e.subs.filter((k) => kindOf(k) !== "routine").flatMap((k) => data?.substances.find((s) => s.key === k)?.families ?? []))];
   const famExps = $derived(exps.map((e) => ({ ...e, families: famOf(e) })).filter((e) => e.families.length));
+  /** The same, over the whole rhythm look-back. */
+  const famTimes = $derived.by(() => {
+    const by = new Map<string, number[]>();
+    for (const s of data?.sessions ?? []) {
+      const t = ts(s.started_at);
+      if (t == null || t < lookStart) continue;
+      for (const f of famOf({ id: s.experience_id, t, title: s.title, subs: s.substances, rating: s.rating })) by.set(f, [...(by.get(f) ?? []), t]);
+    }
+    return by;
+  });
   const MOVED: FamilyRow["trend"][] = ["up", "down", "new", "gone"];
   const TREND_WORD: Record<FamilyRow["trend"], string> = {
-    up: "↑ more often", down: "↓ less often", same: "about the same", new: "↑ new lately", gone: "↓ none lately", few: "too few to tell",
+    up: "↑ more often", down: "↓ less often", same: "about the same", new: "↑ new lately", gone: "↓ none lately", few: "",
   };
+  const sinceWord = (t: number) =>
+    new Date(t).toLocaleDateString(undefined, new Date(t).getFullYear() === new Date(now).getFullYear() ? { month: "long" } : { month: "long", year: "numeric" });
 
   function mix(out: Trend[]) {
     const before = famExps.filter((e) => !recent(e.t)).length;
     const lately = famExps.filter((e) => recent(e.t)).length;
-    if (before < MIN_EACH || lately < MIN_EACH) return;
-    const rows = familyMix(famExps, mid, MIN_EACH, 1.5, P_MAX);
-    if (rows.length < 2) return;
-    // The lead: the family in the most experiences lately, or two that tie.
-    const lead = rows.filter((r) => r.lately === rows[0].lately).slice(0, 2);
-    const top = lead[0];
-    const most = top.lately * 2 > lately;
-    const leadWords = lead.map((r) => many(r.family)).join(" and ");
-    const title = lead.length > 1
-      ? `${cap(leadWords)} led your experiences lately`
-      : most ? `Most experiences lately had ${many(top.family)}` : `${cap(leadWords)} led your experiences lately`;
-    const was = top.trend === "up" || top.trend === "new" ? "up from" : top.trend === "down" ? "down from" : "against";
-    const first = `${cap(many(top.family))} were in ${top.lately} of ${lately} experiences in the last ${periodWord}, ${was} ${top.before} of ${before} in the ${periodWord} before.`;
+    const counted = familyMix(famExps, mid, MIN_EACH, 1.5, P_MAX);
+    // Each family shows how it moved; failing that, a steady rhythm over the
+    // look-back (once a month is 1 then 1 in 30 days, but a pattern over a
+    // year); failing that, "about the same" if there's enough to say so.
+    // Too few to tell either way isn't shown at all.
+    const steady: { family: string; text: string }[] = [];
+    const rows: MixRow[] = [];
+    for (const r of counted) {
+      const moved = MOVED.includes(r.trend);
+      const rh = moved ? null : rhythm(famTimes.get(r.family) ?? [], now);
+      const word = rh ? rhythmWord(rh.gapDays)! : "";
+      if (rh) steady.push({ family: r.family, text: `${many(r.family)} ${word} since ${sinceWord(rh.since)}` });
+      if (moved || rh || r.trend === "same") rows.push({ ...r, moved, word: rh ? `steady, ${word}` : TREND_WORD[r.trend] });
+    }
+    // Two periods worth comparing, with more than one family to compare.
+    const compare = before >= MIN_EACH && lately >= MIN_EACH && counted.length > 1 && rows.length > 0;
+    if (!compare && !steady.length) return;
+
+    let title: string, first: string, top: MixRow | null = null;
+    if (compare) {
+      // The lead: the family in the most experiences lately, or two that tie.
+      const lead = rows.filter((r) => r.lately === rows[0].lately).slice(0, 2);
+      top = lead[0];
+      const leadWords = lead.map((r) => many(r.family)).join(" and ");
+      title = lead.length === 1 && top.lately * 2 > lately
+        ? `Most experiences lately had ${many(top.family)}`
+        : `${cap(leadWords)} led your experiences lately`;
+      const was = top.trend === "up" || top.trend === "new" ? "up from" : top.trend === "down" ? "down from" : "against";
+      first = `${cap(many(top.family))} were in ${top.lately} of ${lately} experiences in the last ${periodWord}, ${was} ${top.before} of ${before} in the ${periodWord} before.`;
+    } else {
+      title = steady.length === 1 ? cap(steady[0].text.replace(/ since .*/, "")) : "Steady rhythms";
+      first = "";
+    }
     const ups = rows.filter((r) => r !== top && (r.trend === "up" || r.trend === "new")).map((r) => many(r.family));
     const downs = rows.filter((r) => r !== top && (r.trend === "down" || r.trend === "gone")).map((r) => many(r.family));
     const moves = [ups.length ? `${list(ups)} more often` : "", downs.length ? `${list(downs)} less often` : ""].filter(Boolean).join(", ");
+    const rhythms = steady.map((x) => x.text);
     const multi = famExps.some((e) => e.families.length > 1);
     const routine = (data?.substances ?? []).some((s) => s.kind === "routine");
     out.push({
       kind: "mix", key: null, rows, before, lately, title,
-      up: MOVED.includes(top.trend) ? top.trend === "up" || top.trend === "new" : lately > before,
-      text: moves ? `${first} ${cap(moves)}.` : first,
+      up: top ? (top.moved ? top.trend === "up" || top.trend === "new" : lately > before) : false,
+      text: [first, moves ? `${cap(moves)}.` : "", rhythms.length ? `${cap(list(rhythms))}.` : ""].filter(Boolean).join(" "),
       note: [
         "Each experience counts once for every family in it, however many doses it had.",
         multi ? "One with more than one family counts toward each, so the rows can add up to more than the total." : "",
+        steady.length ? `A steady rhythm is read from ${lookStart < start ? "the last year" : "both periods"}.` : "",
         routine ? "Routine doses aren't counted here." : "",
       ].filter(Boolean).join(" "),
     });
@@ -320,7 +360,7 @@
       Differences between the last {periodWord} and the {periodWord} before. Tap a bar or a dot for its experiences.
     </p>
 
-    {#if !enough}
+    {#if !enough && !trends.length}
       <p class="note">Trends appear once each period has at least {MIN_EACH} experiences{focus ? " of this" : ""}.</p>
     {:else if !trends.length}
       <p class="note">No clear changes between the two periods.</p>
@@ -435,13 +475,13 @@
             {#each tr.rows as r, i}
               {@const y0 = T + i * RH}
               <text class="axis hi fam-l" x="0" y={y0 + 12}>{famLabel(r.family)}</text>
-              <text class="axis" class:hi={MOVED.includes(r.trend)} x={W} y={y0 + 12} text-anchor="end">{TREND_WORD[r.trend]}</text>
+              <text class="axis" class:hi={r.moved || r.word.startsWith("steady")} x={W} y={y0 + 12} text-anchor="end">{r.word}</text>
               <rect class="bar before" class:sel={picked(tr, i)} x="0" y={y0 + 18} width={Math.max(2, w(r.before))} height="8" rx="2" />
               <text class="axis" x={Math.max(2, w(r.before)) + 5} y={y0 + 26}>{r.before}</text>
               <rect class="bar" class:sel={picked(tr, i)} x="0" y={y0 + 30} width={Math.max(2, w(r.lately))} height="8" rx="2" />
               <text class="axis hi" x={Math.max(2, w(r.lately)) + 5} y={y0 + 38}>{r.lately}</text>
               <rect class="hit" x="0" y={y0} width={W} height={RH - 4} role="button" tabindex="0"
-                aria-label="{famLabel(r.family)}: {plural(r.lately, 'experience')} lately, {r.before} before, {TREND_WORD[r.trend].replace(/^[↑↓] /, '')}"
+                aria-label="{famLabel(r.family)}: {plural(r.lately, 'experience')} lately, {r.before} before, {r.word.replace(/^[↑↓] /, '')}"
                 onclick={() => toggle(tr, i)} onkeydown={(e) => keyTap(e, () => toggle(tr, i))}>
                 <title>{famLabel(r.family)}: {r.before} before, {r.lately} lately</title>
               </rect>

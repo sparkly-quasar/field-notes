@@ -211,6 +211,39 @@ export function familyMix(exps: { t: number; families: string[] }[], mid: number
     .sort((a, b) => b.lately - a.lately || b.before - a.before || order(a.family) - order(b.family));
 }
 
+/** How a steady rhythm reads, by its typical gap in days; null past what
+ *  reads as a rhythm at all. */
+export function rhythmWord(days: number): string | null {
+  if (days < 7) return null;
+  if (days <= 10) return "about once a week";
+  if (days <= 20) return "about every two weeks";
+  if (days <= 45) return "about once a month";
+  if (days <= 75) return "about every two months";
+  if (days <= 120) return "about every three months";
+  return null;
+}
+
+/**
+ * A steady rhythm in a set of times, for what's too infrequent for two short
+ * periods to compare: once a month is 1 then 1 in a 30-day view, but a pattern
+ * over a year. Times within 2 days of an occasion's start are one occasion (a
+ * weekend). A rhythm needs at least `minTimes` occasions, a typical gap of a week
+ * or more, three in four gaps within half to double that, and the last one
+ * recent enough to still be going (no more than two gaps ago).
+ */
+export function rhythm(times: number[], now = Date.now(), minTimes = 4): { gapDays: number; since: number; times: number } | null {
+  const occ: number[] = [];
+  for (const t of [...times].sort((a, b) => a - b)) if (!occ.length || t - occ[occ.length - 1] > 2 * DAY) occ.push(t);
+  if (occ.length < minTimes) return null;
+  const gaps = occ.slice(1).map((t, i) => (t - occ[i]) / DAY);
+  const g = median(gaps)!;
+  if (!rhythmWord(g)) return null;
+  const even = gaps.filter((x) => x >= g / 2 && x <= g * 2).length;
+  if (even < gaps.length * 0.75) return null;
+  if ((now - occ[occ.length - 1]) / DAY > g * 2) return null;
+  return { gapDays: g, since: occ[0], times: occ.length };
+}
+
 /**
  * What harm-reduction sources usually say about spacing, per drug family: shown
  * beside the gaps on the stats page. Reference text, not a verdict on this

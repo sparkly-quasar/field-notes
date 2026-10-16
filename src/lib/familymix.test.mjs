@@ -2,7 +2,7 @@
 // `npm test`: which drug families experiences fell in, and which way each moved (stats.ts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { familyMix, splitP } from "./stats.ts";
+import { familyMix, rhythm, rhythmWord, splitP } from "./stats.ts";
 
 const MID = 100;
 const exp = (t, ...families) => ({ t, families });
@@ -42,4 +42,27 @@ test("an uneven split of two counts is weighed by how many there are", () => {
   assert.equal(splitP(2, 3), 1);
   assert.ok(Math.abs(splitP(9, 1) - 22 / 1024) < 1e-9);
   assert.ok(Math.abs(splitP(1, 5) - 14 / 64) < 1e-9);
+});
+
+const D = 86_400_000;
+const NOW = Date.UTC(2026, 9, 16);
+const ago = (...days) => days.map((d) => NOW - d * D);
+
+test("once a month over months reads as a steady rhythm", () => {
+  const r = rhythm(ago(5, 33, 66, 95, 128, 160), NOW);
+  assert.ok(r && r.times === 6);
+  assert.equal(rhythmWord(r.gapDays), "about once a month");
+  assert.equal(r.since, NOW - 160 * D);
+});
+
+test("a weekend counts as one occasion", () => {
+  const r = rhythm(ago(5, 6, 33, 34, 66, 95), NOW);
+  assert.ok(r && r.times === 4);
+});
+
+test("not a rhythm: too few, too irregular, too frequent, or stopped", () => {
+  assert.equal(rhythm(ago(5, 35, 65), NOW), null, "three times");
+  assert.equal(rhythm(ago(2, 5, 9, 110, 200), NOW), null, "uneven");
+  assert.equal(rhythm(ago(3, 6, 9, 12, 15), NOW), null, "every few days isn't a slow rhythm");
+  assert.equal(rhythm(ago(100, 130, 160, 190), NOW), null, "stopped months ago");
 });
