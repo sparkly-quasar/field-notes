@@ -11,6 +11,256 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.32.0
+
+- **Drug classes in Trends.** Trends in Stats has a new card on which drug
+  classes your recent experiences had in them (stimulants, depressants,
+  dissociatives and so on) and which have come up more or less often than in
+  the period before. It counts experiences, not doses, so a night of redosing
+  counts once. A class is only called "more often" or "less often" when the
+  change is too big to be chance. With just a few entries, the card says
+  nothing rather than guess.
+- **Steady rhythms.** Something you do about once a week, once a month or every
+  few months shows as a steady rhythm, read from the last year, even when the
+  30-day view has only one or two of it. Tap a class to see its experiences.
+- **Routine doses are no longer part of Trends.** Doses marked routine, like a
+  daily prescription or the morning coffee, no longer appear in any trend.
+  Before, they could make almost every entry look like a combination. They're
+  still in the dose chart and the rest of Stats.
+- **"Drug class" instead of "family"** in the Stats filter.
+
+## v0.31.0
+
+- **Everyone on a shared server can install updates.** If other people use
+  your computer as their server, you can now let them install a Field Notes
+  update from their own phones too. Turn it on in Settings on the computer,
+  under "Let paired phones install Field Notes updates". It's off unless you
+  turn it on. They follow the same rules you do: nobody can install while a
+  trip report is live. If installing would lock someone's journal, only you
+  can choose to install anyway.
+
+## v0.30.3
+
+- **After-effects now continue the arc.** The dotted after-effects line used to
+  start back at the bottom of the chart, apart from where the solid line ended.
+  It now picks up exactly where the solid line leaves off and eases down, so
+  each arc reads as one smooth line.
+- **A line no longer starts before its dose.** If you'd taken the same
+  substance in the last two days, its line on Today was drawn flat along the
+  bottom from that earlier dose, so it looked as if tonight's dose had started
+  hours before you took it. Lines are now drawn only where something is
+  counting.
+
+## v0.30.2
+
+- **A locked journal on the phone now asks for your password.** If you share a
+  server and it restarted while your phone had entries waiting to send, the
+  phone said "Your computer can't be reached" and never showed the password
+  screen, so nothing could be sent. Now it shows the password screen, and
+  everything that was waiting is sent once you unlock.
+- **Doses logged as IM now get their arc.** "IM" didn't match the dose
+  reference's intramuscular route (ketamine's is written "I.M."), so the dose
+  had no timings or dose level and showed as "No duration data", even after you
+  added your own timings. It now uses the reference's intramuscular figures,
+  with your own timings filling any gaps.
+- **IM doses are no longer drawn on IV timings.** When the reference has no
+  intramuscular figures for something (morphine or hydromorphone, say), an IM
+  dose used to borrow the IV ones, which start and end sooner, so the arc could
+  end while the dose was still active. Now it shows "No duration data" and lets
+  you add how long it lasts. Combination warnings count it for the longest
+  duration the reference gives.
+- **Clearer redosing and combination trends in Stats.** These cards now appear
+  only when the change is unlikely to be chance, so a handful of entries in one
+  period no longer produces a "trend". When one shows, every experience in both
+  periods is drawn in two labelled rows, with the substance or dose count only
+  on the filled ones, and tapping one shows it before opening it.
+
+## v0.30.1
+
+- **Fewer, more relevant interaction warnings.** When you log a dose, you now
+  only see warnings about that dose. Pairs from earlier in the day, which you
+  were already shown when you logged them, no longer come back each time.
+- **"Good to know" notes only for doses that actually overlapped.** A low-level
+  note is no longer shown when two doses only meet in the extra hour the app
+  allows past each one's listed duration. "Use care" and "Higher risk" warnings
+  still count that hour, so a loosely timed dose isn't missed.
+
+## v0.30.0
+
+- **Add how long something lasts.** When the dose reference has no timings for a
+  substance (a prescription like Nurtec, say), tap it in the active-arcs chart
+  and choose **Add how long it lasts**. Enter when it starts working, how long
+  it builds up, peaks and wears off, or just how long it lasts in total. It's
+  saved in your journal and used on the chart and in "Likely still active", on
+  the computer and the phone. Your timings only fill gaps: where the reference
+  has its own, those are used. Change or remove them the same way.
+
+## v0.29.4
+
+- **Smoother active arcs.** Lines curve through each dose tier instead of
+  bending at it, and they round off where effects start and level out. The
+  timings and amounts they show are unchanged.
+- **Phone: tapping Journal while reading an entry** takes you back to the list.
+- **Phone: the Stats button** now closes an open entry and shows your stats,
+  instead of leaving the entry on screen.
+
+## v0.29.3
+
+- **Picking a substance suggestion no longer taps what's under it.** Choosing a
+  name from the list could also press the button or field underneath it once
+  the list closed.
+
+## v0.29.2
+
+- **"Likely still active" shows only what's active now.** The chart and list
+  no longer bring back everything from the last two days. A substance counts
+  while its effects are likely still felt; after-effects don't count, and drinks
+  count while some are still being processed. The chart is centred on now, and
+  the amounts and tier count only the doses still active, not yesterday's.
+- **Device access turns back on, however often you switch it.** Turning it off
+  left its connection point held open. After enough off-and-on cycles it
+  refused to start again until the app was restarted.
+
+## v0.29.1
+
+- **Times use the 12-hour clock** (9:30 pm, not 21:30) everywhere the app
+  shows one: entries, trip reports, Stats, the active-arcs chart, PDFs and the
+  phone.
+- **Prefer 24-hour?** Settings → **Clock** switches it, on each computer and
+  phone separately. The time pickers you type into follow your system's clock
+  setting either way.
+
+## v0.29.0
+
+- **Active arcs.** A chart shows what each substance is
+  likely doing now, drawn from the dose reference's own timings, with a line for
+  now. Each substance is one line: a top-up adds into it, so the line shows the
+  dose you're carrying, and its height follows the reference's dose tiers.
+  Under it, "Likely still active" gives each one's phase (coming up, peaking,
+  winding down, after-effects) and when the next stage usually arrives. Never a
+  countdown, and a line ending isn't an all-clear.
+- **Tap a substance in the key** to see its timing range on the chart and what
+  a redose means for it. For MDMA and stimulants, a second dose raises levels in
+  your body more than it raises how it feels; for psychedelics it adds with
+  diminishing returns; edibles arrive late, so a "didn't work" redose stacks.
+- **"Likely still active" on Today, even without a live trip report.** Anything
+  you've logged in the last two days that may still be active shows there, from
+  any entry, with the chart a tap away. In a live trip report it's on the live
+  card. **Check** lists it too, with a button that puts it into the combination
+  check, ready for whatever you're thinking of adding.
+- **Finished trip reports show their arcs,** with your moments on them: how the
+  doses likely played out, next to how it actually felt.
+- **Drinks stack and clear on their own scale,** at about one standard drink an
+  hour. That's a rule of thumb, and many people clear more slowly.
+
+## v0.28.2
+
+- **The combination check knows a substance however you spelled it.** A dose
+  logged as "3meo", "3meopcp" or "3-MeO" is now checked as 3-MeO-PCP, including
+  entries you logged before this update. Until now, a name written another way
+  could miss warnings, such as the one for a dissociative with alcohol.
+
+## v0.28.1
+
+- **Every substance shows up as you type.** A name you've typed in full stays in
+  the suggestions, so 3-MeO-PCP no longer seems to vanish beside 3-MeO-PCPr, and
+  LSD no longer disappears once you've typed it.
+- **Hyphens and spaces don't matter.** "3meopcp", "3 meo pcp" or "2cb" finds the
+  right substance, and is saved as it.
+
+## v0.28.0
+
+- **Unlock your journal with a PIN.** If you share someone's Field Notes server,
+  you can set a 4 to 12 digit PIN in Settings on your phone and use it instead
+  of your password when your journal locks. It works only on that device, turns
+  off after five wrong tries, and turns off on all your devices if you change
+  your password. Your password stays the real key: the server never keeps it.
+
+## v0.27.3
+
+- **San Pedro and peyote count as psychedelics,** however they're written
+  ("San Pedro powder", "Peruvian torch", "huachuma"), in Stats and in the
+  combination check.
+
+## v0.27.2
+
+- **A bigger substance box on phones.** It now matches the other fields, and
+  tapping it no longer zooms the page in.
+
+## v0.27.1
+
+- **No more "stimulating" or "sedating" note on drinks.** Alcohol no longer
+  carries a note on what that number of drinks tends to do. Its combination
+  warnings and dependence notes are unchanged.
+
+## v0.27.0
+
+- **Tag someone in a dose.** When two people share a server and have both
+  allowed it (Settings on your phone, under Tagging), either can tag the other
+  in a dose, right after logging it or later from the dose itself. The other
+  person sees it on Today, can change the amount, time or anything else, and
+  adds it to their own journal, or declines. Only the dose travels: never the
+  rest of your entry, and neither of you can see the other's journal. You see
+  whether it was added or declined, nothing more. Waiting tags are kept only
+  while the server is running. On phones for now.
+- **Name suggestions as you type.** Substance fields suggest names from your
+  own substances and the dose reference, street names included ("acid" offers
+  LSD), on the phone and on the computer.
+
+## v0.26.1
+
+- **A spacing note that fits kratom.** Kratom's Stats now explains its own
+  tolerance and dependence, and when its risks rise (mixing with alcohol,
+  benzodiazepines or other opioids, and 7-OH products), instead of the
+  general opioid note.
+
+## v0.26.0
+
+- **Stats or Talk in the phone's bottom bar.** In Settings on your phone,
+  under Bottom bar, choose whether the last button opens Talk or goes straight
+  to Stats. The choice is kept on that phone only.
+- **Shorter wording.** The question about how you take a substance now just
+  says "As needed", and Stats no longer shows the note about substances taken
+  as needed or as routine.
+
+## v0.25.0
+
+- **Stats pays attention to the amount, not just the dose.** Each dose is
+  shown as what it was logged as against the dose reference's ranges ("logged
+  as a strong dose"), never as what you received, since potency is unknown.
+  The calendar shades each day by its strongest dose, and microdoses are
+  recognised on their own: an outline on the calendar, a lighter part of each
+  bar, and stretches of microdosing noted below.
+- **Kratom in mg and g is one series now.** Amounts in different mass units
+  (mg, g, µg) are combined, and the reference's ranges show even when you log
+  in a different unit from the reference's.
+- **Say what form a dose was in.** Mushrooms can be dried, fresh, powdered or
+  an edible, and kratom leaf powder, extract or a 7-OH product. Fresh
+  mushrooms count as about a tenth of their weight in dried, and an edible by
+  your own estimate in grams or mg of psilocybin. With no form chosen, dried
+  is assumed. Capsules are counted by how much is in each, and you can save
+  your usual capsules so you only enter that once.
+- **What an amount tends to do.** For a few substances whose effects change a
+  lot with the amount (kratom, DXM, diphenhydramine, ketamine), a dose
+  carries a short note on what that amount usually does, and the combination
+  check takes it into account. Ibogaine always carries a heart-rhythm caution.
+  These only ever add to a warning; they never soften one.
+- **Routine and as-needed doses.** If you take something at the same time most
+  days, Field Notes may ask once whether it's part of your routine. For
+  benzodiazepines, sleeping pills, gabapentinoids and kratom it may ask
+  whether you take it as needed. Either way the doses stay in your journal,
+  the combination checks and that substance's Stats; they just aren't counted
+  as experiences. You can change this on the substance's Stats page. It never
+  asks about alcohol, GHB or opioids.
+- **Worth knowing.** When a pattern shows up that's linked to dependence or
+  withdrawal (daily GHB, daily drinking, regular benzodiazepine or kratom use,
+  and so on), a short note explains what it can mean. It shows once after the
+  dose, then stays on that substance's Stats page. No scores or streaks.
+- **Doses near bedtime.** Add your usual bedtime under Time of day to see which
+  doses were taken within one half-life of it. You can also choose to be asked
+  how you slept each morning, and compare nights after a dose near bedtime
+  with other nights. Both are off until you turn them on.
+
 ## v0.24.0
 
 - **Tap a chart in Stats to see what's behind it.** Tap a day on the calendar

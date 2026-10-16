@@ -23,13 +23,27 @@
   lose. Everything you'd actually reach for mid-session is here.
 -->
 <script lang="ts">
+  import { clockTime } from "$lib/clock";
+  import { clockPref, setClock24 } from "$lib/clock.svelte";
   import { onMount } from "svelte";
   import {
+    tagPeople,
+    tagAllow,
+    tagSetOwnerName,
+    tagSend,
+    tagInbox,
+    tagAnswer,
+    tagSent,
+    type TagPerson,
+    type IncomingTag,
+    type SentTag,
     serverUpdateStatus,
     serverUpdateInstall,
     type ServerUpdateStatus,
     dbStatus,
     personUnlock,
+    personSetPin,
+    personPinUnlock,
     personRemember,
     myDevices,
     pairOwnDevice,
@@ -74,6 +88,7 @@
     type Substance,
     type SubstanceUsage,
     type Dose,
+    type DoseDetail,
     type TimelineEvent,
     type Warning,
     type CrisisResult,
@@ -109,9 +124,15 @@
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
   import NameHint from "$lib/NameHint.svelte";
+  import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
+  import DoseDetailFields from "$lib/DoseDetailFields.svelte";
+  import KindQuestion from "$lib/KindQuestion.svelte";
+  import SleepCheckin from "$lib/SleepCheckin.svelte";
+  import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
+  import ActiveArcs from "$lib/ActiveArcs.svelte";
   import { discreet, hiding, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import Icon from "$lib/Icon.svelte";
@@ -128,6 +149,7 @@
     STANDARD_DRINK,
     HIT_NOTE,
     DRINK_PICKS,
+    recentDoses,
   } from "$lib/quicklog";
 
   type View = "today" | "journal" | "check" | "talk";
@@ -175,6 +197,8 @@
   let comboOffline = $state(false);
 
   let recent = $state<ExperienceSummary[]>([]);
+  /** Doses from any entry that may still be active (quicklog.ts `recentDoses`). */
+  let activeDoses = $state<Dose[]>([]);
   // False until the journal has loaded once, so the empty-journal card doesn't
   // flash for someone whose entries just haven't arrived yet.
   let loaded = $state(false);
@@ -194,6 +218,9 @@
   let dSub = $state("");
   let dAmt = $state("");
   let dUnit = $state("mg");
+  let dDetail = $state<DoseDetail>({});
+  /** The substance just logged, for KindQuestion; `n` asks again after another dose. */
+  let dAsk = $state({ s: "", n: 0 });
   let dRoute = $state("oral");
   let dWhen = $state("");
   /** What just saved, with its warnings — shown in the sheet, next to the button pressed. */
@@ -225,6 +252,7 @@
   let eSub = $state("");
   let eAmt = $state("");
   let eUnit = $state("mg");
+  let eDetail = $state<DoseDetail>({});
   let eRoute = $state("oral");
   let eWhen = $state("");
   let eNote = $state("");
@@ -361,6 +389,23 @@
     try { localStorage.setItem(NIGHT_KEY, on ? "1" : "0"); } catch {}
   }
   const toggleNight = () => setNight(!night);
+
+  /** The nav's last slot: Talk or Stats, the owner's pick, on this phone only. */
+  const NAV_SLOT_KEY = "fieldnotes.navSlot";
+  let navSlot = $state<"talk" | "stats">((() => {
+    try { return localStorage.getItem(NAV_SLOT_KEY) === "stats" ? "stats" : "talk"; } catch { return "talk"; }
+  })());
+  function setNavSlot(v: "talk" | "stats") {
+    navSlot = v;
+    try { localStorage.setItem(NAV_SLOT_KEY, v); } catch {}
+  }
+  function goStats() {
+    // An open entry would otherwise stay on screen with Stats lit up.
+    open = null;
+    building = false;
+    journalMode = "stats";
+    goTo("journal");
+  }
   /** While dim, also keep the screen from locking in someone's hand. Browsers can
    *  refuse; that's fine, it's a convenience. Re-requested when the page returns. */
   async function holdWake() {
@@ -442,6 +487,90 @@
     refresh();
     loadAi();
     loadServerUpdate();
+    loadTags();
+  }
+
+  // ---------- tagging someone else on this server (src-tauri/src/tagging.rs) ----------
+
+  let tagWho = $state<TagPerson[]>([]);
+  let tagOwnerName = $state("");
+  let tagOwnerDraft = $state("");
+  let tagIn = $state<IncomingTag[]>([]);
+  let tagOut = $state<SentTag[]>([]);
+  /** The tag the dose sheet was opened from, to accept once it's saved. */
+  let fromTag = $state<IncomingTag | null>(null);
+  /** Who each just-logged dose was sent to, by dose id. */
+  let taggedTo = $state<Record<number, number[]>>({});
+  const tagPartners = $derived(tagWho.filter((p) => p.you_allow && p.they_allow));
+
+  /** Quietly: an older server, or no connection, just means no tagging here. */
+  async function loadTags() {
+    try {
+      const r = await tagPeople();
+      tagWho = r.people;
+      tagOwnerName = r.owner_name;
+      tagIn = await tagInbox();
+      tagOut = await tagSent();
+    } catch {
+      /* offline or an older server */
+    }
+  }
+
+  async function setTagAllow(p: TagPerson, allow: boolean) {
+    try {
+      tagWho = await tagAllow(p.id, allow);
+      tagIn = await tagInbox();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function saveOwnerTagName() {
+    try {
+      tagOwnerName = await tagSetOwnerName(tagOwnerDraft);
+      tagOwnerDraft = "";
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function sendTag(doseId: number, p: TagPerson) {
+    try {
+      await tagSend(doseId, [p.id]);
+      taggedTo = { ...taggedTo, [doseId]: [...(taggedTo[doseId] ?? []), p.id] };
+      tagOut = await tagSent();
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  /** Open the dose sheet filled in from a tag, to change before saving. */
+  function reviewTag(t: IncomingTag) {
+    startDose(null);
+    const d = t.dose;
+    dSub = d.substance_name;
+    dAmt = d.amount == null ? "" : String(d.amount);
+    dUnit = d.unit || dUnit;
+    dRoute = d.route || dRoute;
+    dWhen = isoToLocalInput(d.taken_at);
+    dDetail = {
+      form: d.form,
+      per_unit: d.per_unit,
+      per_unit_unit: d.per_unit_unit,
+      unit_label: d.unit_label,
+      estimate: d.estimate,
+      estimate_unit: d.estimate_unit,
+    };
+    fromTag = t;
+  }
+
+  async function declineTag(t: IncomingTag) {
+    try {
+      await tagAnswer(t.id, false);
+    } catch {
+      /* already gone */
+    }
+    tagIn = tagIn.filter((x) => x.id !== t.id);
   }
 
   // ---------- another person's journal (src-tauri/src/people.rs) ----------
@@ -466,6 +595,53 @@
       // The owner's journal locked at the desk, or the server is out of reach:
       // the usual paths below say so.
       me = null;
+    }
+  }
+
+  // A PIN on this device (people.rs, rule 5). The server keeps a key; this device
+  // keeps the sealed copy of the password it opens. Neither half works alone.
+  const SEALED_KEY = "fieldnotes.pinSealed";
+  const readSealed = () => {
+    try {
+      return localStorage.getItem(SEALED_KEY);
+    } catch {
+      return null;
+    }
+  };
+  function writeSealed(v: string | null) {
+    try {
+      if (v) localStorage.setItem(SEALED_KEY, v);
+      else localStorage.removeItem(SEALED_KEY);
+    } catch {
+      // No storage: the PIN can't be kept here, so the password it is.
+    }
+  }
+  let pinCode = $state("");
+  /** Unlocking with the password instead, though this device has a PIN. */
+  let usePassword = $state(false);
+  const canPin = $derived(!!me?.pin && !me.new_journal && !!readSealed());
+  // The server forgot this device's PIN (too many wrong tries, a new password):
+  // the sealed copy is no use now. Only on a server that says so.
+  $effect(() => {
+    if (me && me.pin === false) writeSealed(null);
+  });
+
+  async function unlockWithPin() {
+    lockErr = null;
+    const sealed = readSealed();
+    if (!pinCode || !sealed) return;
+    unlocking = true;
+    try {
+      me = await personPinUnlock(pinCode, sealed);
+      pinCode = "";
+      usePassword = false;
+      startJournal();
+    } catch (e) {
+      lockErr = e instanceof Error ? e.message : String(e);
+      pinCode = "";
+      await loadMe();
+    } finally {
+      unlocking = false;
     }
   }
 
@@ -550,16 +726,16 @@
     sheet = "me";
     ownerPw = "";
     keptCleared = false;
-    if (!isOther) {
-      ownerDeviceAuth().then((m) => (ownerAuth = m)).catch(() => (ownerAuth = null));
-      loadServerUpdate();
-    }
+    if (!isOther) ownerDeviceAuth().then((m) => (ownerAuth = m)).catch(() => (ownerAuth = null));
+    loadServerUpdate();
     pairedNew = null;
     unpairAsk = null;
     rememberAsk = false;
     rememberPw = "";
     changingPw = false;
     pwChanged = false;
+    pinAsk = false;
+    pinNew = pinNew2 = pinPw = "";
     backedUp = false;
     run("me", async () => (mine = await myDevices()));
   }
@@ -616,6 +792,27 @@
       pwChanged = true;
     });
 
+  let pinNew = $state("");
+  let pinNew2 = $state("");
+  let pinPw = $state("");
+  let pinAsk = $state(false);
+  const setPin = () =>
+    run("pin", async () => {
+      if (!/^\d{4,12}$/.test(pinNew)) throw new Error("Choose a PIN of 4 to 12 digits.");
+      if (pinNew !== pinNew2) throw new Error("Those two PINs don't match.");
+      const r = await personSetPin(pinNew, pinPw);
+      writeSealed(r.sealed);
+      me = r.status;
+      pinNew = pinNew2 = pinPw = "";
+      pinAsk = false;
+    });
+  const clearPin = () =>
+    run("pin", async () => {
+      const r = await personSetPin(null);
+      writeSealed(null);
+      me = r.status;
+    });
+
   let backedUp = $state(false);
   /** Save their journal to this device as a file. It stays encrypted with their
    *  password, so it's no less private sitting in Downloads. */
@@ -661,12 +858,14 @@
   /** The server checks in the background and answers with what it last knew;
    *  when it says it's still checking, ask again shortly. */
   async function loadServerUpdate(retries = 2) {
-    // Installing restarts everyone's server, so only the owner's devices are offered it.
-    if (inTauri() || isOther || srvUpdStage !== "idle") return;
+    // Installing restarts everyone's server, so someone else's device is answered
+    // only once the owner has let other people install (a 403 until then).
+    if (inTauri() || srvUpdStage !== "idle") return;
     try {
       srvUpd = await serverUpdateStatus();
     } catch {
-      return; // an older server without this command, or out of reach: say nothing
+      srvUpd = null;
+      return; // not allowed for this person, an older server, or out of reach: say nothing
     }
     if (srvUpd?.checking && retries > 0) setTimeout(() => loadServerUpdate(retries - 1), 6000);
   }
@@ -726,6 +925,7 @@
   }
 
   async function refresh() {
+    forgetSubstanceNames();
     // Older servers don't know this command: then discreet mode isn't offered.
     discreetAvailable().then((v) => (discreet.available = v)).catch(() => (discreet.available = false));
     try {
@@ -737,9 +937,24 @@
       session = live ? await getExperience(live.id) : null;
       if (open) open = await getExperience(open.id).catch(() => null);
       if (target) target = await getExperience(target.id).catch(() => null);
+      recentDoses(recent, Date.now(), session ? [session] : [])
+        .then((d) => (activeDoses = d))
+        .catch(() => {});
     } catch (e) {
       if (!(e instanceof LockedError)) err = e instanceof Error ? e.message : String(e);
     }
+  }
+  /** The live entry's doses (fresh right after logging) with everything else recent. */
+  const arcDoses = $derived.by(() => {
+    const own = session?.doses ?? [];
+    return [...own, ...activeDoses.filter((d) => !own.some((o) => o.id === d.id))];
+  });
+  /** Fill the combination check with what's still active, ready for one more name. */
+  function checkActive(names: string[]) {
+    comboText = names.join(", ") + ", ";
+    comboWarnings = null;
+    checkMode = "combo";
+    goTo("check");
   }
 
   /** A number as typed on a phone. iOS keypads in many regions type "1,5"; that
@@ -755,13 +970,17 @@
 
   function closeSheet() {
     sheet = null;
+    fromTag = null;
     receipt = null;
     confirmDelete = false;
   }
 
   function goTo(v: View) {
     view = v;
-    if (v === "today") loadServerUpdate();
+    if (v === "today") {
+      loadServerUpdate();
+      loadTags();
+    }
     if (v === "talk") loadAi();
     if (v === "journal" && !open) refresh();
   }
@@ -836,10 +1055,7 @@
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const MONTH = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const hhmm = (iso: string) => {
-    const d = new Date(iso);
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  };
+  const hhmm = (iso: string) => clockTime(iso);
   /** "Sat 20 Sep", with the year only when it isn't this one. */
   const fmtDay = (iso: string) => {
     const d = new Date(iso);
@@ -877,8 +1093,10 @@
     s += ` → ${hhmm(e.ended_at)}${sameDay(e.started_at, e.ended_at) ? "" : " (+1 day)"}`;
     return `${s} · ${d}`;
   }
-  const fmtAmt = (d: { amount: number | null; unit: string }) =>
-    `${d.amount == null ? "?" : +d.amount.toFixed(2)} ${d.unit}`;
+  /** "3 g fresh (about 0.3 g dried)": what was written, and what it works out to
+   *  when that differs (dosedetail.ts). */
+  const fmtAmt = (d: { amount: number | null; unit: string; substance_name?: string } & DoseDetail) =>
+    describeAmount(d.substance_name ?? "", d.amount, d.unit, d);
 
   /** Doses and moments live in two tables but tell one story — merge into time order. */
   type Row =
@@ -970,18 +1188,29 @@
       // quickLog for every dose, not just new entries: it widens the interaction
       // check to anything else taken within 12 hours, and stretches an entry whose
       // times no longer cover what's in it.
-      const res = await quickLog({ substance, amount, unit: dUnit, route: dRoute, at, intoId: target?.id ?? null });
+      const detail = dDetail;
+      const res = await quickLog({ substance, amount, unit: dUnit, route: dRoute, at, intoId: target?.id ?? null, detail });
       rememberDoseShape(substance, { unit: dUnit, route: dRoute });
+      // Saved in this journal first; only then is the tag answered. If that can't
+      // reach the server, the tag stays waiting rather than claiming otherwise.
+      const tag = fromTag;
+      if (tag) {
+        fromTag = null;
+        tagIn = tagIn.filter((x) => x.id !== tag.id);
+        tagAnswer(tag.id, true).catch(() => {});
+      }
       warnFor = { ...warnFor, [res.id]: res.warnings };
       receipt = {
         id: res.id,
         title: res.title,
-        line: `${substance} ${fmtAmt({ amount, unit: dUnit })} · ${hhmm(at)} ${fmtDay(at)}`,
+        line: `${substance} ${fmtAmt({ amount, unit: dUnit, substance_name: substance, ...detail })} · ${hhmm(at)} ${fmtDay(at)}`,
         warnings: res.warnings,
         doseId: res.doseId,
         fresh: res.fresh,
       };
+      dAsk = { s: substance, n: dAsk.n + 1 };
       dSub = dAmt = "";
+      dDetail = {};
       await refresh();
       target = await getExperience(res.id);
       if (!target.ended_at) dWhen = nowLocalInput();
@@ -1146,6 +1375,7 @@
     eRoute = d.route ?? "oral";
     eWhen = isoToLocalInput(d.taken_at);
     eNote = d.note ?? "";
+    eDetail = detailOf(d);
     sheet = "editDose";
   }
 
@@ -1160,6 +1390,7 @@
         route: eRoute,
         taken_at: at,
         note: eNote,
+        detail: detailOf(eDetail),
       });
       const owner = recent.find((r) => r.id === editDose!.experience_id);
       if (owner?.ended_at) await stretchToCover(editDose.experience_id, at);
@@ -1481,7 +1712,7 @@
       searched = true;
     });
 
-  const loadSubstances = () => run("subs", async () => (substances = await listSubstances()));
+  const loadSubstances = () => run("subs", async () => ((substances = await listSubstances()), forgetSubstanceNames()));
 
   const addToCatalogue = () =>
     run("addsub", async () => {
@@ -1597,25 +1828,69 @@
   <RiskNotes warnings={list} />
 {/snippet}
 
+<!-- Tagging: who may tag whom in a dose, and what became of the tags you sent. -->
+{#snippet tagging()}
+  {#if tagWho.length}
+    <h3 class="sec">Tagging</h3>
+    <p class="muted small">
+      When you both allow it, you and someone else on this server can tag each other in a dose. They get a copy of
+      that one dose to change and add to their own journal, or decline. Neither of you can see the other's journal.
+    </p>
+    {#each tagWho as p (p.id)}
+      <label class="check">
+        <input type="checkbox" checked={p.you_allow} onchange={(e) => setTagAllow(p, e.currentTarget.checked)} />
+        Let {p.name} tag me
+      </label>
+      <p class="muted small">
+        {#if p.you_allow && p.they_allow}You can tag each other.{:else if p.they_allow}{p.name} lets you tag them.{:else if p.you_allow}Waiting for {p.name} to allow it too.{/if}
+      </p>
+    {/each}
+    {#if !isOther}
+      <label for="tag-owner-name">Your name, as others here see it</label>
+      <div class="pair">
+        <input id="tag-owner-name" bind:value={tagOwnerDraft} placeholder={tagOwnerName} autocomplete="off" />
+        <button class="small" disabled={!tagOwnerDraft.trim()} onclick={saveOwnerTagName}>Save</button>
+      </div>
+    {/if}
+    {#if tagOut.length}
+      <p class="label">Tags you sent</p>
+      <ul class="plain">
+        {#each tagOut as t (t.id)}
+          <li class="small">
+            {t.to_name} · {t.substance_name} {fmtDay(t.taken_at)} ·
+            {t.status === "accepted" ? "added" : t.status === "declined" ? "declined" : "waiting"}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    <p class="muted small">Waiting tags are kept only while the server is running, so a restart clears them.</p>
+  {/if}
+{/snippet}
+
 <!-- Settings that belong to this phone, for the owner and for anyone else alike. -->
 {#snippet thisPhone()}
-  {#if !isOther}
+  {#if !isOther || srvUpd}
+    {@const where = isOther ? "the server" : "your computer"}
     <h3 class="sec">Updates</h3>
     {#if srvUpd?.available}
       <p>
-        <strong>Field Notes v{srvUpd.available.version}</strong> is ready to install on your computer (it's on
+        <strong>Field Notes v{srvUpd.available.version}</strong> is ready to install on {where} (it's on
         v{srvUpd.current}).
       </p>
-      <button onclick={() => { srvUpdHidden = false; srvUpdStage = "confirm"; closeSheet(); goTo("today"); }}>Install on the computer…</button>
+      <button onclick={() => { srvUpdHidden = false; srvUpdStage = "confirm"; closeSheet(); goTo("today"); }}>Install on {isOther ? "the server" : "the computer"}…</button>
     {:else if srvUpd}
       <p class="muted small">
-        Your computer is on v{srvUpd.current}{srvUpd.checking ? ", checking for a newer one…" : srvUpd.error ? `. ${srvUpd.error}` : ", the newest version."}
+        {isOther ? "The server" : "Your computer"} is on v{srvUpd.current}{srvUpd.checking ? ", checking for a newer one…" : srvUpd.error ? `. ${srvUpd.error}` : ", the newest version."}
       </p>
       <button class="small" onclick={() => loadServerUpdate()}>Check again</button>
     {:else}
       <p class="muted small">Couldn't ask your computer about updates right now.</p>
     {/if}
   {/if}
+
+  <h3 class="sec">Clock</h3>
+  <p class="muted small">Times show as {clockPref.h24 ? "21:30" : "9:30 pm"} on this phone.</p>
+  <button aria-pressed={clockPref.h24} onclick={() => setClock24(!clockPref.h24)}>{clockPref.h24 ? "Use the 12-hour clock" : "Use the 24-hour clock"}</button>
 
   <h3 class="sec">Discreet mode</h3>
   {#if discreet.available}
@@ -1627,6 +1902,16 @@
         ? "The person who runs the server can offer it, in Settings on their computer."
         : "Offer it in Settings on your computer, and then turn it on here."}
     </p>
+  {/if}
+
+  <h3 class="sec">Bottom bar</h3>
+  <p class="muted small">The last button in the bar along the bottom. On this phone only.</p>
+  <div class="seg" role="radiogroup" aria-label="Last button in the bottom bar">
+    <button role="radio" aria-checked={navSlot === "talk"} class:on={navSlot === "talk"} onclick={() => setNavSlot("talk")}>Talk</button>
+    <button role="radio" aria-checked={navSlot === "stats"} class:on={navSlot === "stats"} onclick={() => setNavSlot("stats")}>Stats</button>
+  </div>
+  {#if navSlot === "talk" && companionEnabled === false}
+    <p class="muted small">The Companion is off, so the Talk button is hidden. Pick Stats to fill the spot.</p>
   {/if}
 
   <h3 class="sec">Without your computer</h3>
@@ -1723,6 +2008,7 @@
               {#if r.kind === "dose"}
                 <span class="dot dose" aria-hidden="true"></span><strong>{nameShown(r.dose.substance_name)}</strong>
                 {fmtAmt(r.dose)} <span class="muted">{r.dose.route}</span>
+                {#if r.dose.profile}<span class="sub">{r.dose.profile.label}</span>{/if}
                 {#if r.dose.note}<span class="sub">{r.dose.note}</span>{/if}
               {:else}
                 <span class="dot moment" aria-hidden="true"></span>{#if r.ev.mood}<strong>{r.ev.mood}</strong>{r.ev.note ? " · " : ""}{/if}<span class="moment-note">{r.ev.note}</span>
@@ -1862,8 +2148,20 @@
           </p>
         {:else}
           <h1>Your journal is locked</h1>
-          <p>The server restarted, so it forgot your password. Type it to open your journal again.</p>
+          <p>
+            The server restarted, so it forgot your password.
+            {canPin && !usePassword ? "Type this device's PIN to open your journal again." : "Type it to open your journal again."}
+          </p>
         {/if}
+        {#if canPin && !usePassword}
+        <form onsubmit={(e) => { e.preventDefault(); unlockWithPin(); }}>
+          <label for="lock-pin">Your PIN</label>
+          <input id="lock-pin" type="password" bind:value={pinCode} inputmode="numeric" autocomplete="off" maxlength="12" />
+          {#if lockErr}<p class="err" role="alert">{lockErr}</p>{/if}
+          <button class="primary" type="submit" disabled={unlocking || !pinCode}>{unlocking ? "Unlocking…" : "Unlock"}</button>
+          <button type="button" class="ghost small" onclick={() => { usePassword = true; lockErr = null; pinCode = ""; }}>Use my password instead</button>
+        </form>
+        {:else}
         <form onsubmit={(e) => { e.preventDefault(); unlock(); }}>
           <label for="lock-pw">{me.new_journal ? "Password (at least 8 characters)" : "Password"}</label>
           <input id="lock-pw" type="password" bind:value={pw1} minlength={me.new_journal ? 8 : undefined}
@@ -1881,6 +2179,7 @@
             {unlocking ? (me.new_journal ? "Creating…" : "Unlocking…") : me.new_journal ? "Create my journal" : "Unlock"}
           </button>
         </form>
+        {/if}
         <button class="help wide" onclick={openHelp}>Help</button>
       </section>
 
@@ -1902,6 +2201,19 @@
     {:else}
     <!-- ================= TODAY ================= -->
     {#if view === "today"}
+      {#each tagIn as t (t.id)}
+        <section class="pane" role="status">
+          <p>
+            <strong>{t.from_name} tagged you</strong> · {t.dose.substance_name}
+            {fmtAmt({ ...t.dose })} · {hhmm(t.dose.taken_at)} {fmtDay(t.dose.taken_at)}
+          </p>
+          <div class="pair">
+            <button class="primary" onclick={() => reviewTag(t)}>Review and add</button>
+            <button onclick={() => declineTag(t)}>Decline</button>
+          </div>
+        </section>
+      {/each}
+      <SleepCheckin />
       {#if backupNudge}
         <section class="pane" role="status">
           <p>
@@ -1975,6 +2287,7 @@
             {@render warnings(warnFor[live.id])}
             <button class="ghost small" onclick={() => (warnFor = { ...warnFor, [live.id]: [] })}>Dismiss warnings</button>
           {/if}
+          <ActiveArcs doses={arcDoses} moments={live.timeline} now={nowTick} compact />
           {@render timeline({ ...live, doses: live.doses.slice(-4), timeline: live.timeline.slice(-3) })}
           <div class="pair">
             <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
@@ -1999,6 +2312,12 @@
         {:else}
           <section class="pane">
             <button class="primary big" onclick={() => startDose(null)}>+ Log a dose</button>
+          </section>
+        {/if}
+        <!-- No live trip report, but something logged lately may still be active. -->
+        {#if arcDoses.length}
+          <section class="pane">
+            <ActiveArcs doses={arcDoses} now={nowTick} compact onCheck={checkActive} />
           </section>
         {/if}
       {/if}
@@ -2076,6 +2395,12 @@
           {#if e.kind === "session"}
             <h2 class="sec">Timeline</h2>
             {@render timeline(e)}
+            {#if e.ended_at && e.doses.length}
+              <!-- How the doses likely played out, with the moments on top: felt
+                   against expected, for looking back. -->
+              <h2 class="sec">Arcs</h2>
+              <ActiveArcs doses={e.doses} moments={e.timeline} now={Date.parse(e.ended_at)} past />
+            {/if}
           {/if}
 
           {#if e.intention}
@@ -2200,6 +2525,9 @@
           <input id="combo" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocapitalize="none" enterkeyhint="go" onkeydown={(ev) => ev.key === "Enter" && runCombo()} />
           {#if session?.doses.length}
             <button class="ghost small" onclick={useLiveInCombo}>Use what's in the live trip report</button>
+          {/if}
+          {#if arcDoses.length}
+            <ActiveArcs doses={arcDoses} now={nowTick} showChart={false} onCheck={(names) => (comboText = names.join(", ") + ", ")} />
           {/if}
           <button class="primary" disabled={busy} onclick={runCombo}>{busyKey === "combo" ? "Checking…" : "Check"}</button>
           {#if comboWarnings}
@@ -2368,10 +2696,17 @@
     {#if !locked}
     <nav aria-label="Sections">
       <button class:on={view === "today"} aria-current={view === "today" ? "page" : undefined} onclick={() => goTo("today")}><Icon name="today" />Today</button>
-      <button class:on={view === "journal"} aria-current={view === "journal" ? "page" : undefined} onclick={() => goTo("journal")}><Icon name="journal" />Journal</button>
+      <button class:on={view === "journal" && !(navSlot === "stats" && journalMode === "stats")} aria-current={view === "journal" ? "page" : undefined} onclick={() => {
+        // Tapped again while reading an entry: back to the list, like "‹ Journal".
+        if (view === "journal" && open) { open = null; building = false; }
+        if (navSlot === "stats") journalMode = "entries";
+        goTo("journal");
+      }}><Icon name="journal" />Journal</button>
       <button class="plus" aria-label="New: log a dose, a moment, a trip report, or a note" onclick={() => (sheet = "new")}><span class="plus-glyph" aria-hidden="true">＋</span><span aria-hidden="true">New</span></button>
       <button class:on={view === "check"} aria-current={view === "check" ? "page" : undefined} onclick={() => goTo("check")}><Icon name="check" />Check</button>
-      {#if companionEnabled === true}
+      {#if navSlot === "stats"}
+        <button class:on={view === "journal" && journalMode === "stats"} aria-current={view === "journal" && journalMode === "stats" ? "page" : undefined} onclick={goStats}><Icon name="stats" />Stats</button>
+      {:else if companionEnabled === true}
         <button class:on={view === "talk"} aria-current={view === "talk" ? "page" : undefined} onclick={() => goTo("talk")}><Icon name="talk" />Talk</button>
       {/if}
     </nav>
@@ -2441,7 +2776,26 @@
               <p class="receipt-line"><span><strong>✓ Saved</strong> · {receipt.line}</span>
                 {#if receipt.doseId != null}<button class="ghost small" onclick={undoLastLog}>Undo</button>{/if}</p>
               {@render warnings(receipt.warnings)}
+              <KindQuestion substance={dAsk.s} tick={dAsk.n} />
+              {#if receipt.doseId != null && tagPartners.length}
+                {@const sentTo = taggedTo[receipt.doseId] ?? []}
+                <div class="chips" role="group" aria-label="Tag someone in this dose">
+                  {#each tagPartners as p}
+                    {#if sentTo.includes(p.id)}
+                      <span class="chip on">Tagged {p.name}</span>
+                    {:else}
+                      <button class="chip" onclick={() => sendTag(receipt!.doseId!, p)}>Tag {p.name}</button>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
             </div>
+          {/if}
+          {#if fromTag}
+            <p class="hint" role="status">
+              From {fromTag.from_name}'s tag. Change anything that was different for you, then log it. Only this dose
+              goes in your journal; {fromTag.from_name} sees just that you added it.
+            </p>
           {/if}
 
           {#if qRecents.length}
@@ -2452,7 +2806,7 @@
             </div>
           {/if}
           <label for="d-sub">Substance</label>
-          <input id="d-sub" bind:value={dSub} onblur={applyRemembered} autocapitalize="none" autocomplete="off" enterkeyhint="next" />
+          <SubstanceInput id="d-sub" bind:value={dSub} onblur={applyRemembered} onpick={pickSubstance} enterkeyhint="next" />
           <NameHint name={dSub} bind:saveAs={dSubAs} />
           <div class="grid3">
             <div>
@@ -2468,6 +2822,7 @@
               <select id="d-route" bind:value={dRoute} onchange={() => { if (!recallDoseShape(dSub)) dUnit = defaultUnitFor(dSub, dRoute) ?? dUnit; }}>{#each ROUTES as r}<option>{r}</option>{/each}</select>
             </div>
           </div>
+          <DoseDetailFields substance={dSubAs || dSub} unit={dUnit} amount={dAmt.replace(",", ".")} bind:detail={dDetail} />
           {#if dUnit === "drink"}
             <div class="chips" role="group" aria-label="Add a drink">
               {#each DRINK_PICKS as p}
@@ -2586,7 +2941,7 @@
             <button class="danger-text" onclick={removeDose}>Delete</button>
           </div>
           <label for="e-sub">Substance</label>
-          <input id="e-sub" bind:value={eSub} autocapitalize="none" />
+          <SubstanceInput id="e-sub" bind:value={eSub} />
           <div class="grid3">
             <div>
               <label for="e-amt">Amount</label>
@@ -2601,10 +2956,25 @@
               <select id="e-route" bind:value={eRoute}>{#each ROUTES as r}<option>{r}</option>{/each}</select>
             </div>
           </div>
+          <DoseDetailFields substance={eSub} unit={eUnit} amount={eAmt.replace(",", ".")} bind:detail={eDetail} suggest={false} />
           <label for="e-when">When</label>
           <DateTimeField id="e-when" bind:value={eWhen} variant="phone" />
           <label for="e-note">Note (optional)</label>
           <input id="e-note" bind:value={eNote} />
+          {#if tagPartners.length}
+            {@const sentTo = taggedTo[editDose.id] ?? []}
+            <p class="label">Tag someone in this dose</p>
+            <div class="chips" role="group" aria-label="Tag someone in this dose">
+              {#each tagPartners as p}
+                {#if sentTo.includes(p.id)}
+                  <span class="chip on">Tagged {p.name}</span>
+                {:else}
+                  <button class="chip" onclick={() => sendTag(editDose!.id, p)}>Tag {p.name}</button>
+                {/if}
+              {/each}
+            </div>
+            <p class="hint">Sends the dose as it's saved now. Save any changes first.</p>
+          {/if}
           <div class="sheet-actions pair">
             <button onclick={closeSheet}>Cancel</button>
             <button class="primary" disabled={busy || !eSub.trim()} onclick={saveDose}>{busyKey === "editDose" ? "Saving…" : "Save"}</button>
@@ -2823,6 +3193,8 @@
             <button disabled={busy || (!isOther && !ownerPw)} onclick={pairAnother}>{busyKey === "pairown" ? "Making a code…" : "Show a pairing code"}</button>
           {/if}
 
+          {@render tagging()}
+
           {@render thisPhone()}
 
           {#if isOther && me}
@@ -2846,8 +3218,8 @@
               <input id="pw-new2" type="password" bind:value={pwNew2} autocomplete="new-password" autocapitalize="off" spellcheck="false" />
               {#if err}<p class="err" role="alert">{err}</p>{/if}
               <p class="muted small">
-                Your other devices stay paired and keep working. Backups you've already downloaded still open with the
-                old password.
+                Your other devices stay paired and keep working, but any PIN you've set turns off. Backups you've
+                already downloaded still open with the old password.
               </p>
               <span class="pair">
                 <button class="primary" type="submit" disabled={busy || !pwCurrent || !pwNew}>{busyKey === "changepw" ? "Changing…" : "Change password"}</button>
@@ -2857,6 +3229,38 @@
           {:else}
             {#if pwChanged}<p class="muted small" role="status">Password changed.</p>{/if}
             <button onclick={() => { changingPw = true; pwChanged = false; }}>Change password…</button>
+          {/if}
+
+          <h3 class="sec">Unlock with a PIN on this device</h3>
+          {#if canPin}
+            <p>
+              <strong>On.</strong> When your journal locks, this device can open it with a short PIN instead of your
+              password. Five wrong PINs and it turns off, and then your password will do.
+            </p>
+            <button disabled={busy} onclick={clearPin}>{busyKey === "pin" ? "Turning off…" : "Turn off"}</button>
+          {:else}
+            <p>
+              <strong>Off.</strong> A PIN works only on this device, and only with your server. Your password stays the
+              real key: the server never keeps it, and this device keeps it only sealed with a key the server holds.
+              Changing your password turns the PIN off on all your devices.
+            </p>
+            {#if pinAsk}
+              <form onsubmit={(e) => { e.preventDefault(); setPin(); }}>
+                <label for="pin-new">PIN (4 to 12 digits)</label>
+                <input id="pin-new" type="password" bind:value={pinNew} inputmode="numeric" autocomplete="off" maxlength="12" />
+                <label for="pin-new2">The same PIN again</label>
+                <input id="pin-new2" type="password" bind:value={pinNew2} inputmode="numeric" autocomplete="off" maxlength="12" />
+                <label for="pin-pw">Your password</label>
+                <input id="pin-pw" type="password" bind:value={pinPw} autocomplete="current-password" autocapitalize="off" spellcheck="false" />
+                {#if err}<p class="err" role="alert">{err}</p>{/if}
+                <span class="pair">
+                  <button class="primary" type="submit" disabled={busy || !pinNew || !pinPw}>{busyKey === "pin" ? "Setting…" : "Set PIN"}</button>
+                  <button type="button" onclick={() => { pinAsk = false; pinNew = pinNew2 = pinPw = ""; }}>Cancel</button>
+                </span>
+              </form>
+            {:else}
+              <button onclick={() => (pinAsk = true)}>Set a PIN…</button>
+            {/if}
           {/if}
 
           <h3 class="sec">Keep my journal unlocked on this server</h3>
@@ -3096,6 +3500,14 @@
     border-radius: 10px; padding: 0.7rem 0.75rem; margin-bottom: 0.6rem; min-height: var(--tap);
   }
   textarea { line-height: 1.5; }
+  /* The substance box lives in its own component, so the rule above doesn't
+     reach it: without this it gets the browser's small default font, which
+     also makes iOS zoom in on focus (it zooms on any field under 16px). */
+  :global(.sub-suggest input) {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-body);
+    background: var(--field); color: var(--text); border: 1px solid var(--field-border);
+    border-radius: 10px; padding: 0.7rem 0.75rem; margin-bottom: 0.6rem; min-height: var(--tap);
+  }
   .grid3 { display: grid; grid-template-columns: 1.3fr 1fr 1.4fr; gap: 0.5rem; }
 
   /* ---------- buttons ---------- */

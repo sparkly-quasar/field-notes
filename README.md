@@ -47,6 +47,13 @@ show you how to get past it.
   journal as "Untitled" — rename it whenever you like.
 - **Plain notes** — not everything is an experience. Write ordinary journal entries
   (a title, your words, a date) alongside them.
+- **Active arcs** — a live trip report charts what each substance is likely
+  doing now, from the dose reference's timings: one line per substance with every
+  dose added in, its height the reference's dose tier, and a "Likely still active"
+  list of phases. Drinks stack on their own scale. Tap a substance for its timing
+  range and what a redose does for it. Anything logged in the last two days that
+  may still be active shows on Today and in Check, live trip report or not, and a
+  finished trip report keeps its arcs with your moments on them.
 - **Combination warnings** — every dose is checked against the others taken
   around the same time for well-documented risky combinations. Each shows as a
   quiet note you can tap for what the risk is and what lowers it, and there's a
@@ -135,10 +142,16 @@ show you how to get past it.
 - **Stats** (desktop and phone): dose over time against the reference's dose
   ranges, spacing between experiences, how often, a calendar, and what you've taken
   together, plus **Trends**: what changed lately against the period before (how
-  often, time between, amount per experience, redosing), each with a small chart.
+  often, time between, amount per experience, redosing, which drug classes your
+  experiences had in them, and steady rhythms read from the last year), each with
+  a small chart. Routine doses aren't part of Trends.
   Tap a day, bar, hour or dot to see the experiences behind it.
-  Descriptive only: no streaks, scores or warnings, and a toggle hides
-  substance names for screen-sharing.
+  **Dose-aware**: each dose shown as what it was logged as against the
+  reference's ranges, microdoses recognised, mushroom forms (fresh, capsules,
+  edibles), notes on what an amount tends to do, routine and as-needed doses,
+  doses near bedtime and an optional morning sleep check-in, and a short note
+  when a pattern linked to dependence or withdrawal shows up.
+  No streaks or scores, and a toggle hides substance names for screen-sharing.
 - **Updates** — automatic, a **Check for updates** button in Settings, and
   (opt-in, set at the computer) a paired phone can install an update on the
   computer it connects to.

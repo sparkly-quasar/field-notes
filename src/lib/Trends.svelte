@@ -9,11 +9,20 @@
   It loads its own data (twice the chosen range), so the rest of Stats is untouched.
   Psychedelic doses that rise are shown with a note that working up gradually is a
   common way to work with them; nothing is ever marked as a concern.
+
+  The drug-class card says which classes most experiences lately had in them
+  (stimulants, dissociatives...) and which of those moved, counted in
+  experiences rather than doses so a night of redosing reads as one time.
+
+  Routine doses (kinds.rs: the morning coffee, a daily prescription) are no part
+  of Trends at all (owner's decision, 2026-10-16): taken daily on purpose, they'd
+  only crowd out what's worth seeing. The dose chart and the rest of Stats still
+  show them, so a habit filed as routine by mistake stays visible there.
 -->
 <script lang="ts">
   import { hiding, shown as nameShown } from "$lib/discreet.svelte";
   import { usageStats, type UsageStats } from "$lib/api";
-  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek } from "$lib/stats";
+  import { ts, median, niceScale, fmtNum, startOfDay, startOfWeek, fisherP, familyMix, rhythm, rhythmWord, FAMILY_LABEL, type FamilyRow } from "$lib/stats";
   import StatsPick, { pickItem, type PickExp } from "$lib/StatsPick.svelte";
 
   let {
@@ -31,19 +40,30 @@
   const DAY = 86_400_000;
   const MIN_EACH = 3;
   const SHOW_FIRST = 4;
+  /** A share (redosing, combinations) changes only when a split this uneven
+   *  would be unlikely by chance (Fisher's exact test). With a handful of
+   *  entries, one either way moves the share a lot and means nothing. */
+  const P_MAX = 0.1;
+  /** Experiences drawn per period on a share card; the most recent are kept. */
+  const MAX_CELLS = 60;
 
   let data = $state<UsageStats | null>(null);
   let showAll = $state(false);
   let failed = $state(false);
-  /** What a tap opened: a bar or a dot (by index) on one card (by `tid`). */
+  /** What a tap opened: a bar or a dot (by index), or a square (by experience
+   *  id), on one card (by `tid`). */
   let pick = $state<{ card: string; i: number } | null>(null);
 
   const now = Date.now();
   const mid = $derived(startOfDay(now) - (days - 1) * DAY);
   const start = $derived(mid - days * DAY);
+  /** How far back a steady rhythm is looked for: a year, or both periods if longer.
+   *  Every other card reads only from `start` on. */
+  const RHYTHM_DAYS = 365;
+  const lookStart = $derived(Math.min(start, startOfDay(now) - RHYTHM_DAYS * DAY));
 
   $effect(() => {
-    const since = new Date(start).toISOString();
+    const since = new Date(lookStart).toISOString();
     failed = false;
     usageStats(since).then((d) => (data = d)).catch(() => (failed = true));
   });
@@ -61,13 +81,29 @@
   );
   const recent = (t: number) => t >= mid;
 
+  // Routine substances (kinds.rs) are left out of every trend, and an entry with
+  // nothing else in it isn't an experience here. As-needed ones aren't
+  // experiences either: the overall "how often" counts only entries with
+  // something else in them. But an as-needed one keeps every trend of its own,
+  // since taking it more often is exactly what's worth seeing.
+  const kindOf = (key: string) => data?.substances.find((s) => s.key === key)?.kind ?? "";
+  const routine = (key: string) => kindOf(key) === "routine";
+  const experiences = $derived(exps.filter((e) => e.subs.some((k) => !kindOf(k))));
+  /** What's in an entry, routine doses left out. */
+  const counted = (e: Exp) => e.subs.filter((k) => !routine(k));
+  const anyRoutine = $derived((data?.substances ?? []).some((s) => s.kind === "routine"));
+
   // ---- the trends ----
   type Bucket = { start: number; count: number; recent: boolean };
   type Trend =
     | { kind: "often"; key: string | null; title: string; text: string; up: boolean; buckets: Bucket[]; before: number; lately: number; unit: string }
     | { kind: "gaps"; key: string; title: string; text: string; up: boolean; times: number[]; ids: number[]; note: string }
     | { kind: "dose"; key: string; title: string; text: string; up: boolean; unit: string; points: { t: number; v: number; id: number }[]; note: string | null }
-    | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; cells: { id: number; on: boolean; n: number | null; recent: boolean }[]; legend: string };
+    | { kind: "chips"; key: string | null; title: string; text: string; up: boolean; rows: ChipRow[]; legend: string; what: (n: number) => string }
+    | { kind: "mix"; key: null; title: string; text: string; up: boolean; rows: MixRow[]; before: number; lately: number; note: string };
+  /** A family as the card shows it: how it moved, or its steady rhythm. */
+  type MixRow = FamilyRow & { word: string; moved: boolean };
+  type ChipRow = { label: string; total: number; cells: { id: number; on: boolean; n: number }[] };
 
   /** Months for a long window, weeks for a short one, empty buckets included. */
   function buckets(times: number[]): { list: Bucket[]; unit: string } {
@@ -92,14 +128,109 @@
 
   const changed = (before: number, lately: number, by = 1.5) => lately >= before * by || lately * by <= before;
 
+  /** The two periods as rows of every experience, the most recent kept if
+   *  there are more than fit. `n`: what the filled ones count. */
+  function chipRows(before: Exp[], lately: Exp[], on: (e: Exp) => boolean, n: (e: Exp) => number): ChipRow[] {
+    const row = (label: string, xs: Exp[]): ChipRow => ({
+      label, total: xs.length, cells: xs.slice(-MAX_CELLS).map((e) => ({ id: e.id, on: on(e), n: n(e) })),
+    });
+    return [row(`The ${periodWord} before`, before), row(`Last ${periodWord}`, lately)];
+  }
+
+  // ---- drug families ----
+  /** "were stimulants", "were in no family" */
+  const FAMILY_MANY: Record<string, string> = {
+    psychedelics: "psychedelics", entactogens: "entactogens", dissociatives: "dissociatives", stimulants: "stimulants",
+    depressants: "depressants", opioids: "opioids", cannabinoids: "cannabinoids", other: "substances with no class",
+  };
+  const many = (f: string) => FAMILY_MANY[f] ?? f;
+  const famLabel = (f: string) => FAMILY_LABEL[f] ?? f;
+  /** Each experience with the families of what was in it. Routine doses (the
+   *  morning coffee, a daily prescription) would outweigh everything else, so
+   *  they're left out, as they are from "how often". */
+  const famOf = (e: Exp) =>
+    [...new Set(counted(e).flatMap((k) => data?.substances.find((s) => s.key === k)?.families ?? []))];
+  const famExps = $derived(exps.map((e) => ({ ...e, families: famOf(e) })).filter((e) => e.families.length));
+  /** The same, over the whole rhythm look-back. */
+  const famTimes = $derived.by(() => {
+    const by = new Map<string, number[]>();
+    for (const s of data?.sessions ?? []) {
+      const t = ts(s.started_at);
+      if (t == null || t < lookStart) continue;
+      for (const f of famOf({ id: s.experience_id, t, title: s.title, subs: s.substances, rating: s.rating })) by.set(f, [...(by.get(f) ?? []), t]);
+    }
+    return by;
+  });
+  const MOVED: FamilyRow["trend"][] = ["up", "down", "new", "gone"];
+  const TREND_WORD: Record<FamilyRow["trend"], string> = {
+    up: "↑ more often", down: "↓ less often", same: "about the same", new: "↑ new lately", gone: "↓ none lately", few: "",
+  };
+  const sinceWord = (t: number) =>
+    new Date(t).toLocaleDateString(undefined, new Date(t).getFullYear() === new Date(now).getFullYear() ? { month: "long" } : { month: "long", year: "numeric" });
+
+  function mix(out: Trend[]) {
+    const before = famExps.filter((e) => !recent(e.t)).length;
+    const lately = famExps.filter((e) => recent(e.t)).length;
+    const counted = familyMix(famExps, mid, MIN_EACH, 1.5, P_MAX);
+    // Each family shows how it moved; failing that, a steady rhythm over the
+    // look-back (once a month is 1 then 1 in 30 days, but a pattern over a
+    // year); failing that, "about the same" if there's enough to say so.
+    // Too few to tell either way isn't shown at all.
+    const steady: { family: string; text: string }[] = [];
+    const rows: MixRow[] = [];
+    for (const r of counted) {
+      const moved = MOVED.includes(r.trend);
+      const rh = moved ? null : rhythm(famTimes.get(r.family) ?? [], now);
+      const word = rh ? rhythmWord(rh.gapDays)! : "";
+      if (rh) steady.push({ family: r.family, text: `${many(r.family)} ${word} since ${sinceWord(rh.since)}` });
+      if (moved || rh || r.trend === "same") rows.push({ ...r, moved, word: rh ? `steady, ${word}` : TREND_WORD[r.trend] });
+    }
+    // Two periods worth comparing, with more than one family to compare.
+    const compare = before >= MIN_EACH && lately >= MIN_EACH && counted.length > 1 && rows.length > 0;
+    if (!compare && !steady.length) return;
+
+    let title: string, first: string, top: MixRow | null = null;
+    if (compare) {
+      // The lead: the family in the most experiences lately, or two that tie.
+      const lead = rows.filter((r) => r.lately === rows[0].lately).slice(0, 2);
+      top = lead[0];
+      const leadWords = lead.map((r) => many(r.family)).join(" and ");
+      title = lead.length === 1 && top.lately * 2 > lately
+        ? `Most experiences lately had ${many(top.family)}`
+        : `${cap(leadWords)} led your experiences lately`;
+      const was = top.trend === "up" || top.trend === "new" ? "up from" : top.trend === "down" ? "down from" : "against";
+      first = `${cap(many(top.family))} were in ${top.lately} of ${lately} experiences in the last ${periodWord}, ${was} ${top.before} of ${before} in the ${periodWord} before.`;
+    } else {
+      title = steady.length === 1 ? cap(steady[0].text.replace(/ since .*/, "")) : "Steady rhythms";
+      first = "";
+    }
+    const ups = rows.filter((r) => r !== top && (r.trend === "up" || r.trend === "new")).map((r) => many(r.family));
+    const downs = rows.filter((r) => r !== top && (r.trend === "down" || r.trend === "gone")).map((r) => many(r.family));
+    const moves = [ups.length ? `${list(ups)} more often` : "", downs.length ? `${list(downs)} less often` : ""].filter(Boolean).join(", ");
+    const rhythms = steady.map((x) => x.text);
+    const multi = famExps.some((e) => e.families.length > 1);
+    out.push({
+      kind: "mix", key: null, rows, before, lately, title,
+      up: top ? (top.moved ? top.trend === "up" || top.trend === "new" : lately > before) : false,
+      text: [first, moves ? `${cap(moves)}.` : "", rhythms.length ? `${cap(list(rhythms))}.` : ""].filter(Boolean).join(" "),
+      note: [
+        "Each experience counts once for every drug class in it, however many doses it had.",
+        multi ? "One with more than one class counts toward each, so the rows can add up to more than the total." : "",
+        steady.length ? `A steady rhythm is read from ${lookStart < start ? "the last year" : "both periods"}.` : "",
+      ].filter(Boolean).join(" "),
+    });
+  }
+  const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+  const list = (xs: string[]) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
   const trends = $derived.by((): Trend[] => {
     if (!data) return [];
     const out: Trend[] = [];
-    const keys = (data.substances ?? []).map((s) => s.key).filter((k) => !focus || focus.has(k));
+    const keys = (data.substances ?? []).map((s) => s.key).filter((k) => !routine(k) && (!focus || focus.has(k)));
 
     // How often: overall (when nothing is picked), then per substance.
     const often = (key: string | null) => {
-      const mine = exps.filter((e) => key == null || e.subs.includes(key));
+      const mine = key == null ? experiences : exps.filter((e) => e.subs.includes(key));
       const before = mine.filter((e) => !recent(e.t)).length;
       const lately = mine.filter((e) => recent(e.t)).length;
       if (before < MIN_EACH || lately < MIN_EACH || !changed(before, lately)) return;
@@ -113,6 +244,7 @@
       });
     };
     if (!focus) often(null);
+    if (!focus) mix(out);
     for (const k of keys) often(k);
 
     for (const k of keys) {
@@ -131,7 +263,7 @@
         out.push({
           kind: "gaps", key: k, up: !closer, times: mine.map((e) => e.t), ids: mine.map((e) => e.id),
           title: `${label(k)} experiences are ${closer ? "closer together" : "further apart"}`,
-          text: `Typically ${fmtNum(Math.round(gL))} days apart lately, ${fmtNum(Math.round(gB))} days before.`,
+          text: `Typically ${plural(Math.round(gL), "day")} apart lately, ${plural(Math.round(gB), "day")} before.`,
           note: closer ? "Closer together, more of the tolerance from one carries into the next, so the same amount does less." : "",
         });
       }
@@ -164,36 +296,36 @@
 
       // Redosing: the share of experiences with more than one dose of it.
       const dosesIn = (id: number) => sub.series.reduce((n, u) => n + u.points.filter((p) => p.experience_id === id).length, 0);
-      const share = (xs: Exp[]) => xs.filter((e) => dosesIn(e.id) > 1).length / xs.length;
-      const sB = share(before), sL = share(lately);
-      if (Math.abs(sL - sB) >= 0.25) {
-        const take = (xs: Exp[]) => xs.slice(-6);
-        const count = (xs: Exp[]) => xs.filter((e) => dosesIn(e.id) > 1).length;
+      const redosed = (e: Exp) => dosesIn(e.id) > 1;
+      const cB = before.filter(redosed).length, cL = lately.filter(redosed).length;
+      const sB = cB / before.length, sL = cL / lately.length;
+      if (Math.abs(sL - sB) >= 0.25 && fisherP(cL, lately.length, cB, before.length) < P_MAX) {
         out.push({
           kind: "chips", key: k, up: sL > sB,
-          cells: [...take(before), ...take(lately)].map((e) => ({ id: e.id, on: dosesIn(e.id) > 1, n: dosesIn(e.id), recent: recent(e.t) })),
+          rows: chipRows(before, lately, redosed, (e) => dosesIn(e.id)),
           title: `${sL > sB ? "More" : "Fewer"} ${label(k)} redoses`,
-          text: `Redosed in ${count(lately)} of ${lately.length} ${label(k)} experiences lately, ${count(before)} of ${before.length} before.`,
-          legend: "Filled: redosed (number = doses that day)",
+          text: `Redosed in ${cL} of ${lately.length} ${label(k)} experiences in the last ${periodWord}, against ${cB} of ${before.length} in the ${periodWord} before.`,
+          legend: "Each square is one experience. Filled: redosed, with how many doses.",
+          what: (n) => plural(n, "dose"),
         });
       }
     }
 
     // Combinations: the share of experiences with more than one substance.
     if (!focus) {
-      const before = exps.filter((e) => !recent(e.t)), lately = exps.filter((e) => recent(e.t));
+      const before = experiences.filter((e) => !recent(e.t)), lately = experiences.filter((e) => recent(e.t));
       if (before.length >= MIN_EACH && lately.length >= MIN_EACH) {
-        const share = (xs: Exp[]) => xs.filter((e) => e.subs.length > 1).length / xs.length;
-        const sB = share(before), sL = share(lately);
-        if (Math.abs(sL - sB) >= 0.25) {
-          const take = (xs: Exp[]) => xs.slice(-6);
-          const count = (xs: Exp[]) => xs.filter((e) => e.subs.length > 1).length;
+        const combined = (e: Exp) => counted(e).length > 1;
+        const cB = before.filter(combined).length, cL = lately.filter(combined).length;
+        const sB = cB / before.length, sL = cL / lately.length;
+        if (Math.abs(sL - sB) >= 0.25 && fisherP(cL, lately.length, cB, before.length) < P_MAX) {
           out.push({
             kind: "chips", key: null, up: sL > sB,
-            cells: [...take(before), ...take(lately)].map((e) => ({ id: e.id, on: e.subs.length > 1, n: e.subs.length, recent: recent(e.t) })),
+            rows: chipRows(before, lately, combined, (e) => counted(e).length),
             title: `${sL > sB ? "More" : "Fewer"} combinations lately`,
-            text: `${count(lately)} of ${lately.length} experiences lately had more than one substance, ${count(before)} of ${before.length} before.`,
-            legend: "Filled: more than one substance (number = how many)",
+            text: `${cL} of ${lately.length} experiences in the last ${periodWord} had more than one substance, against ${cB} of ${before.length} in the ${periodWord} before.`,
+            legend: "Each square is one experience. Filled: more than one substance, with how many.",
+            what: (n) => plural(n, "substance"),
           });
         }
       }
@@ -203,7 +335,7 @@
 
   const shown = $derived(showAll ? trends : trends.slice(0, SHOW_FIRST));
   const enough = $derived(
-    exps.filter((e) => recent(e.t)).length >= MIN_EACH && exps.filter((e) => !recent(e.t)).length >= MIN_EACH,
+    experiences.filter((e) => recent(e.t)).length >= MIN_EACH && experiences.filter((e) => !recent(e.t)).length >= MIN_EACH,
   );
 
   /** A card's identity, so a tap stays on its card when the list changes. */
@@ -220,7 +352,7 @@
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "long", year: "numeric" })
       : `Week of ${new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 
-  const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern" };
+  const KIND: Record<Trend["kind"], string> = { often: "How often", gaps: "Time between", dose: "Amount per experience", chips: "Pattern", mix: "Drug classes" };
   const fmtMonth = (t: number, unit: string) =>
     unit === "month" ? new Date(t).toLocaleDateString(undefined, { month: "short" }) : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -235,7 +367,9 @@
       Differences between the last {periodWord} and the {periodWord} before. Tap a bar or a dot for its experiences.
     </p>
 
-    {#if !enough}
+    {#if focus && [...focus].every(routine)}
+      <p class="note">This is marked routine, so it isn't part of Trends. Its doses are in the charts below.</p>
+    {:else if !enough && !trends.length}
       <p class="note">Trends appear once each period has at least {MIN_EACH} experiences{focus ? " of this" : ""}.</p>
     {:else if !trends.length}
       <p class="note">No clear changes between the two periods.</p>
@@ -243,7 +377,7 @@
 
     {#each shown as tr}
       <article class="card">
-        <span class="kind">{tr.kind === "dose" && tr.note ? "" : tr.up ? "↑ " : "↓ "}{tr.kind === "chips" ? (tr.key ? "Redosing" : "Combinations") : KIND[tr.kind]}</span>
+        <span class="kind">{(tr.kind === "dose" && tr.note) || tr.kind === "mix" ? "" : tr.up ? "↑ " : "↓ "}{tr.kind === "chips" ? (tr.key ? "Redosing" : "Combinations") : KIND[tr.kind]}</span>
         <h4>{tr.title}</h4>
         <p>{tr.text}</p>
 
@@ -285,7 +419,7 @@
           {#if pick?.card === tid(tr) && tr.buckets[pick.i]}
             {@const b = tr.buckets[pick.i]}
             {@const end = tr.buckets[pick.i + 1]?.start ?? Infinity}
-            {@const ids = exps.filter((e) => e.t >= b.start && e.t < end && (tr.key == null || e.subs.includes(tr.key))).map((e) => e.id)}
+            {@const ids = (tr.key == null ? experiences : exps).filter((e) => e.t >= b.start && e.t < end && (tr.key == null || e.subs.includes(tr.key))).map((e) => e.id)}
             <StatsPick heading={fmtLong(b.start, tr.unit)} note={plural(ids.length, "experience")} items={items(ids)}
               empty="No experiences in this {tr.unit}." {onOpen} onClose={() => (pick = null)} />
           {/if}
@@ -341,15 +475,60 @@
               items={items([p.id])} {onOpen} onClose={() => (pick = null)} />
           {/if}
           {#if tr.note}<p class="note">{tr.note}</p>{/if}
-        {:else}
-          <div class="cells">
-            {#each tr.cells as c, i}
-              {#if i > 0 && c.recent && !tr.cells[i - 1].recent}<span class="sep" aria-hidden="true"></span>{/if}
-              <button class="cell" class:on={c.on} onclick={() => onOpen?.(c.id)}
-                aria-label="{c.on ? 'Yes' : 'No'}, {c.n}. Open this experience">{c.n}</button>
+        {:else if tr.kind === "mix"}
+          {@const RH = 46}{@const T = 2}{@const BW = W - 34}
+          {@const H = T + tr.rows.length * RH}
+          {@const top = Math.max(1, ...tr.rows.flatMap((r) => [r.before, r.lately]))}
+          {@const w = (v: number) => (v / top) * BW}
+          <svg viewBox="0 0 {W} {H}" role="img" aria-label="{tr.title}: experiences per drug class, before and lately">
+            {#each tr.rows as r, i}
+              {@const y0 = T + i * RH}
+              <text class="axis hi fam-l" x="0" y={y0 + 12}>{famLabel(r.family)}</text>
+              <text class="axis" class:hi={r.moved || r.word.startsWith("steady")} x={W} y={y0 + 12} text-anchor="end">{r.word}</text>
+              <rect class="bar before" class:sel={picked(tr, i)} x="0" y={y0 + 18} width={Math.max(2, w(r.before))} height="8" rx="2" />
+              <text class="axis" x={Math.max(2, w(r.before)) + 5} y={y0 + 26}>{r.before}</text>
+              <rect class="bar" class:sel={picked(tr, i)} x="0" y={y0 + 30} width={Math.max(2, w(r.lately))} height="8" rx="2" />
+              <text class="axis hi" x={Math.max(2, w(r.lately)) + 5} y={y0 + 38}>{r.lately}</text>
+              <rect class="hit" x="0" y={y0} width={W} height={RH - 4} role="button" tabindex="0"
+                aria-label="{famLabel(r.family)}: {plural(r.lately, 'experience')} lately, {r.before} before, {r.word.replace(/^[↑↓] /, '')}"
+                onclick={() => toggle(tr, i)} onkeydown={(e) => keyTap(e, () => toggle(tr, i))}>
+                <title>{famLabel(r.family)}: {r.before} before, {r.lately} lately</title>
+              </rect>
             {/each}
+          </svg>
+          <div class="legend">
+            <span><i class="sw before"></i>The {periodWord} before: {plural(tr.before, "experience")}</span>
+            <span><i class="sw"></i>Last {periodWord}: {plural(tr.lately, "experience")}</span>
           </div>
-          <p class="note">{tr.legend}. Older on the left; tap one to open it.</p>
+          {#if pick?.card === tid(tr) && tr.rows[pick.i]}
+            {@const r = tr.rows[pick.i]}
+            {@const lately = r.lately > 0}
+            {@const ids = famExps.filter((e) => e.families.includes(r.family) && recent(e.t) === lately).map((e) => e.id).reverse()}
+            <StatsPick heading="{famLabel(r.family)}, {lately ? `last ${periodWord}` : `the ${periodWord} before`}" note={plural(ids.length, "experience")}
+              items={items(ids)} {onOpen} onClose={() => (pick = null)} />
+          {/if}
+          <p class="note">{tr.note} Tap a class to see its experiences.</p>
+        {:else}
+          {#each tr.rows as row}
+            <div class="row-h">
+              <span>{row.label}</span>
+              <span>{row.total > row.cells.length ? `last ${row.cells.length} of ` : ""}{plural(row.total, "experience")}</span>
+            </div>
+            <div class="cells">
+              {#each row.cells as c (c.id)}
+                {@const e = byId.get(c.id)}
+                <button class="cell" class:on={c.on} class:sel={picked(tr, c.id)} onclick={() => toggle(tr, c.id)}
+                  aria-label="{e ? new Date(e.t).toLocaleDateString() : 'Experience'}: {tr.what(c.n)}">{c.on ? c.n : ""}</button>
+              {/each}
+            </div>
+          {/each}
+          {#if pick?.card === tid(tr) && byId.get(pick.i)}
+            {@const e = byId.get(pick.i)!}
+            {@const n = tr.rows.flatMap((r) => r.cells).find((c) => c.id === e.id)?.n ?? 0}
+            <StatsPick heading={new Date(e.t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+              note={tr.what(n)} items={items([e.id])} {onOpen} onClose={() => (pick = null)} />
+          {/if}
+          <p class="note">{tr.legend} Oldest first; tap one to see it.</p>
         {/if}
       </article>
     {/each}
@@ -357,6 +536,7 @@
     {#if trends.length > SHOW_FIRST}
       <button class="link" onclick={() => (showAll = !showAll)}>{showAll ? "Show fewer" : `Show all trends (${trends.length})`}</button>
     {/if}
+    {#if anyRoutine && !(focus && [...focus].every(routine))}<p class="note">Routine doses, like a daily prescription, aren't part of Trends.</p>{/if}
     {#if hiding()}<p class="note">Names are hidden by discreet mode.</p>{/if}
   </section>
 {/if}
@@ -392,13 +572,16 @@
   .pt { fill: var(--tr-accent); stroke: var(--tr-surface); stroke-width: 2; pointer-events: none; }
   .pt.before { fill: var(--tr-surface-2); stroke: var(--tr-edge); stroke-width: 1.5; }
   .bar.sel, .pt.sel { stroke: var(--tr-text); stroke-width: 2; }
+  .fam-l { font-weight: 600; }
   .line { fill: none; stroke: var(--tr-accent); stroke-width: 2; }
   .legend { display: flex; gap: 0.9rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--tr-muted); margin-top: 0.3rem; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 0.3rem; vertical-align: -1px; background: var(--tr-accent); }
   .sw.before { background: var(--tr-surface-2); border: 1.5px solid var(--tr-edge); }
-  .cells { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .cell { width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 8px; border: 1.5px solid var(--tr-edge); background: transparent; color: var(--tr-muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .row-h { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.82rem; color: var(--tr-muted); margin: 0.55rem 0 0.3rem; }
+  .row-h span:first-child { color: var(--tr-text); font-weight: 600; }
+  .cells { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .cell { width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 6px; border: 1.5px solid var(--tr-edge); background: transparent; color: var(--tr-muted); font: inherit; font-size: 0.75rem; cursor: pointer; }
   .cell.on { background: var(--tr-accent); border-color: var(--tr-accent); color: var(--on-accent, var(--accent-ink, #0c0e12)); font-weight: 700; }
-  .sep { width: 1px; align-self: stretch; background: var(--tr-line); margin: 0 4px; }
+  .cell.sel { outline: 2px solid var(--tr-text); outline-offset: 1px; }
   .link { background: none; border: 0; color: var(--tr-accent); font: inherit; font-size: 0.92rem; font-weight: 600; padding: 0.3rem 0; min-height: 40px; cursor: pointer; }
 </style>

@@ -24,7 +24,7 @@ pub trait Reference {
 /// the combo checker "is this safe?" must answer identically — the checker is the
 /// one people consult *before* taking something, so it can't know less.
 pub fn combo_warnings(r: &impl Reference, names: &[String]) -> Vec<Warning> {
-    let with_classes: Vec<(String, Vec<String>)> = names.iter().map(|n| (n.clone(), r.classes(n))).collect();
+    let with_classes: Vec<(String, Vec<String>)> = names.iter().map(|n| (n.clone(), classes_of(r, n))).collect();
     let mut warnings = interactions::check(&with_classes);
     warnings.extend(pw_interaction_warnings(r, names));
     let mut warnings = interactions::dedup_pairs(warnings);
@@ -36,9 +36,24 @@ pub fn combo_warnings(r: &impl Reference, names: &[String]) -> Vec<Warning> {
             w.severity = o.2;
             w.message = o.3.to_string();
         }
-        w.advice = interactions::advice_for(&r.classes(&w.a), &r.classes(&w.b));
+        w.advice = interactions::advice_for(&classes_of(r, &w.a), &classes_of(r, &w.b));
     }
     warnings
+}
+
+/// The classes a logged name belongs to: its own, plus those of the reference
+/// entry it means, so "3-MeO" or "3meo" is a dissociative because 3-MeO-PCP is.
+/// Only ever adds classes, so only ever adds warnings.
+fn classes_of(r: &impl Reference, name: &str) -> Vec<String> {
+    let mut classes = r.classes(name);
+    if let Some(info) = r.lookup(name).filter(|i| !i.name.eq_ignore_ascii_case(name.trim())) {
+        for c in r.classes(&info.name) {
+            if !classes.contains(&c) {
+                classes.push(c);
+            }
+        }
+    }
+    classes
 }
 
 /// One logged dose, for [`session_warnings`]: substance, route, and when it was
@@ -60,14 +75,20 @@ pub struct TimedDose {
 /// Pairs that only meet once one of them is past its peak are softened rather than
 /// dropped (see [`soften_for_tail`]): the substance is fading, not gone, and for
 /// some pairs the fading is the risk.
+///
+/// A pair that is only ever a note, and only meets inside the margin, is dropped:
+/// the margin is there so a real risk isn't missed on a loose timestamp, and a
+/// note that needs it to fire is about a combination that, by the reference's own
+/// longest figures, didn't happen. Caution and danger keep the margin.
 pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning> {
     let mut names: Vec<String> = doses.iter().map(|d| d.name.clone()).collect();
     names.sort();
     names.dedup();
     let mut warnings = combo_warnings(r, &names);
 
-    // Each dose's windows, in minutes since the epoch: (name, taken, end of peak, end).
-    let windows: Vec<(String, f64, f64, f64)> = doses
+    // Each dose's windows, in minutes since the epoch:
+    // (name, taken, end of peak, end with the margin, end without it).
+    let windows: Vec<(String, f64, f64, f64, f64)> = doses
         .iter()
         .filter_map(|d| {
             let t = d.at_min?;
@@ -75,7 +96,7 @@ pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning>
             let dur = info.as_ref().and_then(|i| active_minutes(i, &d.route)).unwrap_or(UNKNOWN_DURATION_MIN);
             // No phase data: the whole window counts as the strong part.
             let peak = info.as_ref().and_then(|i| peak_end_minutes(i, &d.route)).map_or(dur, |p| p.min(dur));
-            Some((d.name.to_lowercase(), t, t + peak, t + dur + OVERLAP_MARGIN_MIN))
+            Some((d.name.to_lowercase(), t, t + peak, t + dur + OVERLAP_MARGIN_MIN, t + dur))
         })
         .collect();
     let of = |n: &str| windows.iter().filter(|w| w.0 == n.to_lowercase()).collect::<Vec<_>>();
@@ -88,6 +109,9 @@ pub fn session_warnings(r: &impl Reference, doses: &[TimedDose]) -> Vec<Warning>
             return true;
         }
         if !wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.3, y.1, y.3))) {
+            return false;
+        }
+        if w.severity == "note" && !wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.4, y.1, y.4))) {
             return false;
         }
         let at_peak = wa.iter().any(|x| wb.iter().any(|y| meets(x.1, x.2, y.1, y.2)));
@@ -114,12 +138,12 @@ fn max_minutes(s: &str) -> Option<f64> {
     Some(if unit.contains("min") { max } else if unit.contains("day") { max * 1440.0 } else { max * 60.0 })
 }
 
-/// The reference's entry for a route. IM falls back to IV, the nearest route,
-/// when the reference has no IM figures.
+/// The reference's entry for a route, however it's spelled ("IM", "I.M.",
+/// "Intramuscular"). Never another route's: IV figures run shorter than IM, so
+/// a route the reference lacks falls to the longest duration it gives instead.
 fn roa<'a>(info: &'a PwInfo, route: &str) -> Option<&'a crate::pw::PwRoa> {
-    let route = crate::pw::canonical_route(route);
-    let find = |n: &str| info.roas.iter().find(|r| r.name.eq_ignore_ascii_case(n));
-    find(&route).or_else(|| if route == "IM" { find("IV") } else { None })
+    let want = crate::pw::route_key(route);
+    info.roas.iter().find(|r| crate::pw::route_key(&r.name) == want)
 }
 
 /// How long a dose of this lasts by the reference's "total" for the route, longest
@@ -316,18 +340,30 @@ pub fn pw_interaction_warnings(r: &impl Reference, names: &[String]) -> Vec<Warn
 /// desktop's cache table does: an exact name first (ASCII case-insensitive), then
 /// the first entry whose stored JSON contains the name as a quoted string — the
 /// same `LIKE '%"name"%'` the database runs, so a street name, a class or a route
-/// name finds what it finds there. Classes come from the built-in list only: a
-/// phone keeps no copy of the person's own catalogue.
+/// name finds what it finds there — and failing both, the name the spelling means
+/// ("3meopcp" is 3-MeO-PCP), as the desktop does. Classes come from the built-in
+/// list only: a phone keeps no copy of the person's own catalogue.
 pub struct MemReference {
     subs: Vec<PwInfo>,
     /// Each entry's JSON as the desktop stores it, ASCII-lowercased for `LIKE`.
     json: Vec<String>,
+    names: crate::names::NameIndex,
 }
 
 impl MemReference {
     pub fn new(subs: Vec<PwInfo>) -> Self {
         let json = subs.iter().map(|s| serde_json::to_string(s).unwrap_or_default().to_ascii_lowercase()).collect();
-        MemReference { subs, json }
+        let reference: Vec<_> = subs.iter().map(|s| (s.name.clone(), s.common_names.clone())).collect();
+        let names = crate::names::NameIndex::new(&[], &reference);
+        MemReference { subs, json, names }
+    }
+
+    fn lookup_as_written(&self, name: &str) -> Option<PwInfo> {
+        if let Some(s) = self.subs.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
+            return Some(s.clone());
+        }
+        let pattern = format!("%\"{name}\"%").to_ascii_lowercase();
+        self.json.iter().position(|j| like(&pattern, j)).map(|i| self.subs[i].clone())
     }
 
     pub fn len(&self) -> usize {
@@ -348,11 +384,13 @@ impl MemReference {
 
 impl Reference for MemReference {
     fn lookup(&self, name: &str) -> Option<PwInfo> {
-        if let Some(s) = self.subs.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
-            return Some(s.clone());
-        }
-        let pattern = format!("%\"{name}\"%").to_ascii_lowercase();
-        self.json.iter().position(|j| like(&pattern, j)).map(|i| self.subs[i].clone())
+        self.lookup_as_written(name).or_else(|| {
+            let meant = self.names.canonical(name)?;
+            if meant.eq_ignore_ascii_case(name.trim()) {
+                return None;
+            }
+            self.lookup_as_written(&meant)
+        })
     }
 
     fn classes(&self, name: &str) -> Vec<String> {
@@ -416,12 +454,24 @@ mod tests {
         assert_eq!(r.lookup("molly").unwrap().name, "MDMA");
         assert_eq!(r.lookup("lsd").unwrap().name, "LSD");
         assert!(r.lookup("not a real substance").is_none());
+        assert_eq!(r.lookup("3meopcp").unwrap().name, "3-MeO-PCP", "spelled without hyphens");
+        assert_eq!(r.lookup("3 meo").unwrap().name, "3-MeO-PCP", "a street name without hyphens");
     }
 
     #[test]
     fn mdma_with_tramadol_is_flagged_offline() {
         let w = combo_warnings(&bundled(), &["MDMA".into(), "Tramadol".into()]);
         assert!(w.iter().any(|w| w.severity == "danger"), "{w:?}");
+    }
+
+    #[test]
+    fn a_name_logged_by_another_spelling_is_still_checked() {
+        let as_named = combo_warnings(&bundled(), &["3-MeO-PCP".into(), "Alcohol".into()]);
+        assert!(!as_named.is_empty());
+        for typed in ["3meopcp", "3meo", "3-MeO"] {
+            let w = combo_warnings(&bundled(), &[typed.into(), "Alcohol".into()]);
+            assert_eq!(w.len(), as_named.len(), "{typed}: {w:?}");
+        }
     }
 
     #[test]
@@ -459,6 +509,41 @@ mod tests {
         let w = session_warnings(&bundled(), &[d("Amphetamine", 0.0), d("GHB", 7.0)]);
         assert!(!w.is_empty(), "{w:?}");
         assert!(w.iter().all(|w| !w.message.contains("past its peak")), "{w:?}");
+    }
+
+    /// When a dose taken at 0h stops counting as active, margin aside, in hours.
+    fn active_hours(r: &MemReference, name: &str) -> f64 {
+        active_minutes(&r.lookup(name).unwrap(), "oral").unwrap() / 60.0
+    }
+
+    #[test]
+    fn an_im_dose_uses_the_im_route_or_the_longest_never_iv() {
+        let r = bundled();
+        // Ketamine's IM route (DoseWiki's "I.M."): 30–60 minutes, Erowid's figure.
+        assert_eq!(active_minutes(&r.lookup("Ketamine").unwrap(), "IM"), Some(60.0));
+        // Hydromorphone lists no IM route. IV's 3–4 hours would end it early;
+        // the longest it gives (oral, insufflated: 4–6 hours) stands in.
+        assert_eq!(active_minutes(&r.lookup("Hydromorphone").unwrap(), "IM"), Some(360.0));
+    }
+
+    #[test]
+    fn a_note_that_only_meets_in_the_margin_is_dropped() {
+        let r = bundled();
+        let end = active_hours(&r, "LSD");
+        let pair = |h: f64| session_warnings(&r, &[d("LSD", 0.0), d("Caffeine", h)]);
+        let inside = pair(end - 0.5);
+        assert!(!inside.is_empty() && inside.iter().all(|w| w.severity == "note"), "{inside:?}");
+        assert!(pair(end + 0.5).is_empty(), "{:?}", pair(end + 0.5));
+    }
+
+    #[test]
+    fn a_caution_keeps_the_margin() {
+        let r = bundled();
+        let end = active_hours(&r, "Dextroamphetamine");
+        let w = combo_warnings(&r, &["Dextroamphetamine".into(), "Caffeine".into()]);
+        assert!(w.iter().any(|w| w.severity == "caution"), "{w:?}");
+        let late = session_warnings(&r, &[d("Dextroamphetamine", 0.0), d("Caffeine", end + 0.5)]);
+        assert!(!late.is_empty(), "the margin still catches a caution: {late:?}");
     }
 
     #[test]

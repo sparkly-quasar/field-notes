@@ -28,11 +28,16 @@ import {
   listExperiences,
   logDose,
   updateExperience,
+  type Dose,
+  type DoseDetail,
+  type ExperienceDetail,
   type ExperienceSummary,
   type TimedDose,
   type Warning,
 } from "./api";
 import { deferStretch, NeedsComputerError } from "./offline";
+import { recentEntries } from "./arcs";
+import { aboutDose } from "./aboutdose";
 
 export interface QuickLogInput {
   substance: string;
@@ -48,6 +53,8 @@ export interface QuickLogInput {
    * the rest of *its own* entry.
    */
   intoId?: number | null;
+  /** What the dose was: form, amount per capsule, an edible's estimate. */
+  detail?: DoseDetail;
 }
 
 export interface QuickLogResult {
@@ -87,6 +94,7 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
     unit: input.unit,
     route: input.route,
     taken_at: input.at,
+    ...(input.detail ?? {}),
   });
 
   if (fresh) {
@@ -101,7 +109,11 @@ export async function quickLog(input: QuickLogInput): Promise<QuickLogResult> {
     title: entry.title,
     // The dose is saved whatever happens here; if the wider check can't run, the
     // entry's own check still stands.
-    warnings: await allWarnings(substance, input.at, logged.warnings, id, input.route).catch(() => logged.warnings),
+    warnings: await allWarnings(substance, input.at, logged.warnings, id, input.route, {
+      amount: input.amount,
+      unit: input.unit,
+      ...(input.detail ?? {}),
+    }).catch(() => aboutDose(logged.warnings, substance)),
     doseId: logged.dose.id,
     fresh,
   };
@@ -155,6 +167,8 @@ export async function allWarnings(
   own: Warning[],
   entryId?: number,
   route = "",
+  /** The dose's amount and what it was, so its profile counts in the wider check. */
+  dose: { amount?: number | null; unit?: string } & DoseDetail = {},
 ): Promise<Warning[]> {
   const t = new Date(at).getTime();
   const minutes = (iso: string) => (Number.isFinite(Date.parse(iso)) ? Date.parse(iso) / 60_000 : null);
@@ -163,11 +177,18 @@ export async function allWarnings(
   const nearby = (await listExperiences()).filter(
     (e) => e.id !== entryId && Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000,
   );
-  const doses: TimedDose[] = [{ substance_name: substance, route, at_min: minutes(at) }];
+  const parts = (d: { amount?: number | null; unit?: string } & DoseDetail) => ({
+    amount: d.amount ?? null,
+    unit: d.unit ?? "",
+    form: d.form ?? "",
+    per_unit: d.per_unit ?? null,
+    per_unit_unit: d.per_unit_unit ?? "",
+  });
+  const doses: TimedDose[] = [{ substance_name: substance, route, at_min: minutes(at), ...parts(dose) }];
   for (const e of nearby) {
     try {
       for (const d of (await getExperience(e.id)).doses) {
-        doses.push({ substance_name: d.substance_name, route: d.route, at_min: minutes(d.taken_at) });
+        doses.push({ substance_name: d.substance_name, route: d.route, at_min: minutes(d.taken_at), ...parts(d) });
       }
     } catch {
       for (const n of e.substances) doses.push({ substance_name: n, route: "", at_min: minutes(e.started_at) });
@@ -177,11 +198,12 @@ export async function allWarnings(
   const names = [...new Set(doses.map((d) => d.substance_name.trim()).filter(Boolean))];
   const wider = names.length > 1 ? await checkCombo(names, doses) : [];
 
-  // A pair is the same pair in either order: the entry's own check may report
-  // "Heroin + Alcohol" where the wider one says "Alcohol + Heroin", and showing the
-  // same danger twice reads as two dangers.
+  // Only pairs with this dose in them: the rest were shown when they were logged
+  // (aboutdose.ts). And a pair is the same pair in either order: the entry's own
+  // check may report "Heroin + Alcohol" where the wider one says "Alcohol + Heroin",
+  // and showing the same danger twice reads as two dangers.
   const seen = new Set<string>();
-  return [...own, ...wider].filter((w) => {
+  return aboutDose([...own, ...wider], substance).filter((w) => {
     const pair = [w.a, w.b].map((n) => n.trim().toLowerCase()).sort().join("|");
     const key = `${w.severity}|${pair}|${w.message}`;
     if (seen.has(key)) return false;
@@ -204,7 +226,8 @@ export function groupWarnings(list: Warning[]): WarningGroup[] {
   const groups = new Map<string, WarningGroup>();
   for (const w of list) {
     const key = `${w.severity}|${w.message}`;
-    const pair = `${w.a} + ${w.b}`;
+    // A warning about one dose's own amount (a dose profile's caution) has no second name.
+    const pair = w.b ? `${w.a} + ${w.b}` : w.a;
     const g = groups.get(key) ?? { severity: w.severity, message: w.message, pairs: [], advice: [] };
     if (!g.pairs.includes(pair)) g.pairs.push(pair);
     for (const a of w.advice ?? []) if (!g.advice.includes(a)) g.advice.push(a);
@@ -267,7 +290,9 @@ export function recallDoseShape(substance: string): DoseShape | null {
 }
 
 /** The units every dose form offers. One list, so the phone and desktop agree. */
-export const UNITS = ["mg", "µg", "g", "ml", "tab", "capsule", "pill", "drink", "hit"];
+export const UNITS = ["mg", "µg", "g", "ml", "tab", "capsule", "pill", "piece", "drink", "hit"];
+
+export { COUNTED_UNITS, FORMS, formsFor, isMushroom } from "./dosedetail";
 
 /**
  * One standard drink, as the app counts it: the US definition (14 g of alcohol).
@@ -352,6 +377,8 @@ export interface TripLine {
   unit: string;
   route: string;
   intensity: number | null;
+  /** The form the line named ("fresh"), or "" (dosedetail.ts). */
+  form?: string;
 }
 
 export async function saveTripLog(title: string, lines: TripLine[], writeup = ""): Promise<QuickLogResult> {
@@ -374,10 +401,11 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
         unit: l.unit,
         route: l.route,
         taken_at: l.at,
+        form: l.form ?? "",
         // Keep the words around the dose when there were any worth keeping.
         note: l.text.split(/\s+/).length > 4 ? l.text : "",
       });
-      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings, id, l.route)));
+      all.push(...(await allWarnings(l.substance.trim(), l.at, res.warnings, id, l.route, { amount: l.amount, unit: l.unit, form: l.form ?? "" })));
     } else if (l.text.trim()) {
       await addTimelineEvent({ experience_id: id, at: l.at, note: l.text.trim(), intensity: l.intensity });
     }
@@ -394,4 +422,25 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
   });
   const entry = await getExperience(id);
   return { id, title: entry.title, warnings, doseId: null, fresh: true };
+}
+
+/**
+ * Every dose that may still be active now, from any trip report: the live one
+ * and any started or ended in the last two days (arcs.ts `recentEntries`). What's
+ * in you doesn't depend on which entry it was logged in. `have` are entries
+ * already loaded, so the live one isn't fetched twice; an entry that can't be
+ * read is skipped.
+ */
+export async function recentDoses(entries: ExperienceSummary[], now = Date.now(), have: ExperienceDetail[] = []): Promise<Dose[]> {
+  const out: Dose[] = [];
+  for (const e of recentEntries(entries, now)) {
+    const known = have.find((h) => h.id === e.id);
+    try {
+      out.push(...(known ?? (await getExperience(e.id))).doses);
+    } catch {
+      // Not readable here (a phone that can't reach it): leave it out.
+    }
+  }
+  const seen = new Set<number>();
+  return out.filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
 }

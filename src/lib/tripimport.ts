@@ -31,6 +31,8 @@
  * instead of a row.
  */
 
+import { withForm } from "./dosedetail.ts";
+
 export type Unit = "mg" | "µg" | "g" | "ml" | "tab" | "capsule" | "pill" | "drink" | "hit";
 
 export interface ParsedRow {
@@ -52,6 +54,9 @@ export interface ParsedRow {
    *  nowhere (null: "oral", by default). The preview puts the person's own usual
    *  route ("mine", from quick log) in place of the last two. */
   routeFrom: "written" | "log" | "typical" | "mine" | null;
+  /** The form the line names, for a substance that has forms ("2g fresh
+   *  shrooms"): `withForm` in dosedetail.ts. "" when it names none. */
+  form: string;
 }
 
 export interface ParsedLog {
@@ -459,7 +464,7 @@ function rowsOf(line: string, catalogue: CatalogueEntry[], index: Map<string, st
     text = text.slice(lead[0].length).trim();
   }
   const lineRoute = writtenRoute(full);
-  const base = { intensity, who, routeFrom: null as ParsedRow["routeFrom"] };
+  const base = { intensity, who, routeFrom: null as ParsedRow["routeFrom"], form: "" };
 
   const one = (part: string, rowText: string): Body[] => {
     const said = writtenRoute(part) ?? lineRoute;
@@ -473,10 +478,11 @@ function rowsOf(line: string, catalogue: CatalogueEntry[], index: Map<string, st
       const named = doseOf(rest, catalogue, index)?.substance || resolveSubstance(words(rest).join(" "), catalogue);
       const lineUnit = full.match(UNIT_RE);
       const unit = lineUnit ? normUnit(lineUnit[2]) : "mg";
-      return shares.map((s) => ({ ...base, kind: "dose", text: rowText, substance: named, amount: s.amount, unit: s.unit ?? unit, route, routeFrom, who: s.who }));
+      const f = withForm(named, part);
+      return shares.map((s) => ({ ...base, kind: "dose", text: rowText, substance: f.substance, amount: s.amount, unit: s.unit ?? unit, route, routeFrom, who: s.who, form: f.form }));
     }
     const dose = doseOf(part, catalogue, index);
-    if (dose) return [{ ...base, kind: "dose", text: rowText, ...dose, route, routeFrom }];
+    if (dose) return [{ ...base, kind: "dose", text: rowText, ...dose, ...withForm(dose.substance, part), route, routeFrom }];
     return [];
   };
 
@@ -597,7 +603,7 @@ export function parseTripLog(raw: string, catalogue: CatalogueEntry[], opts: { d
     }
     flushTail();
     blankSinceTimed = false;
-    entries.push({ stamp, bodies: stamp && !rest ? [{ kind: "moment", text: "", substance: "", amount: null, unit: "mg", route: "oral", intensity: null, who: null, routeFrom: null }] : rowsOf(rest, catalogue, index, people) });
+    entries.push({ stamp, bodies: stamp && !rest ? [{ kind: "moment", text: "", substance: "", amount: null, unit: "mg", route: "oral", intensity: null, who: null, routeFrom: null, form: "" }] : rowsOf(rest, catalogue, index, people) });
   }
   const reflection = tail
     .filter((p) => p.length)

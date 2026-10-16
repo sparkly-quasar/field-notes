@@ -48,6 +48,17 @@ const ROUTED = new Set([
   "delete_dose",
   "delete_timeline_event",
   "delete_substance",
+  "list_unit_kinds",
+  "save_unit_kind",
+  "delete_unit_kind",
+  "set_bedtime",
+  "sleep_checkin",
+  "log_sleep",
+  "set_sleep_checkin",
+  "kind_question",
+  "pattern_note",
+  "answer_kind_question",
+  "set_substance_kind",
   "check_combo",
   "canonical_name",
   "crisis_scan",
@@ -116,6 +127,42 @@ export interface Dose {
   route: string;
   taken_at: string;
   note: string;
+  /** What the dose was. Missing from older servers, which reads as "not said". */
+  form?: string;
+  per_unit?: number | null;
+  per_unit_unit?: string;
+  unit_label?: string;
+  estimate?: number | null;
+  estimate_unit?: string;
+  /** What this amount tends to do, for the few substances whose effects change
+   *  with the amount (profiles.rs): "more stimulating at this amount". */
+  profile?: { key: string; label: string; note: string; caution?: string } | null;
+}
+
+/**
+ * What a dose was, beyond amount and unit: `DoseDetail` in db.rs. Every field
+ * defaults to "not said".
+ */
+export interface DoseDetail {
+  /** `FORMS` in quicklog.ts: dried, fresh, powdered, edible; leaf, extract, 7-oh. */
+  form?: string;
+  /** For a counted unit: how much one holds, kept on the dose as it was. */
+  per_unit?: number | null;
+  per_unit_unit?: string;
+  /** The capsule kind's name when logged ("00 caps"). */
+  unit_label?: string;
+  /** An edible's estimated content for the whole dose: "g" (dried mushroom) or "mg psilocybin". */
+  estimate?: number | null;
+  estimate_unit?: string;
+}
+
+/** A named capsule (pill, tab) for one substance: "00 caps, 0.45 g". */
+export interface UnitKind {
+  id: number;
+  substance: string;
+  label: string;
+  per_unit: number;
+  per_unit_unit: string;
 }
 
 export interface TimelineEvent {
@@ -170,7 +217,7 @@ export interface ExperienceInput {
   started_at: string;
 }
 
-export interface DoseInput {
+export interface DoseInput extends DoseDetail {
   experience_id: number;
   substance_name: string;
   amount: number | null;
@@ -212,6 +259,9 @@ export interface DoseUpdate {
   route?: string;
   taken_at: string;
   note?: string;
+  /** What the form shows now, replacing what the dose had. Nested, unlike a
+   *  new dose: an edit without it (an older phone) leaves the dose's detail be. */
+  detail?: DoseDetail;
 }
 
 export const updateExperience = (id: number, update: ExperienceUpdate) =>
@@ -224,6 +274,45 @@ export const updateTimelineEvent = (id: number, update: TimelineUpdate) =>
   invoke<TimelineEvent>("update_timeline_event", { id, update });
 export const deleteExperience = (id: number) => invoke<void>("delete_experience", { id });
 export const deleteDose = (id: number) => invoke<void>("delete_dose", { id });
+export const listUnitKinds = (substance: string) => invoke<UnitKind[]>("list_unit_kinds", { substance });
+export const saveUnitKind = (substance: string, kind: Omit<UnitKind, "id" | "substance">) =>
+  invoke<UnitKind>("save_unit_kind", { substance, kind });
+export const deleteUnitKind = (id: number) => invoke<void>("delete_unit_kind", { id });
+/** The morning question (step 6): asked only when turned on and unanswered. */
+export interface SleepCheckin {
+  enabled: boolean;
+  rating: number | null;
+}
+/** `night` = the local date of the evening, "2026-10-05". */
+export const sleepCheckin = (night: string) => invoke<SleepCheckin>("sleep_checkin", { night });
+/** Rate a night 1 to 5, or null to take it back. */
+export const logSleep = (night: string, rating: number | null) => invoke<void>("log_sleep", { night, rating });
+export const setSleepCheckin = (on: boolean) => invoke<void>("set_sleep_checkin", { on });
+
+/** "23:00", "varies", "skip", or null to forget it (the time-of-day card asks again). */
+export const setBedtime = (value: string | null) => invoke<void>("set_bedtime", { value });
+
+/** A question about how a substance is taken (kinds.rs), asked after logging it. */
+export interface KindQuestion {
+  substance: string;
+  /** "routine" or "as_needed": which question. */
+  ask: string;
+  text: string;
+  choices: { value: string; label: string }[];
+}
+/** The question to ask about a substance just logged, or null. */
+export const kindQuestion = (substance: string) => invoke<KindQuestion | null>("kind_question", { substance });
+/** A dependence or withdrawal note (patterns.rs), shown once after logging. */
+export interface PatternNote {
+  key: string;
+  text: string;
+}
+export const patternNote = (substance: string) => invoke<PatternNote | null>("pattern_note", { substance });
+export const answerKindQuestion = (substance: string, ask: string, answer: string) =>
+  invoke<void>("answer_kind_question", { substance, ask, answer });
+/** "" (as experiences), "routine" or "as_needed". */
+export const setSubstanceKind = (substance: string, kind: string) =>
+  invoke<void>("set_substance_kind", { substance, kind });
 export const deleteTimelineEvent = (id: number) => invoke<void>("delete_timeline_event", { id });
 export const deleteSubstance = (id: number) => invoke<void>("delete_substance", { id });
 
@@ -264,6 +353,8 @@ export interface PwInfo {
   interactions: PwInteraction[];
   /** Where the dose figures come from, when it isn't DoseWiki. */
   dose_note?: string | null;
+  /** Some timings are the person's own, entered in Field Notes. */
+  mine?: boolean;
 }
 export interface PwStatus {
   count: number;
@@ -272,6 +363,20 @@ export interface PwStatus {
 export const pwUpdate = () => invoke<number>("pw_update");
 export const pwStatus = () => invoke<PwStatus>("pw_status");
 export const pwLookup = (name: string) => invoke<PwInfo | null>("pw_lookup", { name });
+/** How long something lasts, in the person's own words ("30–60 minutes"): one
+ *  route's stages. They fill only the timings the reference leaves empty. */
+export interface MyTimings {
+  route: string;
+  onset: string | null;
+  come_up: string | null;
+  peak: string | null;
+  offset: string | null;
+  after_effects: string | null;
+  total: string | null;
+}
+export const myRefGet = (name: string) => invoke<MyTimings | null>("my_ref_get", { name });
+export const myRefSet = (name: string, timings: MyTimings) => invoke<void>("my_ref_set", { name, timings });
+export const myRefDelete = (name: string) => invoke<void>("my_ref_delete", { name });
 /** Every dose-reference substance with its street names — for matching pasted logs. */
 /** The substance a typed name clearly means ("acid" → LSD), or null to keep it as written. */
 export const canonicalName = (name: string) => invoke<string | null>("canonical_name", { name });
@@ -344,6 +449,13 @@ export interface TimedDose {
   substance_name: string;
   route: string;
   at_min: number | null;
+  /** The amount and what the dose was, when known: they add dose-profile
+   *  context (kratom by amount, diphenhydramine's deliriant range). */
+  amount?: number | null;
+  unit?: string;
+  form?: string;
+  per_unit?: number | null;
+  per_unit_unit?: string;
 }
 /** With `doses`, pairs are checked by when they were taken: ones that never
  *  overlapped drop out, ones that met past a peak are softened. */
@@ -374,8 +486,20 @@ export interface StatsDosePoint {
   dose_id: number;
   experience_id: number;
   taken_at: string;
+  /** In the series' unit. */
   amount: number | null;
   route: string;
+  /** What was written, when the amount shown differs from it (600 mg in a g
+   *  series, "3 g fresh", "× 00 caps, 0.45 g each"). Missing from older servers. */
+  logged_amount?: number | null;
+  logged_unit?: string | null;
+  /** An estimate (fresh mushrooms as dried, an edible's guess): shown as "about". */
+  approx?: boolean;
+  /** Where the amount sits: micro, below, threshold, light, common, strong, heavy
+   *  (stats.rs `tier_of`). Null when there's nothing honest to compare with. */
+  tier?: string | null;
+  /** How to say it: "microdose", "low dose", "common", "high"... */
+  tier_label?: string | null;
 }
 export interface StatsUnitSeries {
   unit: string;
@@ -395,6 +519,13 @@ export interface StatsSubstance {
   /** Drug families it counts toward: psychedelics, entactogens, dissociatives,
    *  stimulants, depressants, opioids, cannabinoids, other (stats.rs). */
   families: string[];
+  /** Dependence and withdrawal notes that hold now (patterns.rs). Missing from older servers. */
+  notes?: { key: string; text: string }[];
+  /** How it's taken: "" (as experiences), "routine" or "as_needed" (kinds.rs).
+   *  Missing from older servers, which read as "". */
+  kind?: string;
+  /** The dose reference's half-life, when it has one. Missing from older servers. */
+  half_life?: { text: string; route: string; low_hours: number; high_hours: number } | null;
 }
 export interface StatsSession {
   experience_id: number;
@@ -409,6 +540,13 @@ export interface UsageStats {
   pairs: { a: string; b: string; sessions: number }[];
   total_sessions: number;
   total_doses: number;
+  /** "23:00" (local), "varies", "skip" (asked, not answered), or null (not asked
+   *  yet). Missing from older servers, which can't store one. */
+  bedtime?: string | null;
+  /** The morning sleep question is on. Missing from older servers. */
+  sleep_checkin?: boolean;
+  /** Every rated night, oldest first. */
+  sleep?: { night: string; rating: number }[];
 }
 /** Read-only. `since` is an ISO time; omit for all time. */
 export const usageStats = (since: string | null) => invoke<UsageStats>("usage_stats", { since });
@@ -581,6 +719,8 @@ export interface DbStatus {
   new_journal?: boolean;
   /** Their password is kept on the server so the journal reopens after a restart. */
   remembered?: boolean;
+  /** This device has a PIN it can unlock with (people.rs, rule 5). */
+  pin?: boolean;
 }
 export const dbStatus = () => invoke<DbStatus>("db_status");
 export const unlockDb = (passphrase: string) => invoke<void>("unlock_db", { passphrase });
@@ -652,6 +792,8 @@ export interface ServerPrefs {
   tailscale_app: boolean;
   /** Paired phones may install updates on this computer. Set only at the computer. */
   phone_can_update: boolean;
+  /** Other people on this server may install them too (only while phone_can_update is on). */
+  others_can_update: boolean;
   /** Discreet mode is offered (its toggle sits next to Help). */
   discreet_available: boolean;
   /** Runs from the menu bar / system tray instead of the Dock / taskbar. */
@@ -760,6 +902,13 @@ export const personUnlock = (password: string) => invoke<DbStatus>("person_unloc
 /** Keep your password on the server (needs it), or stop keeping it. */
 export const personRemember = (remember: boolean, password: string | null = null) =>
   invoke<DbStatus>("person_remember", { remember, password });
+/** Set a PIN for this device (needs your password), or turn it off with `null`.
+ *  `sealed` is this device's copy of your password, which only the server's key
+ *  opens: keep it on this device, and send it back with the PIN to unlock. */
+export const personSetPin = (pin: string | null, password: string | null = null) =>
+  invoke<{ status: DbStatus; sealed: string | null }>("person_set_pin", { pin, password });
+/** Unlock your journal with this device's PIN and the sealed copy it kept. */
+export const personPinUnlock = (pin: string, sealed: string) => invoke<DbStatus>("person_pin_unlock", { pin, sealed });
 export const myDevices = () => invoke<MyDevice[]>("my_devices");
 /** Pair another device of yours. `origin` is where this phone reached the server,
  *  so the returned QR code points at the same place. */
@@ -769,6 +918,46 @@ export const unpairMyDevice = (id: number, password: string | null = null) =>
   invoke<MyDevice[]>("unpair_my_device", { id, password });
 /** On the owner's phone: what pairing or un-pairing asks for (owner_auth.rs). */
 export const ownerDeviceAuth = () => invoke<"password" | "pin" | "off">("owner_device_auth");
+// Tagging someone else on this server in a dose (tagging.rs). Phone only; the
+// server knows whose device is asking.
+export interface TagPerson {
+  id: number;
+  name: string;
+  /** You let them tag you. */
+  you_allow: boolean;
+  /** They let you tag them. */
+  they_allow: boolean;
+}
+export interface TaggedDose extends DoseDetail {
+  substance_name: string;
+  amount: number | null;
+  unit: string;
+  route: string;
+  taken_at: string;
+}
+export interface IncomingTag {
+  id: number;
+  from_name: string;
+  dose: TaggedDose;
+}
+export interface SentTag {
+  id: number;
+  to_name: string;
+  substance_name: string;
+  taken_at: string;
+  at: number;
+  status: "waiting" | "accepted" | "declined";
+}
+export const tagPeople = () => invoke<{ people: TagPerson[]; owner_name: string }>("tag_people");
+export const tagAllow = (other: number, allow: boolean) => invoke<TagPerson[]>("tag_allow", { other, allow });
+/** The owner's phone only: the name everyone else sees them by. */
+export const tagSetOwnerName = (name: string) => invoke<string>("tag_set_owner_name", { name });
+/** Send a copy of one of your doses (by id) to each of `to`. */
+export const tagSend = (doseId: number, to: number[]) => invoke<number>("tag_send", { doseId, to });
+export const tagInbox = () => invoke<IncomingTag[]>("tag_inbox");
+/** Accept only once the dose is in your own journal. */
+export const tagAnswer = (id: number, accept: boolean) => invoke<null>("tag_answer", { id, accept });
+export const tagSent = () => invoke<SentTag[]>("tag_sent");
 export interface PhonePinStatus {
   method: "password" | "pin" | "off";
   has_pin: boolean;
@@ -795,6 +984,8 @@ export const setDiscreetAvailable = (available: boolean) =>
 export const setMenuBar = (on: boolean) => invoke<ServerPrefs>("set_menu_bar", { on });
 /** Desktop only: let paired phones install updates here. Not on the portal allowlist. */
 export const setPhoneCanUpdate = (allowed: boolean) => invoke<ServerPrefs>("set_phone_can_update", { allowed });
+/** Desktop only: let other people's devices install updates here too. Not on the portal allowlist. */
+export const setOthersCanUpdate = (allowed: boolean) => invoke<ServerPrefs>("set_others_can_update", { allowed });
 
 // ---- updating the server from a phone (see src-tauri/src/server_update.rs) ----
 export interface ServerUpdateStatus {
@@ -802,7 +993,7 @@ export interface ServerUpdateStatus {
   available: { version: string; notes: string } | null;
   /** Why this phone can't install it now; null means it can. */
   blocked: string | null;
-  /** `blocked` only locks other people's journals: the owner may install anyway. */
+  /** `blocked` only locks other people's journals: the owner may install anyway. Never set for anyone else. */
   can_override: boolean;
   installing: boolean;
   /** A check is running on the server; ask again shortly. */

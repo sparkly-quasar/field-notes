@@ -14,6 +14,8 @@ pub mod db;
 mod devices;
 pub(crate) use field_notes_core::interactions;
 mod keychain;
+mod kinds;
+mod patterns;
 pub mod knowledge;
 mod obsidian;
 mod owner_auth;
@@ -25,6 +27,7 @@ pub mod pw;
 mod remote;
 mod server_update;
 mod stats;
+mod tagging;
 mod tailnet;
 mod tray;
 
@@ -204,6 +207,7 @@ pub fn run() {
             app.manage(portal::CompanionJobs::default());
             app.manage(devices::Devices::load(dir.join("devices.json")));
             app.manage(people::People::load(&dir));
+            app.manage(tagging::Tagging::load(dir.join("tagging.json")));
             app.manage(prefs::Prefs::load(dir.join("server.json")));
             app.manage(owner_auth::OwnerAuth::new(dir.join("phone_pin.json")));
             // The built-in Tailscale: idle until the user connects this computer.
@@ -249,6 +253,7 @@ pub fn run() {
             commands::server_update_status,
             commands::server_update_install,
             commands::set_phone_can_update,
+            commands::set_others_can_update,
             commands::phone_pin_status,
             commands::set_phone_pin,
             commands::set_menu_bar,
@@ -258,6 +263,17 @@ pub fn run() {
             commands::delete_experience,
             commands::remove_duplicate_entries,
             commands::delete_dose,
+            commands::list_unit_kinds,
+            commands::save_unit_kind,
+            commands::delete_unit_kind,
+            commands::set_bedtime,
+            commands::sleep_checkin,
+            commands::log_sleep,
+            commands::set_sleep_checkin,
+            commands::kind_question,
+            commands::pattern_note,
+            commands::answer_kind_question,
+            commands::set_substance_kind,
             commands::delete_timeline_event,
             commands::delete_substance,
             commands::ai_status,
@@ -278,6 +294,9 @@ pub fn run() {
             commands::pw_update,
             commands::pw_status,
             commands::pw_lookup,
+            commands::my_ref_get,
+            commands::my_ref_set,
+            commands::my_ref_delete,
             commands::pw_names,
             commands::canonical_name,
             commands::db_status,

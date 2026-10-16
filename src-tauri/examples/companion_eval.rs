@@ -238,6 +238,7 @@ fn seed_session(dbh: &Db, spec: &Value) -> Result<Option<i64>, String> {
                 route: d["route"].as_str().unwrap_or("").to_string(),
                 taken_at,
                 note: String::new(),
+                ..Default::default()
             })
             .map(|_| ())
         })?;

@@ -25,6 +25,15 @@ const EXTRA_ALIASES: &[(&str, &[&str])] = &[
     ("Dextroamphetamine", &["dexamp"]),
 ];
 
+/// A route's name as one spelling, for matching a logged route against the
+/// reference's: the form's "IM" and DoseWiki's "I.M." and "Intramuscular" are the
+/// same route, and so are "smoked" and the reference's "vaporized" (see
+/// [`canonical_route`], which names the reference's routes on load).
+pub fn route_key(route: &str) -> String {
+    let r: String = route.chars().filter(|c| !c.is_whitespace() && *c != '.').collect();
+    canonical_route(&r).to_lowercase()
+}
+
 // ---- slimmed DoseWiki JSON shapes (see data/dosewiki/slim.py) ----
 
 #[derive(Deserialize)]
@@ -144,6 +153,9 @@ pub struct PwInfo {
     /// Where the dose figures come from, when it isn't DoseWiki (see [`ROUTE_OVERRIDES`]).
     #[serde(default)]
     pub dose_note: Option<String>,
+    /// Some timings here are the person's own, entered in Field Notes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mine: bool,
 }
 
 fn range(g: &Option<DwRange>) -> Range {
@@ -437,6 +449,7 @@ fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
         roas,
         interactions,
         dose_note: None,
+        mine: false,
     };
     apply_patches(&mut info, log);
     if let Some((_, note, routes)) = ROUTE_OVERRIDES.iter().find(|(n, ..)| n.eq_ignore_ascii_case(&info.name)) {
@@ -725,6 +738,7 @@ fn add_extra_substances(infos: &mut Vec<PwInfo>, log: &mut Vec<String>) {
             roas: routes.iter().map(RouteSpec::roa).collect(),
             interactions: base.map(|b| b.interactions.clone()).unwrap_or_default(),
             dose_note: Some(note.to_string()),
+            mine: false,
         });
         log.push(format!("{name}: added (see EXTRA_SUBSTANCES), sharing {like}'s interactions"));
     }

@@ -12,6 +12,8 @@
 // Pure: data in, bytes out. The pages save or share the result.
 
 import type { ExperienceDetail } from "./api";
+import { describeAmount } from "./dosedetail.ts";
+import { clockTime } from "./clock.ts";
 
 /** What goes in, beyond the title, times and doses (always included). */
 export interface PdfParts {
@@ -177,7 +179,7 @@ const two = (n: number) => String(n).padStart(2, "0");
 
 function clock(iso: string): string {
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return isNaN(d.getTime()) ? "" : clockTime(d);
 }
 
 function day(iso: string): string {
@@ -203,7 +205,8 @@ function offset(iso: string, from: number): string {
 }
 
 function doseLine(d: ExperienceDetail["doses"][number]): string {
-  const amount = d.amount != null ? `${d.amount} ${d.unit}`.trim() : "";
+  // "3 g fresh (about 0.3 g dried)", "2 × 00 caps, 0.45 g each (0.9 g)".
+  const amount = d.amount != null ? describeAmount(d.substance_name, d.amount, d.unit, d).trim() : "";
   return [d.substance_name, amount, d.route].filter(Boolean).join(" · ");
 }
 

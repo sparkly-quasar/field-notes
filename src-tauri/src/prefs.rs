@@ -36,6 +36,11 @@ pub struct ServerPrefs {
     /// `server_update.rs` for the guards that apply even when it's on.
     #[serde(default)]
     pub phone_can_update: bool,
+    /// Other people on this server may install updates from their own devices too,
+    /// under the same guards, never past one. Only counts while `phone_can_update`
+    /// is on. Off by default; only settable at the computer.
+    #[serde(default)]
+    pub others_can_update: bool,
     /// Discreet mode is offered (the eye toggle next to Help, on this computer and
     /// its paired phones). Off by default. Whether names are hidden right now is a
     /// per-device choice kept in each browser; this only makes the toggle appear.

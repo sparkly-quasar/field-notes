@@ -45,6 +45,8 @@ const BIND_ADDR: &str = "127.0.0.1";
 
 /// First choice; we walk upward if it's taken (3000 is a popular port).
 pub(crate) const PORT_RANGE: std::ops::Range<u16> = 8787..8807;
+/// Threads answering requests; `stop` wakes each one.
+const WORKERS: usize = 4;
 
 pub struct Portal {
     inner: Mutex<Option<Running>>,
@@ -107,7 +109,11 @@ impl Portal {
     pub fn stop(&self) {
         if let Some(r) = self.inner.lock().unwrap().take() {
             r.stopping.store(true, Ordering::SeqCst);
-            r.server.unblock();
+            // `unblock` wakes only one thread blocked in `recv`. Wake every worker,
+            // so each drops its handle and the server closes its port.
+            for _ in 0..WORKERS {
+                r.server.unblock();
+            }
         }
     }
 }
@@ -193,7 +199,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
 
     // A small pool: a Companion reply blocks its thread for many seconds, and a
     // phone that can't load the timeline meanwhile looks broken.
-    for _ in 0..4 {
+    for _ in 0..WORKERS {
         let server = Arc::clone(&server);
         let stopping = Arc::clone(&stopping);
         let paired = Arc::clone(&paired);
@@ -213,6 +219,15 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PortalStatus, String> {
 }
 
 fn bind() -> Result<(Server, u16), String> {
+    // The tests start more portals at once than the range has ports, and the app
+    // may be running on this machine too: give each one a port from the OS.
+    #[cfg(test)]
+    {
+        let s = Server::http((BIND_ADDR, 0)).map_err(|e| e.to_string())?;
+        let port = s.server_addr().to_ip().map(|a| a.port()).ok_or("no port")?;
+        return Ok((s, port));
+    }
+    #[allow(unreachable_code)]
     for port in PORT_RANGE {
         if let Ok(s) = Server::http((BIND_ADDR, port)) {
             return Ok((s, port));
@@ -278,8 +293,11 @@ fn api<R: Runtime>(app: &AppHandle<R>, paired: &AtomicBool, command: &str, mut r
         // unlock itself, and everything that needs no journal (Help, the
         // combination checker), still answers while it's locked.
         let locked = people.as_ref().and_then(|p| p.db(who.person)).is_none_or(|d| !d.is_unlocked());
-        // Owner-only commands fall through to dispatch's 403, locked or not.
-        if locked && !LOCKED_OK.contains(&command) && !OWNER_ONLY.contains(&command) {
+        // Owner-only commands fall through to dispatch's 403, locked or not, as do
+        // updates while the owner hasn't let others install them.
+        let refused = OWNER_ONLY.contains(&command)
+            || (OWNER_UNLESS_ALLOWED.contains(&command) && !others_may_update(app));
+        if locked && !LOCKED_OK.contains(&command) && !refused {
             let _ = req.respond(json_response(
                 503,
                 json!({ "error": "Your journal is locked. Unlock it with your password.", "locked": true }),
@@ -387,6 +405,24 @@ fn mine<R: Runtime>(app: &AppHandle<R>, who: Caller) -> Vec<Value> {
 }
 
 /// Pull a named argument out of the request body, the way Tauri's `invoke` would.
+fn tagging<R: Runtime>(app: &AppHandle<R>) -> Result<tauri::State<'_, crate::tagging::Tagging>, DispatchError> {
+    app.try_state::<crate::tagging::Tagging>().ok_or_else(|| DispatchError::Failed("Tagging isn't available.".into()))
+}
+
+/// Everyone on this server with the name others see them by, the owner first.
+fn everyone<R: Runtime>(app: &AppHandle<R>) -> Vec<(u32, String)> {
+    let owner = app.try_state::<crate::tagging::Tagging>().map(|t| t.owner_name()).unwrap_or_default();
+    let mut all = vec![(OWNER, owner)];
+    if let Some(p) = app.try_state::<People>() {
+        all.extend(p.list().into_iter().map(|p| (p.id, p.name)));
+    }
+    all
+}
+
+fn name_of<R: Runtime>(app: &AppHandle<R>, id: u32) -> Option<String> {
+    everyone(app).into_iter().find(|(i, _)| *i == id).map(|(_, n)| n)
+}
+
 fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, DispatchError> {
     serde_json::from_value(args.get(name).cloned().unwrap_or(Value::Null))
         .map_err(|e| DispatchError::Failed(format!("bad argument `{name}`: {e}")))
@@ -433,7 +469,8 @@ pub const EXPOSED: &[&str] = &[
     // that installs software: it's off until enabled at the computer, refuses
     // unless the server will come back by itself, and installs only a signed
     // release from the app's own update URL. See `server_update.rs`. The switch
-    // that enables it, `set_phone_can_update`, is deliberately absent.
+    // that enables it, `set_phone_can_update`, is deliberately absent, as is
+    // `set_others_can_update`, which extends it to other people's devices.
     "server_update_status",
     "server_update_install",
     "list_substances",
@@ -455,6 +492,17 @@ pub const EXPOSED: &[&str] = &[
     "delete_dose",
     "delete_timeline_event",
     "delete_substance",
+    "list_unit_kinds",
+    "save_unit_kind",
+    "delete_unit_kind",
+    "set_bedtime",
+    "sleep_checkin",
+    "log_sleep",
+    "set_sleep_checkin",
+    "kind_question",
+    "pattern_note",
+    "answer_kind_question",
+    "set_substance_kind",
     // Only ever removes an entry that is an exact copy of another. A laptop runs it
     // here at the end of "Sync journal to server".
     "remove_duplicate_entries",
@@ -464,6 +512,11 @@ pub const EXPOSED: &[&str] = &[
     "emergency_resources",
     "pw_status",
     "pw_lookup",
+    // How long something lasts, in the person's own words, for a substance the
+    // reference has no timings for: in their journal, like their entries.
+    "my_ref_get",
+    "my_ref_set",
+    "my_ref_delete",
     // Names and street names from the (public) dose reference, for pasted logs.
     "pw_names",
     // Which substance a typed name means ("acid" → LSD), for saving a dose.
@@ -492,6 +545,10 @@ pub const EXPOSED: &[&str] = &[
     // of these take a person: it comes from the device.
     "person_unlock",
     "person_remember",
+    // A short PIN on one of their devices (people.rs, rule 5): set or turn it off
+    // with the journal open, and unlock with it while it's locked.
+    "person_set_pin",
+    "person_pin_unlock",
     "my_devices",
     "pair_own_device",
     "unpair_my_device",
@@ -501,11 +558,31 @@ pub const EXPOSED: &[&str] = &[
     // pairing or un-pairing asks for the journal's password or the phone PIN
     // (owner_auth.rs, owner's request 2026-10-03). This says which to ask for.
     "owner_device_auth",
+    // Tagging someone else on this server in a dose (tagging.rs). Each acts as the
+    // device's person; the one sent copies a dose from the sender's own journal,
+    // and none of them reads or writes anyone else's.
+    "tag_people",
+    "tag_allow",
+    "tag_set_owner_name",
+    "tag_send",
+    "tag_inbox",
+    "tag_answer",
+    "tag_sent",
 ];
 
-/// Exposed to the owner's devices only. Installing an update restarts everyone's
-/// server, so only the owner may do it from a phone.
-pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install", "owner_device_auth"];
+/// Exposed to the owner's devices only.
+pub const OWNER_ONLY: &[&str] = &["owner_device_auth", "tag_set_owner_name"];
+
+/// Installing an update restarts everyone's server, so other people's devices
+/// reach these only once the owner allows it at the computer (`others_can_update`,
+/// on top of `phone_can_update`). Until then they're as unreachable as OWNER_ONLY.
+pub const OWNER_UNLESS_ALLOWED: &[&str] = &["server_update_status", "server_update_install"];
+
+/// The owner has let other people's devices install updates (OWNER_UNLESS_ALLOWED).
+fn others_may_update<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let p = app.state::<crate::prefs::Prefs>().get();
+    p.phone_can_update && p.others_can_update
+}
 
 /// Exposed to other people's devices only. The owner's journal unlocks at the desk,
 /// as it always has. (The owner may pair from a phone, but only with the journal's
@@ -513,6 +590,8 @@ pub const OWNER_ONLY: &[&str] = &["server_update_status", "server_update_install
 pub const OTHERS_ONLY: &[&str] = &[
     "person_unlock",
     "person_remember",
+    "person_set_pin",
+    "person_pin_unlock",
     "person_change_password",
     "export_my_journal",
 ];
@@ -523,6 +602,7 @@ pub const OTHERS_ONLY: &[&str] = &[
 pub const LOCKED_OK: &[&str] = &[
     "db_status",
     "person_unlock",
+    "person_pin_unlock",
     "check_combo",
     "interaction_classes",
     "emergency_resources",
@@ -560,6 +640,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
     if (is_owner && OTHERS_ONLY.contains(&command)) || (!is_owner && OWNER_ONLY.contains(&command)) {
         return Err(DispatchError::NotExposed);
     }
+    if !is_owner && OWNER_UNLESS_ALLOWED.contains(&command) && !others_may_update(app) {
+        return Err(DispatchError::NotExposed);
+    }
     // Whose journal. The owner's is the app's own `Db`; anyone else's comes from
     // `People`, by the person on the device record.
     let owner_db = app.state::<Db>();
@@ -587,14 +670,16 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         "usage_stats" => done(commands::usage_stats_in(db, arg(&args, "since")?)),
         "offline_reference" => crate::pw::read_bundled(app).map(Value::String).map_err(DispatchError::Failed),
         "offline_corpus" => crate::knowledge::read_bundled(app).map(Value::String).map_err(DispatchError::Failed),
-        "server_update_status" => ok(crate::server_update::status(app)),
-        "server_update_install" => {
-            done(crate::server_update::install(app, arg::<Option<bool>>(&args, "anyway")?.unwrap_or(false)))
-        }
+        "server_update_status" => ok(crate::server_update::status(app, who.person)),
+        "server_update_install" => done(crate::server_update::install(
+            app,
+            who.person,
+            arg::<Option<bool>>(&args, "anyway")?.unwrap_or(false),
+        )),
         "list_substances" => done(commands::list_substances_in(db)),
         "db_status" => match &theirs {
             None => ok(commands::db_status(owner_db)),
-            Some(_) => ok(app.state::<People>().status(who.person)),
+            Some(_) => ok(app.state::<People>().status(who.person, who.device)),
         },
         "companion_enabled" => ok(app.state::<Portal>().companion_enabled()),
         "discreet_available" => ok(app.state::<crate::prefs::Prefs>().get().discreet_available),
@@ -623,6 +708,26 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         }
         "delete_experience" => done(commands::delete_experience_in(db, arg(&args, "id")?)),
         "delete_dose" => done(commands::delete_dose_in(db, arg(&args, "id")?)),
+        "list_unit_kinds" => done(commands::list_unit_kinds_in(db, arg(&args, "substance")?)),
+        "save_unit_kind" => {
+            done(commands::save_unit_kind_in(db, arg(&args, "substance")?, arg(&args, "kind")?))
+        }
+        "delete_unit_kind" => done(commands::delete_unit_kind_in(db, arg(&args, "id")?)),
+        "set_bedtime" => done(commands::set_bedtime_in(db, arg(&args, "value")?)),
+        "sleep_checkin" => done(commands::sleep_checkin_in(db, arg(&args, "night")?)),
+        "log_sleep" => done(commands::log_sleep_in(db, arg(&args, "night")?, arg(&args, "rating")?)),
+        "set_sleep_checkin" => done(commands::set_sleep_checkin_in(db, arg(&args, "on")?)),
+        "kind_question" => done(commands::kind_question_in(db, arg(&args, "substance")?)),
+        "pattern_note" => done(commands::pattern_note_in(db, arg(&args, "substance")?)),
+        "answer_kind_question" => done(commands::answer_kind_question_in(
+            db,
+            arg(&args, "substance")?,
+            arg(&args, "ask")?,
+            arg(&args, "answer")?,
+        )),
+        "set_substance_kind" => {
+            done(commands::set_substance_kind_in(db, arg(&args, "substance")?, arg(&args, "kind")?))
+        }
         "delete_timeline_event" => done(commands::delete_timeline_event_in(db, arg(&args, "id")?)),
         "delete_substance" => done(commands::delete_substance_in(db, arg(&args, "id")?)),
         "remove_duplicate_entries" => done(commands::remove_duplicate_entries_in(db)),
@@ -636,6 +741,9 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
         // --- reference ---
         "pw_status" => done(commands::pw_status_in(db)),
         "pw_lookup" => done(commands::pw_lookup_in(db, arg(&args, "name")?)),
+        "my_ref_get" => done(commands::my_ref_get_in(db, arg(&args, "name")?)),
+        "my_ref_set" => done(commands::my_ref_set_in(db, arg(&args, "name")?, arg(&args, "timings")?)),
+        "my_ref_delete" => done(commands::my_ref_delete_in(db, arg(&args, "name")?)),
         "pw_names" => done(commands::pw_names_in(db)),
         "canonical_name" => done(commands::canonical_name_in(db, arg(&args, "name")?)),
         "knowledge_search" => ok(commands::knowledge_search(
@@ -720,7 +828,32 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             let opened = people.unlock(who.person, who.device, &password).map_err(DispatchError::Failed)?;
             // The dose reference lives inside each journal; load it into theirs.
             commands::refresh_dose_reference(app, &opened);
-            ok(people.status(who.person))
+            ok(people.status(who.person, who.device))
+        }
+        "person_pin_unlock" => {
+            let people = app.state::<People>();
+            let pin: String = arg(&args, "pin")?;
+            let sealed: String = arg(&args, "sealed")?;
+            let opened = people.unlock_with_pin(who.person, who.device, &pin, &sealed).map_err(DispatchError::Failed)?;
+            commands::refresh_dose_reference(app, &opened);
+            ok(people.status(who.person, who.device))
+        }
+        // With a PIN and the password: returns the sealed password for this device to
+        // keep. With no PIN: turns this device's PIN off.
+        "person_set_pin" => {
+            let people = app.state::<People>();
+            let pin: Option<String> = arg(&args, "pin")?;
+            let sealed = match pin {
+                Some(pin) => {
+                    let password: String = arg(&args, "password")?;
+                    Some(people.set_pin(who.person, who.device, &password, &pin).map_err(DispatchError::Failed)?)
+                }
+                None => {
+                    people.forget_pin(who.person, who.device).map_err(DispatchError::Failed)?;
+                    None
+                }
+            };
+            ok(json!({ "status": people.status(who.person, who.device), "sealed": sealed }))
         }
         "person_remember" => {
             let people = app.state::<People>();
@@ -729,14 +862,14 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             people
                 .set_remember(who.person, who.device, remember, password.as_deref())
                 .map_err(DispatchError::Failed)?;
-            ok(people.status(who.person))
+            ok(people.status(who.person, who.device))
         }
         "person_change_password" => {
             let people = app.state::<People>();
             let current: String = arg(&args, "current")?;
             let new: String = arg(&args, "new")?;
             people.change_password(who.person, who.device, &current, &new).map_err(DispatchError::Failed)?;
-            ok(people.status(who.person))
+            ok(people.status(who.person, who.device))
         }
         // Their journal as a file, still encrypted with their password. Base64 so it
         // rides in the same JSON as everything else; the phone saves it as a download.
@@ -746,6 +879,30 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             ok(json!({ "data": base64::engine::general_purpose::STANDARD.encode(bytes) }))
         }
         "my_devices" => ok(mine(app, who)),
+
+        // --- tagging someone else on this server in a dose (tagging.rs) ---
+        "tag_people" => {
+            let tags = tagging(app)?;
+            ok(json!({ "people": tags.people(who.person, &everyone(app)), "owner_name": tags.owner_name() }))
+        }
+        "tag_allow" => {
+            let tags = tagging(app)?;
+            let all = everyone(app);
+            tags.allow(who.person, arg(&args, "other")?, arg(&args, "allow")?, &all).map_err(DispatchError::Failed)?;
+            ok(tags.people(who.person, &all))
+        }
+        "tag_set_owner_name" => done(tagging(app)?.set_owner_name(&arg::<String>(&args, "name")?)),
+        "tag_send" => {
+            // Read from the sender's own journal, by id: what travels is what they
+            // logged, never anything the request says it was.
+            let dose = db.with(|c| crate::db::get_dose(c, arg::<i64>(&args, "doseId").unwrap_or(-1)))
+                .map_err(|_| DispatchError::Failed("That dose isn't in your journal.".into()))?;
+            let to: Vec<u32> = arg(&args, "to")?;
+            done(tagging(app)?.send(who.person, &to, (&dose).into()))
+        }
+        "tag_inbox" => ok(tagging(app)?.inbox(who.person, |id| name_of(app, id))),
+        "tag_answer" => done(tagging(app)?.answer(who.person, arg(&args, "id")?, arg(&args, "accept")?)),
+        "tag_sent" => ok(tagging(app)?.sent(who.person, |id| name_of(app, id))),
         "owner_device_auth" => ok(owner_auth(app)?.method(&owner_db.path)),
         "pair_own_device" => {
             if is_owner {
@@ -767,7 +924,11 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             if is_owner {
                 owner_check(app, &owner_db.path, &args)?;
             }
-            app.state::<Devices>().revoke_own(who.person, arg(&args, "id")?).map_err(DispatchError::Failed)?;
+            let id: u64 = arg(&args, "id")?;
+            app.state::<Devices>().revoke_own(who.person, id).map_err(DispatchError::Failed)?;
+            if !is_owner {
+                let _ = app.state::<People>().forget_pin(who.person, id);
+            }
             ok(mine(app, who))
         }
 
@@ -888,6 +1049,13 @@ mod tests {
         app.manage(Knowledge(None));
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
+        // The phone asks for these preferences on every load (discreet mode);
+        // without them each load panicked a worker until the portal stopped
+        // answering, which cut `dev_portal` short.
+        let _ = std::fs::remove_file(path.with_extension("server.json"));
+        app.manage(crate::prefs::Prefs::load(path.with_extension("server.json")));
+        // Asked for by the phone's update card, the same way.
+        app.manage(crate::server_update::ServerUpdate::default());
         let _ = std::fs::remove_file(path.with_extension("devices.json"));
         let devices = Devices::load(path.with_extension("devices.json"));
         let (_, token) = devices.pair("Test phone").unwrap();
@@ -899,6 +1067,36 @@ mod tests {
         let status = start(&handle).expect("portal starts");
         let port = status.port.unwrap();
         (handle, port, token)
+    }
+
+    #[test]
+    fn a_phone_can_save_how_long_something_lasts() {
+        let (_h, port, token) = serving();
+        let timings = json!({ "route": "Oral", "onset": " 30–60 minutes ", "come_up": null, "peak": "1–2 hours",
+                              "offset": "", "after_effects": null, "total": "6–8 hours" });
+        assert_eq!(post(port, "my_ref_set", Some(&token), json!({ "name": "Nurtec", "timings": timings })).0, 200);
+        let (code, body) = post(port, "pw_lookup", Some(&token), json!({ "name": "nurtec" }));
+        assert_eq!(code, 200);
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["mine"], true, "{body}");
+        assert_eq!(v["roas"][0]["name"], "oral");
+        assert_eq!(v["roas"][0]["onset"], "30–60 minutes", "trimmed");
+        assert!(v["roas"][0]["offset"].is_null(), "an empty stage is left out");
+        assert_eq!(post(port, "my_ref_delete", Some(&token), json!({ "name": "Nurtec" })).0, 200);
+        assert_eq!(post(port, "pw_lookup", Some(&token), json!({ "name": "Nurtec" })).1, "null");
+    }
+
+    #[test]
+    fn stopping_frees_the_port() {
+        // Turning device access off has to let go of the port, or every off/on
+        // leaks one until the range is used up ("no free port in 8787–8806").
+        let (handle, port, _) = serving();
+        handle.state::<Portal>().stop();
+        let freed = (0..40).any(|_| {
+            std::thread::sleep(Duration::from_millis(50));
+            std::net::TcpListener::bind((BIND_ADDR, port)).is_ok()
+        });
+        assert!(freed, "port {port} still held after stop");
     }
 
     fn post(port: u16, cmd: &str, token: Option<&str>, body: Value) -> (u16, String) {
@@ -931,10 +1129,12 @@ mod tests {
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
         app.manage(crate::prefs::Prefs::load(dir.join("server.json")));
+        app.manage(crate::server_update::ServerUpdate::default());
         app.manage(crate::owner_auth::OwnerAuth::new(dir.join("phone_pin.json")));
         let people = People::load(&dir);
         let sam = people.add("Sam").unwrap();
         app.manage(people);
+        app.manage(crate::tagging::Tagging::load(dir.join("tagging.json")));
         let devices = Devices::load(dir.join("devices.json"));
         let (_, owner_token) = devices.pair("Owner phone").unwrap();
         let (_, sam_token) = devices.pair_for("Sam phone", sam.id).unwrap();
@@ -974,6 +1174,35 @@ mod tests {
         assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 200);
     }
 
+    /// A PIN, end to end: set with the password while open, then the only way in
+    /// besides the password while locked, from that device. Not the owner's.
+    #[test]
+    fn a_pin_unlocks_a_locked_journal_from_the_device_that_set_it() {
+        let (app, port, owner, sam) = serving_two();
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+        let (status, body) = post(port, "person_set_pin", Some(&sam), json!({ "pin": "4821", "password": "correct horse battery" }));
+        assert_eq!(status, 200, "{body}");
+        let r: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(r["status"]["pin"], true);
+        let sealed = r["sealed"].as_str().unwrap().to_string();
+        assert_eq!(post(port, "person_set_pin", Some(&owner), json!({ "pin": "4821", "password": "x" })).0, 403);
+
+        // A restart locks it; the PIN reopens it.
+        *app.state::<People>().db(2).unwrap().conn.lock().unwrap() = None;
+        assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 503);
+        let (status, body) = post(port, "person_pin_unlock", Some(&sam), json!({ "pin": "0000", "sealed": sealed }));
+        assert_eq!(status, 400, "{body}");
+        let (status, body) = post(port, "person_pin_unlock", Some(&sam), json!({ "pin": "4821", "sealed": sealed }));
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(post(port, "list_experiences", Some(&sam), json!({})).0, 200);
+
+        // Turned off, it no longer works.
+        let (_, body) = post(port, "person_set_pin", Some(&sam), json!({ "pin": null }));
+        assert!(body.contains("\"pin\":false"), "{body}");
+        *app.state::<People>().db(2).unwrap().conn.lock().unwrap() = None;
+        assert_eq!(post(port, "person_pin_unlock", Some(&sam), json!({ "pin": "4821", "sealed": sealed })).0, 400);
+    }
+
     /// The core promise, against the real request path: everything one person's
     /// device can call never returns a word of the other person's journal.
     #[test]
@@ -1001,6 +1230,47 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Tagging, end to end: a tag carries one dose and nothing else, needs both to
+    /// agree, and the sender hears back only whether it was accepted.
+    #[test]
+    fn a_tag_carries_one_dose_and_never_opens_the_other_journal() {
+        let (_app, port, owner, sam) = serving_two();
+        assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
+        let (_, body) = post(port, "create_experience", Some(&owner), new_session("OWNERSECRET evening"));
+        let exp: Value = serde_json::from_str(&body).unwrap();
+        let (_, body) = post(port, "log_dose", Some(&owner), json!({ "input": {
+            "experience_id": exp["id"], "substance_name": "kratom", "amount": 3.0, "unit": "g",
+            "route": "oral", "taken_at": "2026-10-07T20:00:00Z", "note": "OWNERNOTE", "form": "leaf" } }));
+        let dose: Value = serde_json::from_str(&body).unwrap();
+        let dose_id = dose["dose"]["id"].clone();
+
+        // Not until both say yes.
+        let (status, body) = post(port, "tag_send", Some(&owner), json!({ "doseId": dose_id, "to": [2] }));
+        assert_eq!(status, 400, "{body}");
+        assert_eq!(post(port, "tag_allow", Some(&owner), json!({ "other": 2, "allow": true })).0, 200);
+        assert_eq!(post(port, "tag_allow", Some(&sam), json!({ "other": 1, "allow": true })).0, 200);
+        let (status, body) = post(port, "tag_send", Some(&owner), json!({ "doseId": dose_id, "to": [2] }));
+        assert_eq!(status, 200, "{body}");
+
+        // Sam sees the dose, and none of the rest of the owner's entry.
+        let (_, inbox) = post(port, "tag_inbox", Some(&sam), json!({}));
+        assert!(inbox.contains("kratom") && inbox.contains("leaf"), "{inbox}");
+        assert!(!inbox.contains("OWNERSECRET") && !inbox.contains("OWNERNOTE"), "{inbox}");
+        let tags: Value = serde_json::from_str(&inbox).unwrap();
+        // The owner can't answer Sam's tag, or send one of Sam's doses.
+        assert_eq!(post(port, "tag_answer", Some(&owner), json!({ "id": tags[0]["id"], "accept": true })).0, 400);
+        assert_eq!(post(port, "tag_send", Some(&sam), json!({ "doseId": 999, "to": [1] })).0, 400);
+        assert_eq!(post(port, "tag_answer", Some(&sam), json!({ "id": tags[0]["id"], "accept": true })).0, 200);
+
+        let (_, sent) = post(port, "tag_sent", Some(&owner), json!({}));
+        assert!(sent.contains("accepted") && sent.contains("Sam"), "{sent}");
+        // Sam's journal is untouched by any of this: the phone logs it itself.
+        let (_, theirs) = post(port, "list_experiences", Some(&sam), json!({}));
+        assert_eq!(theirs.trim(), "[]");
+        // Only the owner names the owner.
+        assert_eq!(post(port, "tag_set_owner_name", Some(&sam), json!({ "name": "x" })).0, 403);
     }
 
     #[test]
@@ -1031,9 +1301,16 @@ mod tests {
     #[test]
     fn people_reach_only_their_own_commands_and_their_own_devices() {
         let (app, port, owner, sam) = serving_two();
-        // Only the owner may install an update; only others unlock from a phone.
+        // Only the owner may install an update until they let others; only others
+        // unlock from a phone.
         assert_eq!(post(port, "server_update_install", Some(&sam), json!({})).0, 403);
         assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
+        // Letting others alone isn't enough: phones installing has to be on too.
+        app.state::<crate::prefs::Prefs>().update(|p| p.others_can_update = true).unwrap();
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
+        app.state::<crate::prefs::Prefs>().update(|p| p.phone_can_update = true).unwrap();
+        // Allowed, but a locked journal unlocks first: nobody proved who's holding it.
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 503);
         assert_eq!(post(port, "person_unlock", Some(&owner), json!({ "password": "correct horse battery" })).0, 403);
         // The owner may pair from a phone, but only with the journal's password or
         // the phone PIN (owner_auth.rs); none is set here, so it's refused.
@@ -1045,6 +1322,12 @@ mod tests {
         assert_eq!(post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" })).0, 200);
         let (_, body) = post(port, "my_devices", Some(&sam), json!({}));
         assert!(body.contains("Sam phone") && !body.contains("Owner phone"), "{body}");
+        // Unlocked and allowed, Sam can ask; with nothing waiting, install is refused
+        // by the updater's own rules rather than hidden.
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 200);
+        assert_eq!(post(port, "server_update_install", Some(&sam), json!({ "anyway": true })).0, 400);
+        app.state::<crate::prefs::Prefs>().update(|p| p.others_can_update = false).unwrap();
+        assert_eq!(post(port, "server_update_status", Some(&sam), json!({})).0, 403);
         let list: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(list[0]["this"], true, "the asking device is marked as itself");
 
@@ -1251,6 +1534,7 @@ mod tests {
                 route: "oral".into(),
                 taken_at: "2026-07-10T20:05:00Z".into(),
                 note: "tea".into(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1476,6 +1760,7 @@ mod tests {
         assert!(EXPOSED.contains(&"server_update_status"));
         assert!(EXPOSED.contains(&"server_update_install"));
         assert!(!EXPOSED.contains(&"set_phone_can_update"));
+        assert!(!EXPOSED.contains(&"set_others_can_update"));
         assert!(!EXPOSED.contains(&"set_server_prefs"));
         assert!(!EXPOSED.contains(&"set_menu_bar"));
     }

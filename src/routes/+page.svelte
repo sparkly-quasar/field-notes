@@ -1,5 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0 -->
 <script lang="ts">
+  import { clock24, clockTime } from "$lib/clock";
+  import { clockPref, setClock24 } from "$lib/clock.svelte";
   import { onMount } from "svelte";
   import {
     listExperiences,
@@ -22,6 +24,7 @@
     deleteTimelineEvent,
     deleteSubstance,
     type Dose,
+    type DoseDetail,
     aiStatus,
     aiRecommendedModels,
     aiInstall,
@@ -101,6 +104,7 @@
     serverPrefs,
     setServerPrefs,
     setPhoneCanUpdate,
+    setOthersCanUpdate,
     phonePinStatus,
     setPhonePin,
     type PhonePinStatus,
@@ -128,6 +132,11 @@
   } from "$lib/api";
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
+  import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
+  import DoseDetailFields from "$lib/DoseDetailFields.svelte";
+  import KindQuestion from "$lib/KindQuestion.svelte";
+  import SleepCheckin from "$lib/SleepCheckin.svelte";
+  import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
     enable as autostartEnable,
@@ -145,10 +154,13 @@
     UNITS,
     STANDARD_DRINK,
     HIT_NOTE,
+    recentDoses,
   } from "$lib/quicklog";
+  import { aboutDose } from "$lib/aboutdose";
   import { getVersion } from "@tauri-apps/api/app";
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
+  import ActiveArcs from "$lib/ActiveArcs.svelte";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
@@ -224,6 +236,25 @@
   let obsMsg = $state<string | null>(null);
 
   let experiences = $state<ExperienceSummary[]>([]);
+  /** Doses from any entry that may still be active (quicklog.ts `recentDoses`). */
+  let activeDoses = $state<Dose[]>([]);
+  /** A minute clock for "Likely still active" outside the live view. */
+  let minuteNow = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (minuteNow = Date.now()), 60_000);
+    return () => clearInterval(t);
+  });
+  /** The open entry's doses (fresh right after logging) with everything else recent. */
+  const arcDoses = $derived.by(() => {
+    const own = liveSession && selected ? selected.doses : [];
+    return [...own, ...activeDoses.filter((d) => !own.some((o) => o.id === d.id))];
+  });
+  /** Fill the combination check with what's still active, ready for one more name. */
+  function checkActive(names: string[]) {
+    comboText = names.join(", ") + ", ";
+    comboResult = null;
+    goTab("substances");
+  }
   let substances = $state<Substance[]>([]);
   let classesVocab = $state<string[]>([]);
   let usage = $state<SubstanceUsage[]>([]);
@@ -253,10 +284,15 @@
   let qlSub = $state("");
   let qlAmt = $state("");
   let qlUnit = $state("mg");
+  let qlDetail = $state<DoseDetail>({});
   let qlRoute = $state("oral");
   let qlWhen = $state("");
   let qlWarnings = $state<Warning[]>([]);
   let qlSaved = $state<{ id: number; title: string; at: string } | null>(null);
+  /** The substance just logged in each dose form, for KindQuestion; `n` asks again. */
+  let qlAsk = $state({ s: "", n: 0 });
+  let dAsk = $state({ s: "", n: 0 });
+  let qAsk = $state({ s: "", n: 0 });
   let qlInto = $state<number | null>(null);
   const qlRecents = $derived(recentSubstances(experiences));
 
@@ -264,6 +300,7 @@
   let dSubstance = $state("");
   let dAmount = $state("");
   let dUnit = $state("mg");
+  let dDetail = $state<DoseDetail>({});
   let dRoute = $state("oral");
   let dTime = $state("");
 
@@ -313,7 +350,7 @@
   let removeTyped = $state("");
   // Serving for your other devices: start with the app, open at login, and the
   // opt-in keychain password so a reboot doesn't leave everything locked out.
-  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, builtin_tailnet: false, tailscale_app: false, phone_can_update: false, discreet_available: false, menu_bar: false });
+  let sprefs = $state<ServerPrefs>({ serve_on_launch: false, served_https: null, builtin_tailnet: false, tailscale_app: false, phone_can_update: false, others_can_update: false, discreet_available: false, menu_bar: false });
   let loginStart = $state(false);
   let kc = $state<KeychainStatus>({ applicable: false, remembered: false });
   let kcPass = $state("");
@@ -366,6 +403,7 @@
   let edSub = $state("");
   let edAmt = $state("");
   let edUnit = $state("mg");
+  let edDetail = $state<DoseDetail>({});
   let edRoute = $state("");
   let edTime = $state("");
 
@@ -482,6 +520,7 @@
   let qSub = $state("");
   let qAmt = $state("");
   let qUnit = $state("mg");
+  let qDetail = $state<DoseDetail>({});
   let qRoute = $state("oral");
   let qNote = $state("");
   let lsNote = $state("");
@@ -492,7 +531,7 @@
   const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const monthOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const TAB_TITLE: Record<string, string> = { journal: "Journal", stats: "Stats", bysub: "Stats", substances: "Check", companion: "Talk", data: "Settings" };
-  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const fmtTime = (iso: string) => clockTime(iso);
 
   /** T-zero for the open experience: the *first dose*, not the session start.
    *  Sessions often get opened well before anything is taken, and "t+" is only
@@ -906,9 +945,13 @@
 
   async function loadJournal() {
     experiences = await listExperiences();
+    recentDoses(experiences, Date.now(), selected ? [selected] : [])
+      .then((d) => (activeDoses = d))
+      .catch(() => {});
   }
   async function loadSubstances() {
     substances = await listSubstances();
+    forgetSubstanceNames();
   }
   async function loadUsage() {
     usage = await usageBySubstance();
@@ -1034,12 +1077,15 @@
       route: qlRoute,
       at,
       intoId: qlInto,
+      detail: qlDetail,
     });
     rememberDoseShape(qlSub, { unit: qlUnit, route: qlRoute });
     qlWarnings = res.warnings;
     qlSaved = { id: res.id, title: res.title, at };
+    qlAsk = { s: qlSubAs || qlSub.trim(), n: qlAsk.n + 1 };
     qlInto = null;
     qlSub = qlAmt = "";
+    qlDetail = {};
     qlWhen = nowLocalInput();
     await loadJournal();
   }
@@ -1118,9 +1164,12 @@
       unit: dUnit,
       route: dRoute,
       taken_at: localInputToIso(dTime),
+      ...dDetail,
     });
-    lastWarnings = res.warnings;
+    lastWarnings = aboutDose(res.warnings, res.dose.substance_name);
+    dAsk = { s: res.dose.substance_name, n: dAsk.n + 1 };
     dSubstance = dAmount = "";
+    dDetail = {};
     dTime = defaultDoseTime();
     await openExperienceKeepWarnings(selected.id);
     await loadJournal();
@@ -1259,6 +1308,7 @@
     edUnit = d.unit;
     edRoute = d.route;
     edTime = isoToLocalInput(d.taken_at);
+    edDetail = detailOf(d);
   }
 
   async function saveDose() {
@@ -1269,6 +1319,7 @@
       unit: edUnit,
       route: edRoute,
       taken_at: localInputToIso(edTime),
+      detail: detailOf(edDetail),
     });
     editingDoseId = null;
     await openExperienceKeepWarnings(selected.id);
@@ -1636,10 +1687,15 @@
       route: qRoute,
       taken_at: nowIso(),
       note: qNote,
+      ...qDetail,
     });
-    lastLogged = { id: res.dose.id, label: `${res.dose.substance_name}${res.dose.amount != null ? ` ${res.dose.amount} ${res.dose.unit}` : ""}` };
+    const r = res.dose;
+    qAsk = { s: r.substance_name, n: qAsk.n + 1 };
+    lastLogged = { id: r.id, label: `${r.substance_name}${r.amount != null ? ` ${describeAmount(r.substance_name, r.amount, r.unit, r)}` : ""}` };
     qSub = ""; qAmt = ""; qNote = "";
-    if (res.warnings.length) lastWarnings = res.warnings;
+    qDetail = {};
+    const about = aboutDose(res.warnings, r.substance_name);
+    if (about.length) lastWarnings = about;
     await refreshSelected();
     await loadJournal();
   }
@@ -2008,7 +2064,7 @@
     const mins = Math.round((Date.now() / 1000 - unix) / 60);
     if (mins < 2) return "active just now";
     if (mins < 60) return `last seen ${mins} min ago`;
-    return `last seen ${new Date(unix * 1000).toLocaleString()}`;
+    return `last seen ${new Date(unix * 1000).toLocaleString(undefined, { hour12: !clock24() })}`;
   }
 
   /** Publish (or stop publishing) the portal to the tailnet. This is the step that
@@ -2086,6 +2142,15 @@
     portalErr = null;
     try {
       sprefs = await setPhoneCanUpdate(!sprefs.phone_can_update);
+    } catch (e) {
+      portalErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function toggleOthersCanUpdate() {
+    portalErr = null;
+    try {
+      sprefs = await setOthersCanUpdate(!sprefs.others_can_update);
     } catch (e) {
       portalErr = e instanceof Error ? e.message : String(e);
     }
@@ -2286,10 +2351,27 @@
     const roa = dRef.roas.find((r) => r.name.toLowerCase() === dRoute.trim().toLowerCase());
     if (!roa) return null;
     if (roa.threshold == null && roa.light.min == null && roa.common.min == null) return null;
-    // Don't classify across mismatched units (e.g. entering g against mg ranges).
+    // What the dose works out to (fresh mushrooms as dried, capsules in all),
+    // in the reference's unit. Never across units that don't convert, and
+    // never for a form the ranges aren't for (kratom extract, 7-OH, an edible
+    // without an estimate).
     const u = roa.units ?? "";
-    if (u && dUnit && !sameUnit(u, dUnit)) return null;
-    return classifyDose(amt, roa);
+    const m = measure(dSubstanceAs || dSubstance, amt, dUnit, dDetail);
+    let v: number | null;
+    if (m) v = u ? inUnit(m.amount, m.unit, u) : m.amount;
+    else if (dDetail.form || dDetail.per_unit != null) return null;
+    else v = !u || !dUnit || sameUnit(u, dUnit) ? amt : null;
+    if (v == null) return null;
+    const differs = !!m && (m.approx || !sameUnit(m.unit, dUnit));
+    const as = differs ? `${m!.approx ? "about " : ""}${+v.toFixed(3)} ${u || m!.unit}` : "";
+    // Psychedelics have a microdose (stats.rs `tier_of`): at or under the
+    // cutoff it's a microdose, and above it but not yet common, a low dose.
+    const cut = microCutoff(dSubstanceAs || dSubstance, dRef.psychoactive.some((p) => p.toLowerCase() === "psychedelic"), roa.threshold ?? null, u);
+    const vc = cut ? inUnit(v, u || m?.unit || dUnit, cut.unit) : null;
+    if (cut && vc != null && vc <= cut.amount) return { label: "microdose", level: "ok", as };
+    const c = classifyDose(v, roa);
+    if (cut && ["light", "threshold", "below threshold"].includes(c.label)) return { label: "low", level: "ok", as };
+    return { ...c, as };
   });
 
   const sevClass = (s: string) => (s === "danger" ? "danger" : s === "caution" ? "caution" : "note");
@@ -2535,6 +2617,13 @@
 
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
+      {#if !selected}<SleepCheckin />{/if}
+      {#if !selected && activeDoses.length}
+        <!-- Something logged lately may still be active, live trip report or not. -->
+        <section class="card">
+          <ActiveArcs doses={activeDoses} now={minuteNow} compact onCheck={checkActive} />
+        </section>
+      {/if}
       {#if selected && selected.kind === "note"}
         <!-- A plain entry: a title, a body, a date. Deliberately quiet — no session chrome. -->
         <section class="card">
@@ -2608,6 +2697,12 @@
 
           {@render doseWarnings()}
 
+          {#if selected.ended_at && selected.doses.length}
+            <!-- How the doses likely played out, with the moments on top. -->
+            <h3>Arcs</h3>
+            <ActiveArcs doses={selected.doses} moments={selected.timeline} now={Date.parse(selected.ended_at)} past />
+          {/if}
+
           <h3>Doses</h3>
           {#if selected.doses.length}
             <ul class="doses">
@@ -2615,7 +2710,7 @@
                 <li>
                   {#if editingDoseId === d.id}
                     <div class="dose-form inline">
-                      <input list="subnames" bind:value={edSub} />
+                      <SubstanceInput bind:value={edSub} />
                       <input type="number" step="any" bind:value={edAmt} class="narrow" />
                       <input bind:value={edUnit} class="narrow" />
                       <input bind:value={edRoute} class="narrow" />
@@ -2623,10 +2718,11 @@
                       <button class="primary small-btn" onclick={saveDose}>Save</button>
                       <button class="ghost small-btn" onclick={() => (editingDoseId = null)}>Cancel</button>
                     </div>
+                    <DoseDetailFields substance={edSub} unit={edUnit} amount={edAmt} bind:detail={edDetail} suggest={false} />
                   {:else}
                     <span class="dtime">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span>
                     <span class="dname">{d.substance_name}</span>
-                    <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
+                    <span class="damt">{describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}{#if d.profile}<span class="muted" title={d.profile.note}> · {d.profile.label}</span>{/if}</span>
                     <span class="row-actions">
                       <button class="icon-btn" title="Edit dose" onclick={() => startEditDose(d)}>✎</button>
                       <button class="icon-btn" title="Delete dose" onclick={() => delDose(d.id)}>✕</button>
@@ -2640,7 +2736,7 @@
           {/if}
 
           <div class="dose-form">
-            <input list="subnames" placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance, dRoute) ?? dUnit; }} />
+            <SubstanceInput placeholder="Substance" bind:value={dSubstance} onchange={() => { lookupRef(dSubstance); dUnit = defaultUnitFor(dSubstance, dRoute) ?? dUnit; }} />
             <input type="number" step="any" placeholder="Amount" bind:value={dAmount} />
             <input placeholder="unit" bind:value={dUnit} class="narrow" />
             <input placeholder="route" bind:value={dRoute} class="narrow" />
@@ -2648,10 +2744,12 @@
             <button class="primary small-btn" onclick={submitDose}>Log dose</button>
           </div>
           <NameHint name={dSubstance} bind:saveAs={dSubstanceAs} />
+          <DoseDetailFields substance={dSubstanceAs || dSubstance} unit={dUnit} amount={dAmount} bind:detail={dDetail} />
+          <KindQuestion substance={dAsk.s} tick={dAsk.n} />
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
-                <div class="dose-class {doseClass.level}">{dAmount}{dUnit} · <strong>{doseClass.label}</strong> dose{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
+                <div class="dose-class {doseClass.level}">{dAmount}{dUnit}{doseClass.as ? ` (${doseClass.as})` : ""} · {#if doseClass.label === "microdose"}a <strong>microdose</strong>{:else}<strong>{doseClass.label}</strong> dose{/if}{doseClass.label === "heavy" ? ": above the usual strong range" : ""}</div>
               {/if}
               <strong>{dRef.name}</strong> — reference doses
               {#each dRef.roas as r}
@@ -2667,9 +2765,6 @@
               <div class="muted attribution">Field Notes dose reference, based on DoseWiki (CC0) with substantial revisions · reference only, verify before dosing</div>
             </div>
           {/if}
-          <datalist id="subnames">
-            {#each substances as s}<option value={s.name}></option>{/each}
-          </datalist>
 
           <h3>Timeline</h3>
           {#if selected.timeline.length}
@@ -2772,15 +2867,7 @@
               {/if}
 
               <div class="quick-row">
-                <input
-                  placeholder="Substance"
-                  list="substance-names"
-                  bind:value={qlSub}
-                  onblur={applyRememberedShape}
-                />
-                <datalist id="substance-names">
-                  {#each substances as s}<option value={s.name}></option>{/each}
-                </datalist>
+                <SubstanceInput placeholder="Substance" bind:value={qlSub} onblur={applyRememberedShape} />
                 <input class="narrow" placeholder="Amount" bind:value={qlAmt} />
                 <select bind:value={qlUnit}>
                   {#each UNITS as u}<option>{u}</option>{/each}
@@ -2790,6 +2877,7 @@
                 </select>
               </div>
               <NameHint name={qlSub} bind:saveAs={qlSubAs} />
+              <DoseDetailFields substance={qlSubAs || qlSub} unit={qlUnit} amount={qlAmt} bind:detail={qlDetail} />
               {#if qlUnit === "drink"}
                 <p class="muted small">{STANDARD_DRINK}</p>
               {:else if qlUnit === "hit"}
@@ -2823,6 +2911,7 @@
                   <button class="ghost small-btn" onclick={() => addNotesTo(qlSaved!.id)}>Add notes</button>
                   <button class="ghost small-btn" onclick={quickLogAnother}>Log another into it</button>
                 </p>
+                <KindQuestion substance={qlAsk.s} tick={qlAsk.n} />
               {/if}
             </div>
           {/if}
@@ -3189,6 +3278,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           <input id="combo-names" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocomplete="off" />
           <button class="primary small-btn" type="submit" disabled={comboText.split(",").filter((x) => x.trim()).length < 2}>Check</button>
         </form>
+        {#if activeDoses.length}
+          <ActiveArcs doses={activeDoses} now={minuteNow} showChart={false} onCheck={(names) => { comboText = names.join(", ") + ", "; comboResult = null; }} />
+        {/if}
         {#if comboResult}
           {#if comboResult.length === 0}
             <p class="notice">Nothing flagged between those. That isn't the same as "safe".</p>
@@ -3410,7 +3502,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 {#each u.doses as d}
                   <li>
                     <span class="dtime">{fmtDate(d.taken_at)}</span>
-                    <span class="damt">{d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</span>
+                    <span class="damt">{describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}</span>
                   </li>
                 {/each}
               </ul>
@@ -3475,6 +3567,18 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
             the Companion tab walks you through. The journal, timeline, dose reference, interaction
             checker and crisis resources don't use it and work the same either way.
           </p>
+        </section>
+
+        <section class="card">
+          <h2>Clock</h2>
+          <p class="muted small">
+            Times show on the 12-hour clock (9:30 pm). Switch to 24-hour (21:30) here; it's for this
+            computer only, and each phone chooses its own. Time pickers follow your system's setting.
+          </p>
+          <label class="share">
+            <input type="checkbox" checked={clockPref.h24} onchange={(e) => setClock24(e.currentTarget.checked)} />
+            Use the 24-hour clock
+          </label>
         </section>
 
         <section class="card">
@@ -4014,6 +4118,16 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 If it would lock someone else's journal, the phone says whose and lets you install anyway.
                 Only signed Field Notes releases can be installed.
               </p>
+              <label class="share">
+                <input type="checkbox" checked={sprefs.others_can_update} onchange={toggleOthersCanUpdate} />
+                Let other people on this server install them from their phones too
+              </label>
+              {#if sprefs.others_can_update}
+                <p class="muted small">
+                  The same rules apply to them. They can't install anyway past anything: if it would lock
+                  someone's journal, their phone tells them to ask you, without saying whose.
+                </p>
+              {/if}
             {/if}
             {#if kc.applicable}
               {#if kc.remembered}
@@ -4331,13 +4445,16 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
         {@render doseWarnings()}
       </div>
 
+      <!-- What each substance is likely doing now, all doses of it added in. -->
+      <ActiveArcs doses={arcDoses} moments={selected.timeline} now={lsNow} />
+
       <div class="live-body">
         <section class="live-timeline">
           <h3>Doses</h3>
           {#if selected.doses.length}
             <ul class="live-doses">
               {#each selected.doses as d}
-                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {d.amount ?? "?"} {d.unit}{d.route ? " · " + d.route : ""}</li>
+                <li><span class="muted">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span> — {nameShown(d.substance_name)} {describeAmount(d.substance_name, d.amount, d.unit, d)}{d.route ? " · " + d.route : ""}{#if d.profile}<span class="muted" title={d.profile.note}> · {d.profile.label}</span>{/if}</li>
               {/each}
             </ul>
           {:else}
@@ -4346,14 +4463,16 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
 
           <h3>Quick log</h3>
           <div class="quick-log">
-            <input placeholder="Substance" bind:value={qSub} />
+            <SubstanceInput placeholder="Substance" bind:value={qSub} />
             <input placeholder="Amount" inputmode="decimal" bind:value={qAmt} />
             <input placeholder="Unit" bind:value={qUnit} />
             <input placeholder="Route" bind:value={qRoute} />
             <button class="primary" disabled={!qSub.trim()} onclick={logIntoSession}>Log dose</button>
           </div>
+          <DoseDetailFields substance={qSub} unit={qUnit} amount={qAmt} bind:detail={qDetail} />
           {#if lastLogged}
             <p class="small live-saved">✓ Logged {lastLogged.label}. <button class="link" onclick={undoLastLogged}>Undo</button></p>
+            <KindQuestion substance={qAsk.s} tick={qAsk.n} />
           {/if}
 
           <h3>Timeline</h3>
@@ -4606,7 +4725,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
      panel rather than floating loose in the card. */
   .quick-log { margin: 0.6rem 0 1rem; }
   .quick-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 0; align-items: center; }
-  .quick-row > input:first-child { flex: 1; min-width: 9rem; }
+  .quick-row > input:first-child,
+  .quick-row > :global(.sub-suggest):first-child { flex: 1; min-width: 9rem; }
   /* Selects aren't styled app-wide (nothing else uses one in a form row), and a
      default white dropdown in this dark card reads as a rendering bug. */
   .quick-row select {

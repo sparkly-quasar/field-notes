@@ -50,7 +50,7 @@ pub struct OwnerAuth {
     tries: Mutex<(u32, Option<Instant>)>,
 }
 
-fn stretch(salt: &str, pin: &str) -> String {
+pub(crate) fn stretch(salt: &str, pin: &str) -> String {
     let mut h: [u8; 32] = Sha256::digest(format!("{salt}:{pin}").as_bytes()).into();
     for _ in 0..ROUNDS {
         h = Sha256::digest(h).into();

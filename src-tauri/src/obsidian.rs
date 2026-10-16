@@ -58,6 +58,10 @@ struct NoteDose {
     taken_at: String,
     #[serde(default)]
     note: String,
+    /// Form, per-capsule amount, an edible's estimate. Absent from notes
+    /// exported before v0.24, which read as "not said".
+    #[serde(flatten)]
+    detail: db::DoseDetail,
 }
 
 #[derive(Deserialize)]
@@ -299,6 +303,7 @@ fn write_children(conn: &Connection, id: i64, note: &NoteData) -> Result<(), Str
                 route: d.route.clone(),
                 taken_at: if d.taken_at.is_empty() { note.started_at.clone() } else { d.taken_at.clone() },
                 note: d.note.clone(),
+                detail: d.detail.clone(),
             },
         )
         .map_err(err)?;
@@ -471,11 +476,18 @@ mod tests {
             &DoseInput {
                 experience_id: exp.id,
                 substance_name: "Caffeine".into(),
-                amount: Some(100.0),
-                unit: "mg".into(),
+                amount: Some(2.0),
+                unit: "pill".into(),
                 route: "oral".into(),
                 taken_at: "2026-07-01T20:05:00Z".into(),
                 note: "coffee".into(),
+                // What it was survives the vault too.
+                detail: db::DoseDetail {
+                    per_unit: Some(100.0),
+                    per_unit_unit: "mg".into(),
+                    unit_label: "Pills".into(),
+                    ..Default::default()
+                },
             },
         )
         .unwrap();
@@ -492,6 +504,8 @@ mod tests {
         let detail = db::get_experience(&dst, got[0].experience.id).unwrap();
         assert_eq!(detail.doses.len(), 1);
         assert_eq!(detail.doses[0].substance_name, "Caffeine");
+        assert_eq!(detail.doses[0].detail.per_unit, Some(100.0));
+        assert_eq!(detail.doses[0].detail.unit_label, "Pills");
 
         // Re-importing is idempotent (updates in place, no duplicate).
         let r2 = import_all(&dst, &dir).unwrap();
