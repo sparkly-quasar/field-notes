@@ -129,6 +129,21 @@ export function fisherP(a: number, n1: number, b: number, n2: number): number {
   return Math.min(1, sum);
 }
 
+/**
+ * Two-sided exact test for two counts over periods of the same length: how
+ * likely a split at least this uneven is if the rate didn't change. With `n`
+ * events in all, each falls in either period with even odds.
+ */
+export function splitP(a: number, b: number): number {
+  const n = a + b;
+  if (n === 0) return 1;
+  const p = (x: number) => Math.exp(logFact(n) - logFact(x) - logFact(n - x) - n * Math.LN2);
+  const seen = p(a) * (1 + 1e-7);
+  let sum = 0;
+  for (let x = 0; x <= n; x++) if (p(x) <= seen) sum += p(x);
+  return Math.min(1, sum);
+}
+
 /** A "nice" axis maximum and tick step for 0..max. */
 export function niceScale(max: number, ticks = 4): { max: number; step: number } {
   if (!(max > 0)) return { max: 1, step: 1 };
@@ -140,6 +155,95 @@ export function niceScale(max: number, ticks = 4): { max: number; step: number }
 
 export function fmtNum(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(n < 10 ? 2 : 1).replace(/\.?0+$/, "");
+}
+
+// ---------- drug families ----------
+
+/** The drug families Stats sorts substances into, in display order (stats.rs FAMILIES). */
+export const FAMILY_ORDER = ["psychedelics", "entactogens", "dissociatives", "stimulants", "depressants", "opioids", "cannabinoids", "other"];
+export const FAMILY_LABEL: Record<string, string> = {
+  psychedelics: "Psychedelics", entactogens: "Entactogens", dissociatives: "Dissociatives", stimulants: "Stimulants",
+  depressants: "Depressants", opioids: "Opioids", cannabinoids: "Cannabinoids", other: "Other",
+};
+/** "days since the last psychedelic" */
+export const FAMILY_ONE: Record<string, string> = {
+  psychedelics: "psychedelic", entactogens: "entactogen", dissociatives: "dissociative", stimulants: "stimulant",
+  depressants: "depressant", opioids: "opioid", cannabinoids: "cannabinoid", other: "of these",
+};
+
+/** Where one family went between the two periods. "few": too little to tell
+ *  either way; "new" and "gone": none in one period, clearly some in the other. */
+export type FamilyTrend = "up" | "down" | "same" | "new" | "gone" | "few";
+export type FamilyRow = { family: string; before: number; lately: number; trend: FamilyTrend };
+
+/**
+ * How many experiences had each drug family in them, before `mid` and from `mid`
+ * on, most lately first. An experience counts once per family however many doses
+ * it held, so a night of redosing reads as one time, not many (Trends has its own
+ * redosing card). One with substances from two families (MDMA: entactogen and
+ * stimulant) counts toward both, so the rows can add up to more than the total.
+ * A family has moved only when the bigger period has at least `minEach` of it,
+ * one period has at least `by` times the other, and a split that uneven would
+ * be unlikely by chance (`splitP` under `pMax`). With a handful of entries, 3
+ * then 2, or even 5 then 1, is too few to tell.
+ */
+export function familyMix(exps: { t: number; families: string[] }[], mid: number, minEach = 3, by = 1.5, pMax = 0.1): FamilyRow[] {
+  const count = new Map<string, { before: number; lately: number }>();
+  for (const e of exps) {
+    for (const f of new Set(e.families)) {
+      const c = count.get(f) ?? { before: 0, lately: 0 };
+      if (e.t >= mid) c.lately++;
+      else c.before++;
+      count.set(f, c);
+    }
+  }
+  const trend = (b: number, l: number): FamilyTrend => {
+    if (Math.max(b, l) < minEach) return "few";
+    if (l < b * by && l * by > b) return "same";
+    if (splitP(l, b) >= pMax) return "few";
+    if (b === 0) return "new";
+    if (l === 0) return "gone";
+    return l > b ? "up" : "down";
+  };
+  const order = (f: string) => (FAMILY_ORDER.includes(f) ? FAMILY_ORDER.indexOf(f) : FAMILY_ORDER.length);
+  return [...count]
+    .map(([family, c]) => ({ family, ...c, trend: trend(c.before, c.lately) }))
+    .sort((a, b) => b.lately - a.lately || b.before - a.before || order(a.family) - order(b.family));
+}
+
+/** How a steady rhythm reads, by its typical gap in days; null past what
+ *  reads as a rhythm at all. */
+export function rhythmWord(days: number): string | null {
+  // From 6: a weekly habit logged a little early now and then has a typical gap
+  // just under 7.
+  if (days < 6) return null;
+  if (days <= 10) return "about once a week";
+  if (days <= 20) return "about every two weeks";
+  if (days <= 45) return "about once a month";
+  if (days <= 75) return "about every two months";
+  if (days <= 120) return "about every three months";
+  return null;
+}
+
+/**
+ * A steady rhythm in a set of times, for what's too infrequent for two short
+ * periods to compare: once a month is 1 then 1 in a 30-day view, but a pattern
+ * over a year. Times within 2 days of an occasion's start are one occasion (a
+ * weekend). A rhythm needs at least `minTimes` occasions, a typical gap of about a
+ * week or more, three in four gaps within half to double that, and the last one
+ * recent enough to still be going (no more than two gaps ago).
+ */
+export function rhythm(times: number[], now = Date.now(), minTimes = 4): { gapDays: number; since: number; times: number } | null {
+  const occ: number[] = [];
+  for (const t of [...times].sort((a, b) => a - b)) if (!occ.length || t - occ[occ.length - 1] > 2 * DAY) occ.push(t);
+  if (occ.length < minTimes) return null;
+  const gaps = occ.slice(1).map((t, i) => (t - occ[i]) / DAY);
+  const g = median(gaps)!;
+  if (!rhythmWord(g)) return null;
+  const even = gaps.filter((x) => x >= g / 2 && x <= g * 2).length;
+  if (even < gaps.length * 0.75) return null;
+  if ((now - occ[occ.length - 1]) / DAY > g * 2) return null;
+  return { gapDays: g, since: occ[0], times: occ.length };
 }
 
 /**
