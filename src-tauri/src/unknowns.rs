@@ -117,6 +117,28 @@ mod tests {
     }
 
     #[test]
+    fn sr_17018_is_an_opioid_however_it_is_written() {
+        // As in the owner's journal: in the catalogue, saved with no classes.
+        let mut c = conn();
+        c.execute("INSERT INTO substances (name, classes) VALUES ('SR-17018', '[]')", []).unwrap();
+        let spellings = ["SR-17018", "SR17018", "sr17018", "SR 17018"];
+        let check = |c: &Connection, with: &str| {
+            for n in spellings {
+                assert_eq!(crate::stats::families_of(c, n), ["opioids"], "{n}, {with}");
+                let w = db::combo_warnings(c, &[n.to_string(), "Alcohol".to_string()]);
+                assert!(!w.is_empty(), "{n} with alcohol is flagged, {with}");
+            }
+        };
+        check(&c, "built-in matcher only");
+        // And with the directory loaded, as in the app.
+        let reference = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
+        db::pw_replace_all(&mut c, &reference).unwrap();
+        check(&c, "directory loaded");
+        // Known class and timings now: nothing to ask on the receipt.
+        assert_eq!(question(&c, "SR17018").unwrap(), None);
+    }
+
+    #[test]
     fn asked_once_ever() {
         let c = conn();
         done(&c, "Nurtec").unwrap();
