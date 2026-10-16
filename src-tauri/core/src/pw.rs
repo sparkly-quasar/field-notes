@@ -350,25 +350,78 @@ const ROUTE_OVERRIDES: &[(&str, &str, &[RouteSpec])] = &[(
 /// signalling bias); Grim et al. 2020 (blocked morphine withdrawal in mice); NDEWS
 /// web monitoring, 2025-11-14 (people's reports: slow onset, very different doses
 /// from person to person, redosing, and overdose on going back to other opioids
-/// after tolerance fell).
-const EXTRA_SUBSTANCES: &[(&str, &[&str], &[&str], &[&str], &str)] = &[(
-    "SR-17018",
-    &["SR17018", "SR 17018"],
-    &["Opioid"],
-    &["Benzimidazolone"],
-    "No dose or duration figures: SR-17018 hasn't been studied in people. It's a mu-opioid agonist. In mice it slowed breathing less than morphine, likely because it activates the receptor only weakly, and it blocked morphine withdrawal. People who use it to come off other opioids report a slow onset, which can lead to redosing, and very different doses from one person to the next. Treat it as an opioid in combinations. If it lowers your tolerance, a dose of another opioid you used to take can become an overdose. Your own timings fill in how long it lasts on Today.",
-)];
+/// after tolerance fell). The oral timings are the owner's, from three doses of
+/// their own (2026-10-16); no dose figures, since three doses from one person
+/// can't support a range for a novel opioid.
+const EXTRA_SUBSTANCES: &[Extra] = &[Extra {
+    name: "SR-17018",
+    aliases: &["SR17018", "SR 17018"],
+    psychoactive: &["Opioid"],
+    chemical: &["Benzimidazolone"],
+    routes: &[TimingsOnly {
+        name: "oral",
+        onset: Some("20 minutes"),
+        come_up: Some("30 minutes"),
+        peak: Some("2–3 hours"),
+        offset: Some("2–3 hours"),
+        total: Some("6 hours"),
+    }],
+    note: "No dose figures: SR-17018 hasn't been studied in people. Its oral timings are from the Field Notes maintainer's own use, not a study, and others report a slower onset, which can lead to redosing. It's a mu-opioid agonist. In mice it slowed breathing less than morphine, likely because it activates the receptor only weakly, and it blocked morphine withdrawal. People who use it to come off other opioids report very different doses from one person to the next. Treat it as an opioid in combinations. If it lowers your tolerance, a dose of another opioid you used to take can become an overdose.",
+}];
 
-fn extra(&(name, aliases, psychoactive, chemical, note): &(&str, &[&str], &[&str], &[&str], &str)) -> PwInfo {
+/// A substance written out by hand (see [`EXTRA_SUBSTANCES`]).
+struct Extra {
+    name: &'static str,
+    aliases: &'static [&'static str],
+    psychoactive: &'static [&'static str],
+    chemical: &'static [&'static str],
+    routes: &'static [TimingsOnly],
+    /// Where its figures come from, and why some are missing.
+    note: &'static str,
+}
+
+/// A route with timings and no dose figures, so nothing is placed on dose tiers
+/// without a source for them. Durations as display text, like DoseWiki's.
+struct TimingsOnly {
+    name: &'static str,
+    onset: Option<&'static str>,
+    come_up: Option<&'static str>,
+    peak: Option<&'static str>,
+    offset: Option<&'static str>,
+    total: Option<&'static str>,
+}
+
+fn extra(e: &Extra) -> PwInfo {
     let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
+    let s = |x: Option<&str>| x.map(String::from);
     PwInfo {
-        name: name.to_string(),
-        common_names: v(aliases),
-        psychoactive: v(psychoactive),
-        chemical: v(chemical),
-        roas: vec![],
+        name: e.name.to_string(),
+        common_names: v(e.aliases),
+        psychoactive: v(e.psychoactive),
+        chemical: v(e.chemical),
+        roas: e
+            .routes
+            .iter()
+            .map(|r| PwRoa {
+                name: r.name.to_string(),
+                units: None,
+                threshold: None,
+                light: Range::default(),
+                common: Range::default(),
+                strong: Range::default(),
+                heavy: None,
+                heavy_max: None,
+                onset: s(r.onset),
+                come_up: s(r.come_up),
+                peak: s(r.peak),
+                offset: s(r.offset),
+                after_effects: None,
+                total: s(r.total),
+                half_life: None,
+            })
+            .collect(),
         interactions: vec![],
-        dose_note: Some(note.to_string()),
+        dose_note: Some(e.note.to_string()),
         mine: false,
     }
 }
@@ -380,7 +433,7 @@ pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
         serde_json::from_str(json).map_err(|e| format!("Couldn't parse the bundled dose reference: {e}"))?;
     let mut out: Vec<PwInfo> = subs.into_iter().map(map_sub).collect();
     for e in EXTRA_SUBSTANCES {
-        if !out.iter().any(|s| s.name.eq_ignore_ascii_case(e.0)) {
+        if !out.iter().any(|s| s.name.eq_ignore_ascii_case(e.name)) {
             out.push(extra(e));
         }
     }
@@ -422,8 +475,14 @@ mod tests {
         let s = subs.iter().find(|s| s.name == "SR-17018").expect("SR-17018 is in the directory");
         assert_eq!(s.psychoactive, ["Opioid"]);
         assert!(s.common_names.iter().any(|a| a == "SR17018"));
-        assert!(s.roas.is_empty(), "no human doses or timings to give");
-        assert!(s.dose_note.as_deref().unwrap().contains("hasn't been studied in people"));
+        let oral = &s.roas[..];
+        assert_eq!(oral.len(), 1);
+        assert_eq!((oral[0].name.as_str(), oral[0].total.as_deref()), ("oral", Some("6 hours")));
+        assert_eq!(oral[0].onset.as_deref(), Some("20 minutes"));
+        let r = &oral[0];
+        assert!(r.units.is_none() && r.threshold.is_none() && r.common.min.is_none() && r.heavy.is_none(), "no dose figures");
+        let note = s.dose_note.as_deref().unwrap();
+        assert!(note.contains("hasn't been studied in people") && note.contains("maintainer's own use"));
         assert_eq!(subs.iter().filter(|s| s.name == "SR-17018").count(), 1);
     }
 
