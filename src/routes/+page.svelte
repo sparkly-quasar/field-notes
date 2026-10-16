@@ -134,6 +134,7 @@
   import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
+  import SubstanceQuestion from "$lib/SubstanceQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
   import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
@@ -2745,6 +2746,7 @@
           <NameHint name={dSubstance} bind:saveAs={dSubstanceAs} />
           <DoseDetailFields substance={dSubstanceAs || dSubstance} unit={dUnit} amount={dAmount} bind:detail={dDetail} />
           <KindQuestion substance={dAsk.s} tick={dAsk.n} />
+          <SubstanceQuestion substance={dAsk.s} tick={dAsk.n} />
           {#if dRef}
             <div class="ref-inline">
               {#if doseClass}
@@ -2911,6 +2913,7 @@
                   <button class="ghost small-btn" onclick={quickLogAnother}>Log another into it</button>
                 </p>
                 <KindQuestion substance={qlAsk.s} tick={qlAsk.n} />
+                <SubstanceQuestion substance={qlAsk.s} tick={qlAsk.n} />
               {/if}
             </div>
           {/if}
@@ -4476,6 +4479,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           {#if lastLogged}
             <p class="small live-saved">✓ Logged {lastLogged.label}. <button class="link" onclick={undoLastLogged}>Undo</button></p>
             <KindQuestion substance={qAsk.s} tick={qAsk.n} />
+            <SubstanceQuestion substance={qAsk.s} tick={qAsk.n} />
           {/if}
 
           <h3>Timeline</h3>

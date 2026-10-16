@@ -372,6 +372,41 @@ pub fn answer_kind_question_in(db: &Db, substance: String, ask: String, answer: 
     db.with(|c| Ok(crate::kinds::answer(c, &substance, &ask, &answer, chrono::Utc::now())))?
 }
 
+/// What to ask about a substance just logged that Field Notes knows little about:
+/// its drug class, how long it lasts, or both (unknowns.rs). Asked once each.
+#[tauri::command]
+pub fn substance_question(db: State<'_, Db>, substance: String) -> Result<Option<crate::unknowns::UnknownQuestion>, String> {
+    substance_question_in(&db, substance)
+}
+
+/// [`substance_question`] against any person's journal (the portal picks it by device).
+pub fn substance_question_in(db: &Db, substance: String) -> Result<Option<crate::unknowns::UnknownQuestion>, String> {
+    db.with(|c| crate::unknowns::question(c, &substance))
+}
+
+/// That question was answered or skipped: don't ask it again.
+#[tauri::command]
+pub fn substance_question_done(db: State<'_, Db>, substance: String) -> Result<(), String> {
+    substance_question_done_in(&db, substance)
+}
+
+/// [`substance_question_done`] against any person's journal (the portal picks it by device).
+pub fn substance_question_done_in(db: &Db, substance: String) -> Result<(), String> {
+    db.with(|c| crate::unknowns::done(c, &substance))
+}
+
+/// Save what kind of drug a substance is, as its catalogue classes. Only the
+/// classes change on an existing entry.
+#[tauri::command]
+pub fn set_substance_classes(db: State<'_, Db>, substance: String, classes: Vec<String>) -> Result<(), String> {
+    set_substance_classes_in(&db, substance, classes)
+}
+
+/// [`set_substance_classes`] against any person's journal (the portal picks it by device).
+pub fn set_substance_classes_in(db: &Db, substance: String, classes: Vec<String>) -> Result<(), String> {
+    db.with(|c| crate::unknowns::set_classes(c, &substance, &classes))
+}
+
 /// Mark how a substance is taken, by hand: "" (as experiences), "routine" or
 /// "as_needed". Any substance, any kind; it changes where doses show in Stats,
 /// never whether they count.

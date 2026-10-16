@@ -127,6 +127,7 @@
   import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
+  import SubstanceQuestion from "$lib/SubstanceQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
   import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
@@ -2795,6 +2796,7 @@
                 {#if receipt.doseId != null}<button class="ghost small" onclick={undoLastLog}>Undo</button>{/if}</p>
               {@render warnings(receipt.warnings)}
               <KindQuestion substance={dAsk.s} tick={dAsk.n} />
+              <SubstanceQuestion substance={dAsk.s} tick={dAsk.n} />
               {#if receipt.doseId != null && tagPartners.length}
                 {@const sentTo = taggedTo[receipt.doseId] ?? []}
                 <div class="chips" role="group" aria-label="Tag someone in this dose">

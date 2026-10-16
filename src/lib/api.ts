@@ -308,6 +308,18 @@ export interface PatternNote {
   text: string;
 }
 export const patternNote = (substance: string) => invoke<PatternNote | null>("pattern_note", { substance });
+/** Something just logged that Field Notes knows little about (unknowns.rs). */
+export interface SubstanceQuestion {
+  substance: string;
+  /** Stats can't place it in a drug class. */
+  ask_class: boolean;
+  /** Nothing gives timings for it. */
+  ask_timings: boolean;
+}
+export const substanceQuestion = (substance: string) => invoke<SubstanceQuestion | null>("substance_question", { substance });
+export const substanceQuestionDone = (substance: string) => invoke<null>("substance_question_done", { substance });
+export const setSubstanceClasses = (substance: string, classes: string[]) =>
+  invoke<null>("set_substance_classes", { substance, classes });
 export const answerKindQuestion = (substance: string, ask: string, answer: string) =>
   invoke<void>("answer_kind_question", { substance, ask, answer });
 /** "" (as experiences), "routine" or "as_needed". */

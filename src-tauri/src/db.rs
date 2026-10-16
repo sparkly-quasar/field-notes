@@ -213,6 +213,13 @@ CREATE TABLE IF NOT EXISTS my_refs (
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Substances already asked about on a dose receipt (unknowns.rs): what kind of
+-- drug, how long it lasts. Answered or skipped, each is asked once.
+CREATE TABLE IF NOT EXISTS substance_asked (
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    at             TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Small facts about the person the journal is for, kept with the journal so the
 -- phone and the computer agree: `bedtime` ("23:00", "varies", or "skip" once
 -- asked and skipped; absent until asked).

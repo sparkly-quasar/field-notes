@@ -30,6 +30,7 @@ mod stats;
 mod tagging;
 mod tailnet;
 mod tray;
+mod unknowns;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -274,6 +275,9 @@ pub fn run() {
             commands::pattern_note,
             commands::answer_kind_question,
             commands::set_substance_kind,
+            commands::substance_question,
+            commands::substance_question_done,
+            commands::set_substance_classes,
             commands::delete_timeline_event,
             commands::delete_substance,
             commands::ai_status,

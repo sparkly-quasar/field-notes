@@ -33,7 +33,12 @@
 </script>
 
 <script lang="ts">
-  let { value = $bindable([]), idPrefix = "cls" }: { value?: string[]; idPrefix?: string } = $props();
+  let {
+    value = $bindable([]),
+    idPrefix = "cls",
+    optional = true,
+    hint = "Pick more than one if it fits (MDMA: entactogen and stimulant). Leave it empty and Field Notes classes well-known names itself.",
+  }: { value?: string[]; idPrefix?: string; optional?: boolean; hint?: string } = $props();
 
   const toggle = (c: string) => (value = value.includes(c) ? value.filter((x) => x !== c) : [...value, c]);
   let more = $state(false);
@@ -42,7 +47,7 @@
 </script>
 
 <fieldset class="cp">
-  <legend>Drug class <span class="opt">(optional)</span></legend>
+  <legend>Drug class{#if optional} <span class="opt">(optional)</span>{/if}</legend>
   <div class="row" role="group" aria-label="Drug class">
     {#each KIND_CLASSES as [c, l]}
       <button type="button" id="{idPrefix}-{c}" class:on={value.includes(c)} aria-pressed={value.includes(c)} onclick={() => toggle(c)}>{l}</button>
@@ -60,7 +65,7 @@
       {/each}
     </div>
   {/if}
-  <p class="hint">Pick more than one if it fits (MDMA: entactogen and stimulant). Leave it empty and Field Notes classes well-known names itself.</p>
+  <p class="hint">{hint}</p>
 </fieldset>
 
 <style>
