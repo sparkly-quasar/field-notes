@@ -111,6 +111,33 @@ non-negotiables, each with a test:
   free-text dose note into structured ranges would mean guessing at figures and
   sending the guess upstream with authority it hasn't earned.
 
+### Reference suggestions (`suggest.rs`)
+
+Timings a person typed in themselves (`my_refs`) and catalogued substances the
+reference lacks can be suggested back to **this repo**, as a prefilled GitHub
+issue (template `.github/ISSUE_TEMPLATE/reference-data.md`, label
+`reference-data`) that the person opens in their own browser and submits, or
+doesn't. The same three non-negotiables, each with a test:
+- **No network. Ever.** `suggest.rs` returns URLs; it has no HTTP client and
+  must never get one. "Submit anonymously from the server" was considered
+  (2026-10-16) and turned down: a token shipped in the app would be extracted
+  and abused, and a relay would see each sender's IP next to the substance they
+  asked about, which is exactly the lookup leak the privacy rules forbid. The
+  cost is that submitting needs a GitHub account (any, including a new one).
+- **No journal data.** `my_refs` name and data, and the catalogue row, only.
+  Never `updated_at` or `created_at`. `issues_carry_no_journal_data`.
+- **No invented numbers.** Timings go out in the person's words; a dose note as
+  prose. Each issue says it is one person's report, not a source. Nothing goes
+  into the bundled reference (`ROUTE_OVERRIDES` and friends) until it has been
+  reviewed by hand, ideally with more than one report or a citable source.
+
+Each item is shared (offered again only if edited, tracked in `ref_suggestions`
+by its exact content) or kept private (never offered again). The reminder on
+Today, phone and desktop, asks at most once every 30 days and only with
+something pending; never during a live trip report, with names hidden, or on a
+desktop connected to a server. "Not now" counts as asked; "Don't ask me again"
+turns it off, and the list stays in Settings either way.
+
 ---
 
 ## Shipped in v0.6.0
