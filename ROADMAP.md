@@ -1346,8 +1346,28 @@ heroin effects page; its dose page (already used) carries the timings.
 reproducing Erowid info", and this repo is public. The saved page copies were
 taken out of the tree (still in commit 7f1d382 on this branch; delete the branch
 after merging to drop them from GitHub); `data/sources/erowid/manifest.json`
-keeps URLs, dates and sha256 fingerprints. **To do:** ask Erowid for permission
-to use its dose tables, credited, in this non-commercial harm-reduction app.
+keeps URLs, dates and sha256 fingerprints.
+
+- [ ] **Ask Erowid for permission** to use its dose tables, credited, in this
+  non-commercial harm-reduction app (owner to send, via Erowid's contact page).
+  One request covers every substance using Erowid figures: DMT, 5-MeO-DMT,
+  ketamine, heroin, oxycodone, psilocybin, mushrooms, DXM. If Erowid says no,
+  replace those figures with sources needing no permission (labels, studies)
+  where they exist. Draft:
+
+  > Subject: Permission to use Erowid dose tables in a non-commercial harm-reduction app
+  >
+  > Hello Erowid team,
+  >
+  > I'm a psychedelic therapy researcher and clinician, and I maintain Field Notes, a free, non-commercial, offline journal and safety companion for people who use psychedelics and other substances (github.com/sparkly-quasar/field-notes). It shows dose ranges and durations when someone logs a dose, and flags risky combinations. Nothing leaves the user's device.
+  >
+  > Our reference was built on an open-licensed dataset that turned out to have serious errors, such as oral DMT listed as active and a 1–4 hour IV heroin peak. We've been correcting it against Erowid's dosage tables, because they're the most trusted source we know. So far that covers DMT, 5-MeO-DMT, ketamine, heroin, oxycodone, psilocybin, mushrooms and DXM.
+  >
+  > Could we have permission to include those figures, the numbers only and not your page text, with a credit to Erowid on every entry that uses them and a link to the source page? We're glad to word the credit however you prefer, and to send you the errors we found in case they're useful.
+  >
+  > Thank you for decades of honest information.
+  >
+  > [Your name]
 
 **Step 3, to do (coverage gaps).**
 - **Ibogaine had no interactions at all.** Added to `interactions.rs`: ibogaine
