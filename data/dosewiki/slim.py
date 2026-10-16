@@ -26,21 +26,41 @@ SRC = os.path.join(HERE, "SubstanceIndex.json")
 OUT = os.path.normpath(os.path.join(HERE, "..", "..", "src-tauri", "resources", "dosewiki.json"))
 
 
+def has_timings(stages):
+    """An onset or a total: enough for a timings-only route to be worth showing."""
+    stages = stages or {}
+    return any((stages.get(k) or {}).get("min") is not None or (stages.get(k) or {}).get("max") is not None
+               for k in ("onset", "total_duration"))
+
+
 def slim(s):
     ident = s.get("identification") or {}
     cls = s.get("classification") or {}
-    # duration is keyed separately from dosage; join on route name.
-    dur_by_route = {r["route"]: r for r in ((s.get("duration") or {}).get("routes") or []) if r.get("route")}
+    # duration is keyed separately from dosage; join on route name, ignoring case
+    # and spacing ("Oral" vs "oral"). A duration route with no dose route of its
+    # own is kept as a timings-only route: for some substances (Salvia, Khat,
+    # Lithium, ...) it's the only timing data there is. pw.rs merges routes that
+    # turn out to be the same one ("Inhaled" and "Vaporized").
+    key = lambda name: (name or "").strip().lower()
+    dur_by_route = {key(r["route"]): r for r in ((s.get("duration") or {}).get("routes") or []) if r.get("route")}
     routes = []
     for r in ((s.get("dosage") or {}).get("routes") or []):
         name = r.get("route")
-        du = dur_by_route.get(name) or {}
+        du = dur_by_route.pop(key(name), None) or {}
         routes.append({
             "route": name,
             "dose_ranges": r.get("dose_ranges") or {},
             "stages": (du.get("stages") or {}),
             "half_life": du.get("half_life") or None,
         })
+    for du in dur_by_route.values():
+        if has_timings(du.get("stages")):
+            routes.append({
+                "route": du["route"],
+                "dose_ranges": {},
+                "stages": du["stages"],
+                "half_life": du.get("half_life") or None,
+            })
     return {
         "title": s.get("title"),
         "alternative_names": ident.get("alternative_names") or [],

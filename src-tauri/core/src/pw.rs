@@ -384,26 +384,102 @@ fn check_stages(title: &str, route: &str, st: &mut DwStages, log: &mut Vec<Strin
     }
 }
 
+/// Routes DoseWiki files under the wrong name for one substance, moved before
+/// anything else reads them: (substance, DoseWiki's route, the route it is).
+/// - Nitrous, Salvia: inhalation timings filed as "Oral" (minutes long, seconds
+///   to onset). Changa: its doses are filed as "Oral"; it's smoked.
+/// - Blotter compounds: doses under "sublingual", timings under "Oral". They're
+///   held under the tongue, and an oral route would read as just as good.
+/// - "Injection" and "Iv/im" are read as IV, filling only what IV lacks.
+const ROUTE_RENAMES: &[(&str, &str, &str)] = &[
+    ("Nitrous", "oral", "vaporized"),
+    ("Salvia", "oral", "vaporized"),
+    ("Changa", "oral", "vaporized"),
+    ("25B-NBOH", "oral", "sublingual"),
+    ("25C-NBOH", "oral", "sublingual"),
+    ("25c-NBOMe", "oral", "sublingual"),
+    ("25D-NBOMe", "oral", "sublingual"),
+    ("25e-NBOMe", "oral", "sublingual"),
+    ("25g-NBOMe", "oral", "sublingual"),
+    ("25I-NBMD", "oral", "sublingual"),
+    ("25iP-NBOMe", "oral", "sublingual"),
+    ("25T-2-NBOMe", "oral", "sublingual"),
+    ("25t-4-NBOMe", "oral", "sublingual"),
+    ("25H-NBOMe", "oral", "sublingual"),
+    ("Morphine", "injection", "IV"),
+    ("Morphine", "iv/im", "IV"),
+    ("Scopolamine", "injection", "IV"),
+];
+
+/// The route a DoseWiki route really is, for this substance.
+fn route_for(title: &str, route: &str) -> String {
+    let name = canonical_route(route);
+    ROUTE_RENAMES
+        .iter()
+        .find(|(s, from, _)| s.eq_ignore_ascii_case(title) && from.eq_ignore_ascii_case(&name))
+        .map(|(_, _, to)| to.to_string())
+        .unwrap_or(name)
+}
+
+fn has_bands(r: &PwRoa) -> bool {
+    r.threshold.is_some() || r.light.min.is_some() || r.common.min.is_some() || r.strong.min.is_some() || r.heavy.is_some()
+}
+
+/// Two DoseWiki routes that name the same route once renamed ("Inhaled" and
+/// "Vaporized" are both vaporized) become one. The first keeps its figures; the
+/// second fills what the first lacks: its dose bands only if the first has none
+/// (bands from two lists needn't line up), and its timings one by one. DoseWiki
+/// often puts the timings under one name and the doses under the other.
+fn merge_duplicate_routes(title: &str, roas: Vec<PwRoa>, log: &mut Vec<String>) -> Vec<PwRoa> {
+    let mut out: Vec<PwRoa> = Vec::new();
+    for r in roas {
+        let Some(first) = out.iter_mut().find(|f| f.name == r.name) else {
+            out.push(r);
+            continue;
+        };
+        let mut took = Vec::new();
+        if !has_bands(first) && has_bands(&r) {
+            (first.units, first.threshold, first.light, first.common) = (r.units, r.threshold, r.light, r.common);
+            (first.strong, first.heavy, first.heavy_max) = (r.strong, r.heavy, r.heavy_max);
+            took.push("dose bands");
+        }
+        for (name, mine, theirs) in [
+            ("onset", &mut first.onset, r.onset),
+            ("come-up", &mut first.come_up, r.come_up),
+            ("peak", &mut first.peak, r.peak),
+            ("offset", &mut first.offset, r.offset),
+            ("after-effects", &mut first.after_effects, r.after_effects),
+            ("total", &mut first.total, r.total),
+            ("half-life", &mut first.half_life, r.half_life),
+        ] {
+            if mine.is_none() && theirs.is_some() {
+                *mine = theirs;
+                took.push(name);
+            }
+        }
+        if took.is_empty() {
+            log.push(format!("{title}: dropped a duplicate {} route, nothing in it the first lacked", first.name));
+        } else {
+            log.push(format!("{title}: merged a duplicate {} route, taking its {}", first.name, took.join(", ")));
+        }
+    }
+    out
+}
+
 fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
     let title = s.title.clone();
-    let mut seen: Vec<String> = Vec::new();
-    let roas = s
+    let roas: Vec<PwRoa> = s
         .routes
         .into_iter()
-        .filter_map(|mut r| {
-            let name = canonical_route(&r.route);
-            if seen.contains(&name) {
-                log.push(format!("{title}: dropped duplicate route \"{}\" (already have {name})", r.route));
-                return None;
-            }
+        .map(|mut r| {
+            let name = route_for(&title, &r.route);
             if !name.eq_ignore_ascii_case(&r.route) {
                 log.push(format!("{title}: route \"{}\" renamed {name}", r.route));
             }
-            seen.push(name.clone());
             let units = unify_units(&title, &name, &mut r.dose_ranges, log);
             order_bands(&title, &name, &mut r.dose_ranges, log);
             check_stages(&title, &name, &mut r.stages, log);
-            Some((name, units, r))
+            (name, units, r)
         })
         .map(|(name, units, r)| {
             let d = &r.dose_ranges;
@@ -426,6 +502,7 @@ fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
             }
         })
         .collect();
+    let roas = merge_duplicate_routes(&title, roas, log);
 
     // dangerous -> danger, unsafe -> caution, caution -> note (per ROADMAP #1).
     let mut interactions = interactions_of(&s.interactions.dangerous, "danger");
@@ -931,6 +1008,24 @@ mod tests {
         let mush = subs.iter().find(|s| s.name == "Psilocybin Mushrooms").unwrap();
         assert_eq!(ps.interactions.len(), mush.interactions.len(), "shares the mushrooms' interactions");
         assert!(ps.interactions.iter().any(|i| i.name == "Lithium" && i.severity == "danger"));
+    }
+
+    #[test]
+    fn timings_dosewiki_filed_apart_from_doses_are_kept() {
+        let subs = bundled();
+        // Its only timings were filed as "Oral"; they're the smoked ones.
+        let salvia = subs.iter().find(|s| s.name == "Salvia").unwrap();
+        assert_eq!(salvia.roas.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["vaporized"]);
+        assert!(salvia.roas[0].total.is_some());
+        // A blotter compound's "Oral" timings go to its sublingual doses.
+        let nb = subs.iter().find(|s| s.name == "25g-NBOMe").unwrap();
+        assert!(nb.roas.iter().all(|r| r.name != "oral"));
+        let sl = route(&subs, "25g-NBOMe", "sublingual");
+        assert!(sl.total.is_some() && sl.common.min.is_some(), "doses and timings on one route");
+        assert!(subs.iter().find(|s| s.name == "Nitrous").unwrap().roas.iter().all(|r| r.name != "oral"));
+        // Timings DoseWiki gave only under another spelling of the same route.
+        assert!(route(&subs, "Kanna", "vaporized").total.is_some());
+        assert!(route(&subs, "Khat", "oral").total.is_some());
     }
 
     #[test]
