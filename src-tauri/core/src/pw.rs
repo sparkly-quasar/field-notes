@@ -336,11 +336,55 @@ const ROUTE_OVERRIDES: &[(&str, &str, &[RouteSpec])] = &[(
     ],
 )];
 
-/// Parse the slimmed DoseWiki JSON (the bundled `dosewiki.json`) into our shape.
+/// Substances DoseWiki doesn't have, written out by hand so they're in the
+/// directory: found by name and alias, classed for Stats and the combination
+/// checker. Figures only where there's a source for them; none is better than a
+/// guess. If DoseWiki adds one, its entry is used instead.
+/// (name, aliases, psychoactive classes, chemical classes, note)
+///
+/// SR-17018 (owner's request, 2026-10-16): a mu-opioid agonist sold as a research
+/// chemical, often to come off other opioids. No human studies, so no doses or
+/// timings. Sources for the note: Schmid et al. 2017, Cell 171:1165 (in mice, less
+/// respiratory depression than morphine at pain-relieving doses); Gillis et al.
+/// 2020, Sci. Signal. 13:eaaz3140 (explained by low intrinsic efficacy rather than
+/// signalling bias); Grim et al. 2020 (blocked morphine withdrawal in mice); NDEWS
+/// web monitoring, 2025-11-14 (people's reports: slow onset, very different doses
+/// from person to person, redosing, and overdose on going back to other opioids
+/// after tolerance fell).
+const EXTRA_SUBSTANCES: &[(&str, &[&str], &[&str], &[&str], &str)] = &[(
+    "SR-17018",
+    &["SR17018", "SR 17018"],
+    &["Opioid"],
+    &["Benzimidazolone"],
+    "No dose or duration figures: SR-17018 hasn't been studied in people. It's a mu-opioid agonist. In mice it slowed breathing less than morphine, likely because it activates the receptor only weakly, and it blocked morphine withdrawal. People who use it to come off other opioids report a slow onset, which can lead to redosing, and very different doses from one person to the next. Treat it as an opioid in combinations. If it lowers your tolerance, a dose of another opioid you used to take can become an overdose. Your own timings fill in how long it lasts on Today.",
+)];
+
+fn extra(&(name, aliases, psychoactive, chemical, note): &(&str, &[&str], &[&str], &[&str], &str)) -> PwInfo {
+    let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
+    PwInfo {
+        name: name.to_string(),
+        common_names: v(aliases),
+        psychoactive: v(psychoactive),
+        chemical: v(chemical),
+        roas: vec![],
+        interactions: vec![],
+        dose_note: Some(note.to_string()),
+        mine: false,
+    }
+}
+
+/// Parse the slimmed DoseWiki JSON (the bundled `dosewiki.json`) into our shape,
+/// with [`EXTRA_SUBSTANCES`] added.
 pub fn parse_slim(json: &str) -> Result<Vec<PwInfo>, String> {
     let subs: Vec<DwSub> =
         serde_json::from_str(json).map_err(|e| format!("Couldn't parse the bundled dose reference: {e}"))?;
-    Ok(subs.into_iter().map(map_sub).collect())
+    let mut out: Vec<PwInfo> = subs.into_iter().map(map_sub).collect();
+    for e in EXTRA_SUBSTANCES {
+        if !out.iter().any(|s| s.name.eq_ignore_ascii_case(e.0)) {
+            out.push(extra(e));
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -370,6 +414,17 @@ mod tests {
         assert_eq!((im.light.min, im.light.max), (Some(0.5), Some(1.0)));
         assert_eq!((im.heavy, im.heavy_max), (Some(8.0), Some(12.0)));
         assert!(s.dose_note.as_deref().unwrap().contains("Erowid"));
+    }
+
+    #[test]
+    fn adds_substances_dosewiki_lacks() {
+        let subs = parse_slim(include_str!("../../resources/dosewiki.json")).unwrap();
+        let s = subs.iter().find(|s| s.name == "SR-17018").expect("SR-17018 is in the directory");
+        assert_eq!(s.psychoactive, ["Opioid"]);
+        assert!(s.common_names.iter().any(|a| a == "SR17018"));
+        assert!(s.roas.is_empty(), "no human doses or timings to give");
+        assert!(s.dose_note.as_deref().unwrap().contains("hasn't been studied in people"));
+        assert_eq!(subs.iter().filter(|s| s.name == "SR-17018").count(), 1);
     }
 
     #[test]

@@ -137,6 +137,8 @@
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import Icon from "$lib/Icon.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
+  import ClassPicker, { classLabel } from "$lib/ClassPicker.svelte";
+  import MyTimings, { referenceHasTimings } from "$lib/MyTimings.svelte";
   import {
     quickLog,
     recentSubstances,
@@ -311,6 +313,10 @@
   let hits = $state<KnowledgeHit[]>([]);
   let searched = $state(false);
   let newSub = $state("");
+  let newClasses = $state<string[]>([]);
+  /** Just added and the reference has no timings for it: ask how long it lasts. */
+  let askTimings = $state("");
+  let addedNote = $state("");
 
   // help
   let resources = $state<CrisisResource[]>([]);
@@ -1716,10 +1722,15 @@
 
   const addToCatalogue = () =>
     run("addsub", async () => {
-      if (!newSub.trim()) return;
-      await addSubstance({ name: newSub.trim() });
+      const name = newSub.trim();
+      if (!name) return;
+      await addSubstance({ name, classes: newClasses });
       newSub = "";
+      newClasses = [];
       substances = await listSubstances();
+      forgetSubstanceNames();
+      askTimings = (await referenceHasTimings(name)) ? "" : name;
+      addedNote = askTimings ? "" : `Added ${name}. The dose reference already has its timings.`;
     });
 
   const range = (r: { min: number | null; max: number | null }) =>
@@ -2596,13 +2607,20 @@
           {:else}
             <ul class="plain">
               {#each substances as s}
-                <li><strong>{s.name}</strong> <span class="muted">{s.category ?? ""}</span></li>
+                <li><strong>{s.name}</strong> <span class="muted">{s.classes.length ? s.classes.map(classLabel).join(", ") : (s.category ?? "")}</span></li>
               {/each}
             </ul>
           {/if}
-          <label for="newsub">Add a substance</label>
-          <input id="newsub" bind:value={newSub} autocapitalize="none" />
-          <button disabled={busy || !newSub.trim()} onclick={addToCatalogue}>Add</button>
+          {#if askTimings}
+            <p class="muted">Added {askTimings}. The dose reference has no timings for it; add yours if you know them.</p>
+            <MyTimings name={askTimings} cancelLabel="Skip" onsaved={() => (askTimings = "")} oncancel={() => (askTimings = "")} />
+          {:else}
+            <label for="newsub">Add a substance</label>
+            <input id="newsub" bind:value={newSub} autocapitalize="none" oninput={() => (addedNote = "")} />
+            <ClassPicker bind:value={newClasses} idPrefix="m-cls" />
+            <button disabled={busy || !newSub.trim()} onclick={addToCatalogue}>Add</button>
+            {#if addedNote}<p class="muted small" role="status">{addedNote}</p>{/if}
+          {/if}
         </section>
       {/if}
     {/if}

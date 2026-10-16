@@ -306,6 +306,7 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     // opioids
     if n.contains("opio") || n.contains("heroin") || n.contains("fentanyl") || n.contains("oxycodone")
         || n.contains("morphine") || n.contains("codeine") || n.contains("kratom") || n.contains("tramadol")
+        || n.contains("sr-17018") || n.contains("sr17018") || n.contains("sr 17018")
     {
         add("opioid", &mut c);
     }
@@ -337,6 +338,13 @@ mod tests {
 
     fn sub(name: &str) -> (String, Vec<String>) {
         (name.to_string(), builtin_classes(name))
+    }
+
+    #[test]
+    fn sr_17018_is_an_opioid() {
+        for n in ["SR-17018", "sr17018", "SR 17018"] {
+            assert_eq!(builtin_classes(n), ["opioid"], "{n}");
+        }
     }
 
     #[test]
