@@ -138,7 +138,9 @@ show you how to get past it.
   Mode**, the server can start serving at login and — opt-in — unlock from the
   system keychain after a reboot.
 - **Substance catalogue & log** — keep your own substance list with notes, and
-  review your history grouped by substance.
+  review your history grouped by substance. Add one with its drug class and how
+  long it lasts; log something Field Notes doesn't know and the receipt asks
+  once.
 - **Stats** (desktop and phone): dose over time against the reference's dose
   ranges, spacing between experiences, how often, a calendar, and what you've taken
   together, plus **Trends**: what changed lately against the period before (how

@@ -156,6 +156,34 @@ turns it off, and the list stays in Settings either way.
 
 ---
 
+## Shipped in v0.33.0: the dose reference, and substances it doesn't know
+
+- **The Field Notes dose reference** (`pw.rs`): DoseWiki with structural fixes
+  on load, Erowid figures, pure psilocybin. See "Dose reference review" in this
+  file and `data/dosewiki/REVISIONS.txt`.
+- **Asked on the dose receipt** (`unknowns.rs`, `SubstanceQuestion.svelte`,
+  owner's request, 2026-10-16). After a dose of something Stats can't place in
+  a drug class (`families_of` gives only "other"), or with no timings from the
+  reference or the person: what kind of drug, and how long it lasts. A class is
+  saved as the catalogue entry's classes, changing nothing else on it; timings
+  as the person's own (`my_refs`). Asked once per substance, answered or
+  skipped (`substance_asked`). Most substances arrive by being logged, which is
+  why it's here and not only in the catalogue form.
+- **Class and timings in the catalogue form** (`ClassPicker.svelte`), phone and
+  computer: drug classes by their everyday names, the combination-only classes
+  (MAOI, SSRI, lithium...) one tap away; then the timings form when the
+  reference has none.
+- **SR-17018** (`EXTRA_SUBSTANCES`): an opioid, owner's oral timings, no dose
+  figures. An extra substance can now give its own classes when there's no
+  entry to share them with; a route with timings and no figures has no unit.
+  The built-in matcher classes it as an opioid too.
+- **Suggesting reference data** (`suggest.rs`): see "Reference suggestions"
+  above.
+- **Fix:** a block's height counts only doses still felt (`arcs.ts`
+  `amountAt`), from 2026-10-09, merged here.
+
+---
+
 ## Shipped in v0.32.0: drug classes in Trends (owner's request, 2026-10-16)
 
 - **Drug-class card** (`Trends.svelte`, `familyMix` in `stats.ts`). Which drug
