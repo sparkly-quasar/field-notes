@@ -104,6 +104,22 @@
       "pdf": "Erowid_Oxycodone_Vault___Dosage.pdf",
       "sha256_pdf": "65140aeaebf93a58b94b907f205ef0498c01074e9e737ff5c61e3c643b6a1c85",
       "saved_by": "owner, as PDF"
+    },
+    {
+      "url": "https://erowid.org/chemicals/meth/meth_effects.shtml",
+      "title": "Erowid Methamphetamines Vault : Effects",
+      "saved_at": "2026-10-17T03:24:41.646Z",
+      "html": "meth_effects.html",
+      "text": "meth_effects.txt",
+      "sha256": "552fb0054febae58d4710729bcc742c47f5f74d31e8bb59691348a8ecbf71d09"
+    },
+    {
+      "url": "https://erowid.org/chemicals/meth/meth_dose.shtml",
+      "title": "Erowid Methamphetamine Vault : Dosage",
+      "saved_at": "2026-10-17T03:24:43.335Z",
+      "html": "meth_dose.html",
+      "text": "meth_dose.txt",
+      "sha256": "1b47db23a1a6421a88a345bd6a1c0a10237a55c94ce55cfd71c469136537b861"
     }
   ],
   "note": "Full copies are not kept in this public repository: Erowid asks for permission before its pages are publicly reproduced. The copies Hermes saved on 2026-10-07 are in commit 7f1d382 and on the owner's machine; the sha256 fingerprints here identify exactly which saved copy each figure was checked against."
