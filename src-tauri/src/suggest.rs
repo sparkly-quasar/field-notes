@@ -25,10 +25,12 @@
 //!   that would read as more certain than a single person's report.
 //!
 //! Every item is the person's to share or keep: one marked private is never
-//! offered again, and one shared is offered again only if they change it. The
-//! monthly reminder ([`due`]) is only ever a question, asked at most once every
-//! [`ASK_EVERY_DAYS`] days and only when there's something new; it can be turned
-//! off, and answering "not now" counts as asked.
+//! offered again, and one shared is never asked about again either. If they edit
+//! a shared one, it shows in the list in Settings as changed, for them to send
+//! again if they want to, but the reminder doesn't count it. The monthly
+//! reminder ([`due`]) is only ever a question, asked at most once every
+//! [`ASK_EVERY_DAYS`] days and only when there's something never shared; it can
+//! be turned off, and answering "not now" counts as asked.
 
 use crate::db::{self, MyTimings};
 use chrono::NaiveDate;
@@ -214,8 +216,14 @@ pub fn pending(conn: &Connection) -> rusqlite::Result<Vec<Item>> {
 }
 
 /// The pending list, and whether to ask about it on `today` (the local date).
+/// With a `today` this is the reminder, which never asks about something already
+/// shared, edited or not; without one it's the list in Settings, which shows an
+/// edited one too.
 pub fn suggestions(conn: &Connection, today: Option<NaiveDate>) -> rusqlite::Result<Suggestions> {
-    let items = pending(conn)?;
+    let mut items = pending(conn)?;
+    if today.is_some() {
+        items.retain(|i| !i.changed);
+    }
     let reminder = db::get_setting(conn, PROMPT)?.as_deref() != Some("off");
     let due = match today {
         Some(today) if reminder && !items.is_empty() => due(conn, today)?,
@@ -240,8 +248,8 @@ pub fn set_reminder(conn: &Connection, on: bool) -> rusqlite::Result<()> {
     db::set_setting(conn, PROMPT, (!on).then_some("off"))
 }
 
-/// Remember the person's choice for `keys`: shared (offered again only if they
-/// change it) or private (never offered again). Purely local bookkeeping:
+/// Remember the person's choice for `keys`: shared (never asked about again;
+/// listed in Settings if they change it) or private (never offered again). Purely local bookkeeping:
 /// "shared" means they opened the issue, not that GitHub received anything.
 pub fn mark(conn: &Connection, keys: &[String], private: bool) -> rusqlite::Result<()> {
     let state = if private { "private" } else { "shared" };
@@ -411,6 +419,33 @@ mod tests {
         let p = pending(&conn).unwrap();
         assert_eq!(keys(&p), ["timings:nurtec"], "private stays private, even edited");
         assert!(p[0].changed);
+    }
+
+    #[test]
+    fn the_reminder_never_asks_again_about_something_shared() {
+        let conn = setup();
+        let s = suggestions(&conn, Some(day("2026-10-16"))).unwrap();
+        mark(&conn, &keys(&s.items), false).unwrap();
+
+        // Both edited after sharing, and a month on: the reminder stays quiet.
+        let mut t = db::my_ref(&conn, "Nurtec").unwrap().unwrap();
+        t.total = Some("8 hours".into());
+        db::set_my_ref(&conn, "Nurtec", &t).unwrap();
+        conn.execute("UPDATE substances SET classes = '[\"stimulant\",\"releaser\"]' WHERE name = 'Ethylphenidate'", [])
+            .unwrap();
+        let s = suggestions(&conn, Some(day("2026-12-01"))).unwrap();
+        assert!(s.items.is_empty() && !s.due, "shared once is never asked about again");
+
+        // Settings still lists the edits, for the person to send if they choose.
+        let s = suggestions(&conn, None).unwrap();
+        assert_eq!(keys(&s.items), ["timings:nurtec", "substance:ethylphenidate"]);
+        assert!(s.items.iter().all(|i| i.changed));
+
+        // Something new still gets asked about.
+        conn.execute("INSERT INTO substances (name, notes, user_added) VALUES ('Isopropylphenidate', '', 1)", []).unwrap();
+        let s = suggestions(&conn, Some(day("2026-12-01"))).unwrap();
+        assert_eq!(keys(&s.items), ["substance:isopropylphenidate"]);
+        assert!(s.due);
     }
 
     #[test]

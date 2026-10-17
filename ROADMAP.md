@@ -131,8 +131,9 @@ doesn't. The same three non-negotiables, each with a test:
   into the bundled reference (`ROUTE_OVERRIDES` and friends) until it has been
   reviewed by hand, ideally with more than one report or a citable source.
 
-Each item is shared (offered again only if edited, tracked in `ref_suggestions`
-by its exact content) or kept private (never offered again). The reminder on
+Each item is shared (never asked about again; if edited, listed in Settings as
+changed but not counted by the reminder, since v0.33.1; tracked in
+`ref_suggestions` by its exact content) or kept private (never offered again). The reminder on
 Today, phone and desktop, asks at most once every 30 days and only with
 something pending; never during a live trip report, with names hidden, or on a
 desktop connected to a server. "Not now" counts as asked; "Don't ask me again"

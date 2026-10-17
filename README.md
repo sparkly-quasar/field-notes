@@ -167,8 +167,9 @@ show you how to get past it.
   person doesn't have to type them. You see exactly what would be shared (never
   your journal, a dose, or when), and it opens as a prefilled GitHub issue in
   your browser for you to submit or close. At most once a month, and only when
-  there's something new, Today asks if you'd like to; "Don't ask me again" stops
-  it, and the list stays in Settings. Nothing is sent from the app itself.
+  there's something new, Today asks if you'd like to; anything you've shared is
+  never asked about again. "Don't ask me again" stops it, and the list stays in
+  Settings. Nothing is sent from the app itself.
 
 ## Screenshots
 

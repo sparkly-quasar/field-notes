@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.33.1
+
+- **Shared suggestions stay shared.** Once you've suggested a substance or its
+  timings to the reference, Today won't ask you about it again, even if you
+  edit it later. An edited one still shows in Settings, marked as changed, in
+  case you want to send the update.
+
 ## v0.33.0
 
 - **A reviewed dose reference.** The dose figures are now the Field Notes dose
