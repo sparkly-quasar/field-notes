@@ -130,6 +130,8 @@
   import SubstanceQuestion from "$lib/SubstanceQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
   import RefSuggest from "$lib/RefSuggest.svelte";
+  import DoseTagPicker from "$lib/DoseTagPicker.svelte";
+  import { sendOnSave, tagState } from "$lib/tagging";
   import { describeAmount, detailOf } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import DateTimeField from "$lib/DateTimeField.svelte";
@@ -253,6 +255,8 @@
 
   // editing a dose / moment already logged
   let editDose = $state<Dose | null>(null);
+  /** Who to tag in the dose being edited, sent when it's saved. */
+  let eTagPicked = $state<number[]>([]);
   let eSub = $state("");
   let eAmt = $state("");
   let eUnit = $state("mg");
@@ -507,8 +511,6 @@
   let tagOut = $state<SentTag[]>([]);
   /** The tag the dose sheet was opened from, to accept once it's saved. */
   let fromTag = $state<IncomingTag | null>(null);
-  /** Who each just-logged dose was sent to, by dose id. */
-  let taggedTo = $state<Record<number, number[]>>({});
   const tagPartners = $derived(tagWho.filter((p) => p.you_allow && p.they_allow));
 
   /** Quietly: an older server, or no connection, just means no tagging here. */
@@ -545,7 +547,6 @@
   async function sendTag(doseId: number, p: TagPerson) {
     try {
       await tagSend(doseId, [p.id]);
-      taggedTo = { ...taggedTo, [doseId]: [...(taggedTo[doseId] ?? []), p.id] };
       tagOut = await tagSent();
     } catch (e) {
       err = e instanceof Error ? e.message : String(e);
@@ -1384,7 +1385,10 @@
     eWhen = isoToLocalInput(d.taken_at);
     eNote = d.note ?? "";
     eDetail = detailOf(d);
+    eTagPicked = [];
     sheet = "editDose";
+    // What became of earlier tags of it, fresh, so nobody is sent it twice.
+    if (tagPartners.length) tagSent().then((s) => (tagOut = s)).catch(() => {});
   }
 
   const saveDose = () =>
@@ -1402,6 +1406,13 @@
       });
       const owner = recent.find((r) => r.id === editDose!.experience_id);
       if (owner?.ended_at) await stretchToCover(editDose.experience_id, at);
+      // Saved first, so they get it as it is now. If this fails the sheet stays
+      // open with the error, and Save tries again.
+      const to = sendOnSave(tagOut, editDose.id, tagPartners.map((p) => p.id), eTagPicked);
+      if (to.length) {
+        await tagSend(editDose.id, to);
+        tagOut = await tagSent();
+      }
       closeSheet();
       await refresh();
     });
@@ -2800,10 +2811,9 @@
               <KindQuestion substance={dAsk.s} tick={dAsk.n} />
               <SubstanceQuestion substance={dAsk.s} tick={dAsk.n} />
               {#if receipt.doseId != null && tagPartners.length}
-                {@const sentTo = taggedTo[receipt.doseId] ?? []}
                 <div class="chips" role="group" aria-label="Tag someone in this dose">
                   {#each tagPartners as p}
-                    {#if sentTo.includes(p.id)}
+                    {#if tagState(tagOut, receipt.doseId, p.id) !== "none"}
                       <span class="chip on">Tagged {p.name}</span>
                     {:else}
                       <button class="chip" onclick={() => sendTag(receipt!.doseId!, p)}>Tag {p.name}</button>
@@ -2983,20 +2993,7 @@
           <DateTimeField id="e-when" bind:value={eWhen} variant="phone" />
           <label for="e-note">Note (optional)</label>
           <input id="e-note" bind:value={eNote} />
-          {#if tagPartners.length}
-            {@const sentTo = taggedTo[editDose.id] ?? []}
-            <p class="label">Tag someone in this dose</p>
-            <div class="chips" role="group" aria-label="Tag someone in this dose">
-              {#each tagPartners as p}
-                {#if sentTo.includes(p.id)}
-                  <span class="chip on">Tagged {p.name}</span>
-                {:else}
-                  <button class="chip" onclick={() => sendTag(editDose!.id, p)}>Tag {p.name}</button>
-                {/if}
-              {/each}
-            </div>
-            <p class="hint">Sends the dose as it's saved now. Save any changes first.</p>
-          {/if}
+          <DoseTagPicker doseId={editDose.id} partners={tagPartners} sent={tagOut} bind:picked={eTagPicked} phone />
           <div class="sheet-actions pair">
             <button onclick={closeSheet}>Cancel</button>
             <button class="primary" disabled={busy || !eSub.trim()} onclick={saveDose}>{busyKey === "editDose" ? "Saving…" : "Save"}</button>

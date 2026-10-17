@@ -2701,6 +2701,55 @@ pub fn contribution_save(db: State<'_, Db>, id: i64, path: String) -> Result<(),
     db.with(|c| contribute::mark_contributed(c, id))
 }
 
+// ---------- tagging someone else on this server in a dose (tagging.rs) ----------
+//
+// The computer that is the server, tagging and being tagged as its owner, from
+// its own journal. The same commands a phone sends the portal, under the same
+// names, so the frontend doesn't care which. A computer connected to another
+// server sends them there instead (`remote::ROUTED`).
+
+use crate::devices::OWNER;
+use crate::tagging::{IncomingTag, SentTag, TagPerson, Tagging};
+
+#[tauri::command]
+pub fn tag_people(app: AppHandle, tagging: State<'_, Tagging>) -> serde_json::Value {
+    serde_json::json!({ "people": tagging.people(OWNER, &portal::everyone(&app)), "owner_name": tagging.owner_name() })
+}
+
+#[tauri::command]
+pub fn tag_allow(app: AppHandle, tagging: State<'_, Tagging>, other: u32, allow: bool) -> Result<Vec<TagPerson>, String> {
+    let all = portal::everyone(&app);
+    tagging.allow(OWNER, other, allow, &all)?;
+    Ok(tagging.people(OWNER, &all))
+}
+
+#[tauri::command]
+pub fn tag_set_owner_name(tagging: State<'_, Tagging>, name: String) -> Result<String, String> {
+    tagging.set_owner_name(&name)
+}
+
+/// Read from this journal, by id: what travels is what was logged.
+#[tauri::command]
+pub fn tag_send(db: State<'_, Db>, tagging: State<'_, Tagging>, dose_id: i64, to: Vec<u32>) -> Result<usize, String> {
+    let dose = db.with(|c| db::get_dose(c, dose_id)).map_err(|_| "That dose isn't in your journal.".to_string())?;
+    tagging.send(OWNER, &to, dose.id, (&dose).into())
+}
+
+#[tauri::command]
+pub fn tag_inbox(app: AppHandle, tagging: State<'_, Tagging>) -> Vec<IncomingTag> {
+    tagging.inbox(OWNER, |id| portal::name_of(&app, id))
+}
+
+#[tauri::command]
+pub fn tag_answer(tagging: State<'_, Tagging>, id: u64, accept: bool) -> Result<(), String> {
+    tagging.answer(OWNER, id, accept)
+}
+
+#[tauri::command]
+pub fn tag_sent(app: AppHandle, tagging: State<'_, Tagging>) -> Vec<SentTag> {
+    tagging.sent(OWNER, |id| portal::name_of(&app, id))
+}
+
 // ---------- suggesting reference data (suggest.rs) ----------
 //
 // Same rule as above: nothing here touches the network. `ref_suggestion_issues`

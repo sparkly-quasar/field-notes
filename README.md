@@ -100,6 +100,11 @@ show you how to get past it.
   notes and import them back; works both ways, fully offline. Any single entry
   can also be exported on its own ("Export this entry" on the desktop, "Export"
   on the phone) in the same format, so it drops straight into a vault.
+- **Tag someone in a dose** — two people sharing a server who have both
+  allowed it can tag each other in a dose, right after logging it on the phone
+  or later from Edit dose on the phone or the computer. The other person gets a
+  copy of that one dose to change and add to their own journal, or decline;
+  neither sees the rest of the other's journal.
 - **Phone access** (optional, off by default) — Tailscale is built in, so the
   computer needs nothing else installed: press **Connect**, sign in to Tailscale
   in your browser, then install Tailscale on your phone, sign in with the same

@@ -410,7 +410,7 @@ fn tagging<R: Runtime>(app: &AppHandle<R>) -> Result<tauri::State<'_, crate::tag
 }
 
 /// Everyone on this server with the name others see them by, the owner first.
-fn everyone<R: Runtime>(app: &AppHandle<R>) -> Vec<(u32, String)> {
+pub(crate) fn everyone<R: Runtime>(app: &AppHandle<R>) -> Vec<(u32, String)> {
     let owner = app.try_state::<crate::tagging::Tagging>().map(|t| t.owner_name()).unwrap_or_default();
     let mut all = vec![(OWNER, owner)];
     if let Some(p) = app.try_state::<People>() {
@@ -419,7 +419,7 @@ fn everyone<R: Runtime>(app: &AppHandle<R>) -> Vec<(u32, String)> {
     all
 }
 
-fn name_of<R: Runtime>(app: &AppHandle<R>, id: u32) -> Option<String> {
+pub(crate) fn name_of<R: Runtime>(app: &AppHandle<R>, id: u32) -> Option<String> {
     everyone(app).into_iter().find(|(i, _)| *i == id).map(|(_, n)| n)
 }
 
@@ -922,7 +922,7 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             let dose = db.with(|c| crate::db::get_dose(c, arg::<i64>(&args, "doseId").unwrap_or(-1)))
                 .map_err(|_| DispatchError::Failed("That dose isn't in your journal.".into()))?;
             let to: Vec<u32> = arg(&args, "to")?;
-            done(tagging(app)?.send(who.person, &to, (&dose).into()))
+            done(tagging(app)?.send(who.person, &to, dose.id, (&dose).into()))
         }
         "tag_inbox" => ok(tagging(app)?.inbox(who.person, |id| name_of(app, id))),
         "tag_answer" => done(tagging(app)?.answer(who.person, arg(&args, "id")?, arg(&args, "accept")?)),
@@ -1290,6 +1290,7 @@ mod tests {
 
         let (_, sent) = post(port, "tag_sent", Some(&owner), json!({}));
         assert!(sent.contains("accepted") && sent.contains("Sam"), "{sent}");
+        assert!(sent.contains(&format!("\"dose_id\":{dose_id}")), "a sent tag knows its dose: {sent}");
         // Sam's journal is untouched by any of this: the phone logs it itself.
         let (_, theirs) = post(port, "list_experiences", Some(&sam), json!({}));
         assert_eq!(theirs.trim(), "[]");

@@ -20,6 +20,10 @@
 //! - **The sender learns accepted or declined, nothing more.** Not what the other
 //!   person changed, and not anything else in their journal (owner's choice).
 //!
+//! A tag remembers which of the sender's doses it came from, so a dose can be
+//! tagged later by editing it: someone already tagged shows as tagged, and saving
+//! an edit refreshes a tag they haven't answered yet instead of sending a second.
+//!
 //! Who allows whom *is* saved (`tagging.json`), as pairs of person ids and nothing
 //! else, so the setting survives a restart.
 
@@ -78,6 +82,8 @@ struct Sent {
     id: u64,
     from: u32,
     to: u32,
+    /// The sender's dose, in the sender's journal.
+    dose_id: i64,
     substance_name: String,
     taken_at: String,
     at: u64,
@@ -116,7 +122,11 @@ pub struct IncomingTag {
 #[derive(Serialize, Debug)]
 pub struct SentTag {
     pub id: u64,
+    /// Who it went to, to match against [`TagPerson::id`].
+    pub to: u32,
     pub to_name: String,
+    /// Which of my doses it was.
+    pub dose_id: i64,
     pub substance_name: String,
     pub taken_at: String,
     pub at: u64,
@@ -221,8 +231,11 @@ impl Tagging {
         Ok(())
     }
 
-    /// Send a copy of one of my doses to each of `to`. Everyone must be linked.
-    pub fn send(&self, from: u32, to: &[u32], dose: TaggedDose) -> Result<usize, String> {
+    /// Send a copy of my dose `dose_id` to each of `to`. Everyone must be linked.
+    /// Someone already holding a tag for it that they haven't answered gets this
+    /// version in its place; someone who added it already is skipped; someone who
+    /// declined it gets a new one. Returns how many were sent or refreshed.
+    pub fn send(&self, from: u32, to: &[u32], dose_id: i64, dose: TaggedDose) -> Result<usize, String> {
         if to.is_empty() {
             return Err("Pick someone to tag.".into());
         }
@@ -233,12 +246,32 @@ impl Tagging {
         let mut sent = self.sent.lock().unwrap();
         let mut next = self.next.lock().unwrap();
         let mut n = 0;
+        let mut added = 0;
         let mut seen = vec![];
         for &t in to {
             if seen.contains(&t) {
                 continue;
             }
             seen.push(t);
+            // The newest tag of this dose to them says what they've done with it.
+            if let Some(s) = sent.iter_mut().find(|s| s.from == from && s.to == t && s.dose_id == dose_id) {
+                match s.status {
+                    TagStatus::Accepted => {
+                        added += 1;
+                        continue;
+                    }
+                    TagStatus::Waiting => {
+                        if let Some(p) = pending.iter_mut().find(|p| p.id == s.id) {
+                            p.dose = dose.clone();
+                            s.substance_name = dose.substance_name.clone();
+                            s.taken_at = dose.taken_at.clone();
+                            n += 1;
+                            continue;
+                        }
+                    }
+                    TagStatus::Declined => {}
+                }
+            }
             if pending.iter().filter(|p| p.to == t).count() >= MAX_PENDING {
                 continue;
             }
@@ -248,6 +281,7 @@ impl Tagging {
                 id: *next,
                 from,
                 to: t,
+                dose_id,
                 substance_name: dose.substance_name.clone(),
                 taken_at: dose.taken_at.clone(),
                 at: now(),
@@ -262,7 +296,7 @@ impl Tagging {
             *c += 1;
             *c <= MAX_SENT
         });
-        if n == 0 {
+        if n == 0 && added == 0 {
             return Err("They have too many tags waiting already.".into());
         }
         Ok(n)
@@ -307,7 +341,9 @@ impl Tagging {
             .filter_map(|s| {
                 Some(SentTag {
                     id: s.id,
+                    to: s.to,
                     to_name: name(s.to)?,
+                    dose_id: s.dose_id,
                     substance_name: s.substance_name.clone(),
                     taken_at: s.taken_at.clone(),
                     at: s.at,
@@ -362,13 +398,13 @@ mod tests {
     fn tagging_needs_both_to_say_yes() {
         let t = fresh("mutual");
         let all = everyone();
-        assert!(t.send(1, &[2], kratom()).is_err());
+        assert!(t.send(1, &[2], 7, kratom()).is_err());
         t.allow(2, 1, true, &all).unwrap();
-        assert!(t.send(1, &[2], kratom()).is_err(), "one side isn't enough");
+        assert!(t.send(1, &[2], 7, kratom()).is_err(), "one side isn't enough");
         t.allow(1, 2, true, &all).unwrap();
-        assert_eq!(t.send(1, &[2], kratom()).unwrap(), 1);
+        assert_eq!(t.send(1, &[2], 7, kratom()).unwrap(), 1);
         // Kit never agreed.
-        assert!(t.send(1, &[2, 3], kratom()).is_err());
+        assert!(t.send(1, &[2, 3], 7, kratom()).is_err());
         assert!(t.allow(1, 1, true, &all).is_err());
         assert!(t.allow(1, 9, true, &all).is_err());
     }
@@ -380,7 +416,7 @@ mod tests {
         for (a, b) in [(1, 2), (2, 1), (1, 3), (3, 1)] {
             t.allow(a, b, true, &all).unwrap();
         }
-        t.send(1, &[2], kratom()).unwrap();
+        t.send(1, &[2], 7, kratom()).unwrap();
         assert!(t.inbox(3, name).is_empty(), "Kit sees nothing meant for Sam");
         assert!(t.inbox(1, name).is_empty());
         let inbox = t.inbox(2, name);
@@ -401,16 +437,53 @@ mod tests {
     }
 
     #[test]
+    fn tagging_a_dose_again_after_editing_it_never_doubles_up() {
+        let t = fresh("edit");
+        let all = everyone();
+        for (a, b) in [(1, 2), (2, 1), (1, 3), (3, 1)] {
+            t.allow(a, b, true, &all).unwrap();
+        }
+        t.send(1, &[2], 7, kratom()).unwrap();
+
+        // Edited, then saved with Sam still tagged and Kit added: Sam's waiting
+        // tag now holds the edit, and Kit gets one of their own.
+        let mut edited = kratom();
+        edited.amount = Some(4.0);
+        assert_eq!(t.send(1, &[2, 3], 7, edited.clone()).unwrap(), 2);
+        let sam = t.inbox(2, name);
+        assert_eq!(sam.len(), 1, "refreshed, not sent twice");
+        assert_eq!(sam[0].dose, edited);
+        assert_eq!(t.inbox(3, name)[0].dose, edited);
+        let sent = t.sent(1, name);
+        assert_eq!(sent.len(), 2);
+        assert!(sent.iter().all(|s| s.dose_id == 7));
+        assert_eq!(sent.iter().map(|s| s.to).collect::<Vec<_>>(), [3, 2]);
+
+        // Sam added it, Kit declined: Sam isn't sent it again, Kit can be.
+        t.answer(2, sam[0].id, true).unwrap();
+        let kit = t.inbox(3, name)[0].id;
+        t.answer(3, kit, false).unwrap();
+        assert_eq!(t.send(1, &[2], 7, kratom()).unwrap(), 0);
+        assert!(t.inbox(2, name).is_empty());
+        assert_eq!(t.send(1, &[3], 7, kratom()).unwrap(), 1);
+        assert_eq!(t.inbox(3, name).len(), 1);
+
+        // Another dose is another tag.
+        assert_eq!(t.send(1, &[2], 8, kratom()).unwrap(), 1);
+        assert_eq!(t.inbox(2, name).len(), 1);
+    }
+
+    #[test]
     fn withdrawing_permission_drops_what_was_waiting() {
         let t = fresh("withdraw");
         let all = everyone();
         t.allow(1, 2, true, &all).unwrap();
         t.allow(2, 1, true, &all).unwrap();
-        t.send(1, &[2], kratom()).unwrap();
+        t.send(1, &[2], 7, kratom()).unwrap();
         t.allow(2, 1, false, &all).unwrap();
         assert!(t.inbox(2, name).is_empty());
         assert_eq!(t.sent(1, name)[0].status, TagStatus::Declined);
-        assert!(t.send(1, &[2], kratom()).is_err());
+        assert!(t.send(1, &[2], 7, kratom()).is_err());
     }
 
     #[test]
@@ -419,7 +492,7 @@ mod tests {
         let all = everyone();
         t.allow(1, 2, true, &all).unwrap();
         t.allow(2, 1, true, &all).unwrap();
-        t.send(1, &[2], kratom()).unwrap();
+        t.send(1, &[2], 7, kratom()).unwrap();
         let on_disk = std::fs::read_to_string(&t.file).unwrap();
         assert!(!on_disk.contains("kratom") && !on_disk.contains("2026"), "{on_disk}");
         // After a restart the permission holds and the pending tag is gone.
@@ -434,7 +507,7 @@ mod tests {
         let all = everyone();
         t.allow(1, 2, true, &all).unwrap();
         t.allow(2, 1, true, &all).unwrap();
-        t.send(2, &[1], kratom()).unwrap();
+        t.send(2, &[1], 7, kratom()).unwrap();
         t.forget(2);
         assert!(t.inbox(1, name).is_empty());
         assert!(!t.linked(1, 2));

@@ -82,6 +82,12 @@ pub const ROUTED: &[&str] = &[
     "ollama_up",
     "ollama_models",
     "ai_start",
+    "tag_people",
+    "tag_allow",
+    "tag_send",
+    "tag_inbox",
+    "tag_answer",
+    "tag_sent",
 ];
 
 /// Writes that may wait in the outbox. Only ever *new* things (plus ending a
@@ -263,7 +269,7 @@ fn now_sqlite(conn: &Connection) -> String {
 /// them. Returns false if any temporary ID is still waiting for its entry to be sent.
 fn translate(conn: &Connection, args: &mut Value) -> rusqlite::Result<bool> {
     let mut resolved = true;
-    for ptr in ["/id", "/input/experience_id", "/experienceId"] {
+    for ptr in ["/id", "/input/experience_id", "/experienceId", "/doseId"] {
         let Some(slot) = args.pointer_mut(ptr) else { continue };
         let Some(id) = slot.as_i64() else { continue };
         if id >= 0 {

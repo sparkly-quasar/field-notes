@@ -69,6 +69,12 @@ const ROUTED = new Set([
   "ollama_up",
   "ollama_models",
   "ai_start",
+  "tag_people",
+  "tag_allow",
+  "tag_send",
+  "tag_inbox",
+  "tag_answer",
+  "tag_sent",
 ]);
 
 let remoteMode = false;
@@ -966,8 +972,9 @@ export const unpairMyDevice = (id: number, password: string | null = null) =>
   invoke<MyDevice[]>("unpair_my_device", { id, password });
 /** On the owner's phone: what pairing or un-pairing asks for (owner_auth.rs). */
 export const ownerDeviceAuth = () => invoke<"password" | "pin" | "off">("owner_device_auth");
-// Tagging someone else on this server in a dose (tagging.rs). Phone only; the
-// server knows whose device is asking.
+// Tagging someone else on this server in a dose (tagging.rs). On a phone and on a
+// computer connected to a server, the server knows whose device is asking; on the
+// computer that is the server, it's the owner.
 export interface TagPerson {
   id: number;
   name: string;
@@ -990,7 +997,11 @@ export interface IncomingTag {
 }
 export interface SentTag {
   id: number;
+  /** Who it went to: a `TagPerson` id. */
+  to: number;
   to_name: string;
+  /** Which of your doses it was. */
+  dose_id: number;
   substance_name: string;
   taken_at: string;
   at: number;
@@ -998,9 +1009,11 @@ export interface SentTag {
 }
 export const tagPeople = () => invoke<{ people: TagPerson[]; owner_name: string }>("tag_people");
 export const tagAllow = (other: number, allow: boolean) => invoke<TagPerson[]>("tag_allow", { other, allow });
-/** The owner's phone only: the name everyone else sees them by. */
+/** The owner only (their phone, or the server computer): the name everyone else sees them by. */
 export const tagSetOwnerName = (name: string) => invoke<string>("tag_set_owner_name", { name });
-/** Send a copy of one of your doses (by id) to each of `to`. */
+/** Send a copy of one of your doses (by id) to each of `to`. Someone whose tag for
+ *  it is still waiting gets this version in its place; resolves to how many were
+ *  sent or refreshed. */
 export const tagSend = (doseId: number, to: number[]) => invoke<number>("tag_send", { doseId, to });
 export const tagInbox = () => invoke<IncomingTag[]>("tag_inbox");
 /** Accept only once the dose is in your own journal. */

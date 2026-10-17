@@ -157,6 +157,23 @@ turns it off, and the list stays in Settings either way.
 
 ---
 
+## Shipped in v0.34.0: tagging from Edit dose, and on the computer
+
+- **Tag someone in a dose already logged** (owner's request, 2026-10-17). Edit
+  dose on the phone and the computer (`DoseTagPicker.svelte`): picking someone
+  only marks them, and the dose goes when it's saved, edits included
+  (`sendOnSave` in `tagging.ts`). Each sent tag remembers its dose
+  (`dose_id`, still only in memory), so a dose shows who was tagged and what
+  they did with it; sending again refreshes a tag still waiting, skips one
+  accepted, and sends anew after a decline (`tagging.rs`). The phone's receipt
+  reads the same record instead of keeping its own.
+- **Tagging on the computer.** The server computer tags as its owner
+  (`tag_*` commands in `commands.rs`, the portal's names); a connected one
+  routes them to its server (`remote::ROUTED`), as the person it was paired
+  for. Settings → Devices & sync → Tagging; tags waiting show at the top of the
+  journal and open the quick log filled in, answered once it's logged.
+  Tagging right after logging stays phone-only.
+
 ## Shipped in v0.33.0: the dose reference, and substances it doesn't know
 
 - **The Field Notes dose reference** (`pw.rs`): DoseWiki with structural fixes

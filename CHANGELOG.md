@@ -11,6 +11,19 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.0
+
+- **Tag someone in a dose you already logged.** Open Edit dose, pick who to
+  tag, and they get the dose when you save, with your changes. If they haven't
+  answered an earlier tag of that dose yet, saving an edit updates it instead
+  of sending a second one. Someone who already added it isn't sent it again,
+  and you can see who's added it right on the dose.
+- **Tagging on the computer.** The computer can now tag and be tagged too, the
+  same as a phone: allow it under Settings → Devices & sync → Tagging, tag from
+  Edit dose, and review or decline doses you were tagged in at the top of the
+  journal. This works on the computer that is the server, and on one connected
+  to someone else's server.
+
 ## v0.33.1
 
 - **Shared suggestions stay shared.** Once you've suggested a substance or its

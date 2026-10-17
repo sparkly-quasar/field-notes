@@ -128,6 +128,16 @@
     type KeychainStatus,
     type RemoteStatus,
     type RemoteFailed,
+    tagPeople,
+    tagAllow,
+    tagSetOwnerName,
+    tagSend,
+    tagInbox,
+    tagAnswer,
+    tagSent,
+    type TagPerson,
+    type IncomingTag,
+    type SentTag,
   } from "$lib/api";
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
@@ -137,6 +147,8 @@
   import SubstanceQuestion from "$lib/SubstanceQuestion.svelte";
   import SleepCheckin from "$lib/SleepCheckin.svelte";
   import RefSuggest from "$lib/RefSuggest.svelte";
+  import DoseTagPicker from "$lib/DoseTagPicker.svelte";
+  import { sendOnSave } from "$lib/tagging";
   import { describeAmount, detailOf, inUnit, measure, microCutoff } from "$lib/dosedetail";
   import { ALL_PARTS, experiencePdf, pdfFilename, type PdfParts } from "$lib/pdf";
   import {
@@ -408,6 +420,72 @@
   let edDetail = $state<DoseDetail>({});
   let edRoute = $state("");
   let edTime = $state("");
+  /** Who to tag in the dose being edited, sent when it's saved. */
+  let edTagPicked = $state<number[]>([]);
+
+  // ---- tagging someone else on this server in a dose (tagging.rs) ----
+  // On the server computer as its owner; on a connected computer, as whoever it
+  // was paired for. Empty when nobody else is on the server.
+  let tagWho = $state<TagPerson[]>([]);
+  let tagOwnerName = $state("");
+  let tagOwnerDraft = $state("");
+  let tagIn = $state<IncomingTag[]>([]);
+  let tagOut = $state<SentTag[]>([]);
+  let tagErr = $state("");
+  /** The tag the quick log was filled in from, to accept once it's logged. */
+  let qlFromTag = $state<IncomingTag | null>(null);
+  const tagPartners = $derived(tagWho.filter((p) => p.you_allow && p.they_allow));
+
+  /** Quietly: no server, or one that can't be reached, just means no tagging. */
+  async function loadTags() {
+    try {
+      const r = await tagPeople();
+      tagWho = r.people;
+      tagOwnerName = r.owner_name;
+      if (!tagWho.length) return;
+      tagIn = await tagInbox();
+      tagOut = await tagSent();
+    } catch {
+      /* nothing to tag with right now */
+    }
+  }
+  async function setTagAllow(p: TagPerson, allow: boolean) {
+    tagErr = "";
+    try {
+      tagWho = await tagAllow(p.id, allow);
+      tagIn = await tagInbox();
+    } catch (e) {
+      tagErr = typeof e === "string" ? e : String(e);
+    }
+  }
+  async function saveOwnerTagName() {
+    tagErr = "";
+    try {
+      tagOwnerName = await tagSetOwnerName(tagOwnerDraft);
+      tagOwnerDraft = "";
+    } catch (e) {
+      tagErr = typeof e === "string" ? e : String(e);
+    }
+  }
+  /** Open the quick log filled in from a tag, to change before logging. */
+  function reviewTag(t: IncomingTag) {
+    const d = t.dose;
+    showQuickLog = true;
+    showNewExp = showNewNote = false;
+    qlInto = null;
+    qlSub = d.substance_name;
+    qlAmt = d.amount == null ? "" : String(d.amount);
+    qlUnit = d.unit || qlUnit;
+    qlRoute = d.route || qlRoute;
+    qlWhen = isoToLocalInput(d.taken_at);
+    qlDetail = detailOf(d);
+    qlFromTag = t;
+  }
+  async function declineTag(t: IncomingTag) {
+    await tagAnswer(t.id, false).catch(() => {});
+    tagIn = tagIn.filter((x) => x.id !== t.id);
+    if (qlFromTag?.id === t.id) qlFromTag = null;
+  }
 
   // timeline form
   let tNote = $state("");
@@ -949,6 +1027,7 @@
 
   async function loadJournal() {
     experiences = await listExperiences();
+    loadTags();
     recentDoses(experiences, Date.now(), selected ? [selected] : [])
       .then((d) => (activeDoses = d))
       .catch(() => {});
@@ -1084,6 +1163,14 @@
       detail: qlDetail,
     });
     rememberDoseShape(qlSub, { unit: qlUnit, route: qlRoute });
+    // Logged in this journal first; only then is the tag answered. If that can't
+    // reach the server, the tag stays waiting rather than claiming otherwise.
+    const tag = qlFromTag;
+    if (tag) {
+      qlFromTag = null;
+      tagIn = tagIn.filter((x) => x.id !== tag.id);
+      tagAnswer(tag.id, true).catch(() => {});
+    }
     qlWarnings = res.warnings;
     qlSaved = { id: res.id, title: res.title, at };
     qlAsk = { s: qlSubAs || qlSub.trim(), n: qlAsk.n + 1 };
@@ -1313,6 +1400,10 @@
     edRoute = d.route;
     edTime = isoToLocalInput(d.taken_at);
     edDetail = detailOf(d);
+    edTagPicked = [];
+    tagErr = "";
+    // What became of earlier tags of it, fresh, so nobody is sent it twice.
+    if (tagPartners.length) tagSent().then((s) => (tagOut = s)).catch(() => {});
   }
 
   async function saveDose() {
@@ -1325,6 +1416,19 @@
       taken_at: localInputToIso(edTime),
       detail: detailOf(edDetail),
     });
+    // Saved first, so they get it as it is now. If tagging fails, the form stays
+    // open with the error, and Save tries again.
+    const to = sendOnSave(tagOut, editingDoseId, tagPartners.map((p) => p.id), edTagPicked);
+    if (to.length) {
+      try {
+        await tagSend(editingDoseId, to);
+        tagOut = await tagSent();
+      } catch (e) {
+        tagErr = `Saved, but couldn't tag: ${typeof e === "string" ? e : String(e)}`;
+        await openExperienceKeepWarnings(selected.id);
+        return;
+      }
+    }
     editingDoseId = null;
     await openExperienceKeepWarnings(selected.id);
     await loadJournal();
@@ -1741,7 +1845,7 @@
     if (t === "substances") { await loadSubstances(); await loadKbStatus(); await loadContrib(); }
     if (t === "journal") await loadJournal();
     if (t === "companion") await loadAi();
-    if (t === "data") { secReset(); db = await dbStatus(); dataDirPath = await dataDir(); await loadPortal(); }
+    if (t === "data") { secReset(); db = await dbStatus(); dataDirPath = await dataDir(); await loadPortal(); loadTags(); }
   }
 
   // ---- DoseWiki reference ----
@@ -2621,6 +2725,24 @@
     <!-- ============ JOURNAL ============ -->
     {#if tab === "journal"}
       {#if !selected}<SleepCheckin />{/if}
+      {#if !selected && tagIn.length}
+        <!-- Doses someone else here tagged you in, to add to this journal or not. -->
+        <section class="card tag-inbox" aria-label="Tagged in a dose">
+          {#each tagIn as t (t.id)}
+            <div class="tag-row">
+              <span>
+                <strong>{t.from_name}</strong> tagged you in
+                {t.dose.substance_name}{t.dose.amount != null ? ` ${describeAmount(t.dose.substance_name, t.dose.amount, t.dose.unit, t.dose)}` : ""}
+                <span class="muted small">· {fmtDate(t.dose.taken_at)} {fmtTime(t.dose.taken_at)}</span>
+              </span>
+              <span class="row-actions">
+                <button class="primary small-btn" onclick={() => reviewTag(t)}>Review and add…</button>
+                <button class="ghost small-btn" onclick={() => declineTag(t)}>Decline</button>
+              </span>
+            </div>
+          {/each}
+        </section>
+      {/if}
       {#if !selected && !remote.connected}
         <RefSuggest quiet={liveSession || experiences.some((e) => e.kind === "session" && !e.ended_at)} />
       {/if}
@@ -2725,6 +2847,8 @@
                       <button class="ghost small-btn" onclick={() => (editingDoseId = null)}>Cancel</button>
                     </div>
                     <DoseDetailFields substance={edSub} unit={edUnit} amount={edAmt} bind:detail={edDetail} suggest={false} />
+                    <DoseTagPicker doseId={d.id} partners={tagPartners} sent={tagOut} bind:picked={edTagPicked} />
+                    {#if tagErr}<p class="notice bad-notice small">{tagErr}</p>{/if}
                   {:else}
                     <span class="dtime">{fmtTime(d.taken_at)}{#if sessionT0}<span class="rel"> ({relTime(d.taken_at, sessionT0)})</span>{/if}</span>
                     <span class="dname">{d.substance_name}</span>
@@ -2852,7 +2976,12 @@
 
           {#if showQuickLog}
             <div class="quick-log">
-              {#if qlInto}
+              {#if qlFromTag}
+                <p class="muted small">
+                  From {qlFromTag.from_name}'s tag. Change anything that was different for you, then log it.
+                  <button class="link" onclick={() => (qlFromTag = null)}>Not from the tag</button>
+                </p>
+              {:else if qlInto}
                 <p class="muted small">
                   Adding to the entry you just logged — a second substance in the same night
                   belongs with the first, so they're checked against each other.
@@ -4166,6 +4295,49 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
           </div>
           {/if}
         </section>
+        {#if tagWho.length}
+          <section class="card">
+            <h2>Tagging</h2>
+            <p class="muted small">
+              When you both allow it, you and someone else on this server can tag each other in a dose, from Edit dose
+              (on a phone, right after logging it too). They get a copy of that one dose to add to their own journal, changing
+              anything that was different for them, or decline. Neither of you sees the rest of the other's journal.
+            </p>
+            <ul class="device-list">
+              {#each tagWho as p (p.id)}
+                <li class="person-row">
+                  <label>
+                    <input type="checkbox" checked={p.you_allow} onchange={(e) => setTagAllow(p, e.currentTarget.checked)} />
+                    Let {p.name} tag me
+                  </label>
+                  <span class="muted small">
+                    {#if p.you_allow && p.they_allow}You can tag each other.{:else if p.they_allow}{p.name} lets you tag them.{:else if p.you_allow}Waiting for {p.name} to allow it too.{/if}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+            {#if !remote.connected}
+              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); saveOwnerTagName(); }}>
+                <label class="small" for="tag-owner-name">Your name, as others here see it</label>
+                <input id="tag-owner-name" bind:value={tagOwnerDraft} placeholder={tagOwnerName} autocomplete="off" maxlength="40" />
+                <button class="ghost small-btn" type="submit" disabled={!tagOwnerDraft.trim()}>Save</button>
+              </form>
+            {/if}
+            {#if tagOut.length}
+              <h3>Tags you sent</h3>
+              <ul class="device-list">
+                {#each tagOut as t (t.id)}
+                  <li>
+                    {t.substance_name} to {t.to_name}
+                    <span class="muted small">· {fmtDate(t.taken_at)} · {t.status === "waiting" ? "waiting" : t.status === "accepted" ? "added" : "declined"}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <p class="muted small">Waiting tags are kept only while the server is running, so a restart clears them.</p>
+            {#if tagErr}<p class="notice bad-notice">{tagErr}</p>{/if}
+          </section>
+        {/if}
       {/if}
 
       {#if settingsSection === "data"}
@@ -4795,6 +4967,8 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .settings-nav button.on { background: var(--accent); color: var(--accent-ink); }
   .chip { font-size: 0.75rem; border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.6rem; background: transparent; color: var(--muted); cursor: pointer; }
   .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .tag-inbox .tag-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .tag-inbox .tag-row + .tag-row { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
 
   .sub-list li { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.5rem; }
   .usage { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; }
