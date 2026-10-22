@@ -111,6 +111,7 @@
     pairingLink,
   } from "$lib/portal";
   import {
+    checkNow,
     discardFailed,
     onOfflineStatus,
     retryFailed,
@@ -199,6 +200,18 @@
   let dSubAs = $state("");
   /** Whether the computer is reachable, and what's waiting to be sent to it. */
   let net = $state<OfflineStatus>({ offline: false, pending: 0, failed: [], ready: false, kept: { open: 0, recent: 0 } });
+  /** "Try again": asking now, and whether the last ask found it still away. */
+  let netChecking = $state(false);
+  let netStillAway = $state(false);
+  async function tryReach() {
+    netChecking = true;
+    netStillAway = false;
+    try {
+      netStillAway = !(await checkNow());
+    } finally {
+      netChecking = false;
+    }
+  }
   /** Names the last offline check couldn't check (not in the phone's reference). */
   let comboUnchecked = $state<string[]>([]);
   let comboOffline = $state(false);
@@ -2151,6 +2164,22 @@
               the dose reference. New entries still save here and are sent when it's back.
             {/if}
           </p>
+          <div class="pair">
+            <button class="small" onclick={tryReach} disabled={netChecking}>{netChecking ? "Trying…" : "Try again"}</button>
+            {#if netStillAway}<span class="small muted" role="status">Still can't reach it.</span>{/if}
+          </div>
+          <details class="small">
+            <summary>Should it be on?</summary>
+            <ol>
+              <li>Open the Tailscale app on this phone, turn it off, then on again.</li>
+              <li>Check the computer is awake, and Field Notes is open on it.</li>
+              <li>
+                {standalone
+                  ? "Close Field Notes (swipe it away in the app switcher) and open it again."
+                  : "Reload this page."}
+              </li>
+            </ol>
+          </details>
         {/if}
         {#if net.pending}
           <p class="small">
@@ -3667,6 +3696,12 @@
   /* Without the computer: calm, not alarming, and always visible while it applies. */
   .pane.offline { border: 1px solid var(--divider); border-radius: 12px; padding: 0.7rem 0.8rem; margin: 0.5rem 0; }
   .pane.offline p { margin: 0.2rem 0; }
+  .pane.offline .pair { align-items: center; margin: 0.4rem 0; }
+  .pane.offline .pair > button { flex: 0 0 auto; padding-inline: 1.2rem; }
+  .pane.offline details { margin-top: 0.3rem; }
+  .pane.offline summary { cursor: pointer; color: var(--accent); font-weight: 600; min-height: var(--tap); display: flex; align-items: center; }
+  .pane.offline ol { margin: 0.2rem 0 0.3rem; padding-left: 1.3rem; }
+  .pane.offline li { margin: 0.25rem 0; }
   .pane.offline .failed { border-top: 1px solid var(--divider); padding-top: 0.4rem; margin-top: 0.4rem; }
   .banner { border-radius: 10px; padding: 0.7rem 0.8rem; margin: 0.5rem 0; border: 1px solid; font-size: var(--fs-sm); }
   .banner.danger { border-color: var(--danger); background: var(--danger-bg); }

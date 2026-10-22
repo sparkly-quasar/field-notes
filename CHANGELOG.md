@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.3
+
+- **Help getting your computer back.** When the phone says your computer
+  can't be reached, there's now a Try again button, and "Should it be on?"
+  lists what usually fixes it: turning Tailscale off and on, checking the
+  computer is awake with Field Notes open, and closing and reopening the app.
+
 ## v0.34.2
 
 - **The loading screen waits for your journal.** It used to lift as soon as

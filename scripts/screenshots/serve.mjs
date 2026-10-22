@@ -6,7 +6,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 
-const [buildDir, portalPort, listenPort] = process.argv.slice(2);
+const [dir, portalPort, listenPort] = process.argv.slice(2);
+const buildDir = path.resolve(dir);
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".wasm": "application/wasm", ".webmanifest": "application/manifest+json" };
 
 http
