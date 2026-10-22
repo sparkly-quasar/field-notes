@@ -1059,6 +1059,10 @@ mod tests {
 
     /// A running portal backed by a real (temporary) journal.
     fn serving() -> (tauri::AppHandle<tauri::test::MockRuntime>, u16, String) {
+        serving_with(Knowledge(None))
+    }
+
+    fn serving_with(knowledge: Knowledge) -> (tauri::AppHandle<tauri::test::MockRuntime>, u16, String) {
         let app = tauri::test::mock_builder()
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("mock app");
@@ -1070,7 +1074,7 @@ mod tests {
         let conn = crate::db::open(&path, None).unwrap();
 
         app.manage(Db::new(Some(conn), path.clone()));
-        app.manage(Knowledge(None));
+        app.manage(knowledge);
         app.manage(Portal::default());
         app.manage(CompanionJobs::default());
         // The phone asks for these preferences on every load (discreet mode);
@@ -1471,7 +1475,9 @@ mod tests {
     #[test]
     #[ignore]
     fn dev_portal() {
-        let (app, port, token) = serving();
+        // The real reference passages too, so Check → Search the reference works.
+        let corpus = crate::knowledge::load_str(include_str!("../resources/dosewiki-corpus.json")).unwrap();
+        let (app, port, token) = serving_with(Knowledge(Some(corpus)));
         let db = app.state::<Db>();
         // The real bundled dose reference, so interactions and street names behave as shipped.
         let subs = crate::pw::parse_slim(include_str!("../resources/dosewiki.json")).unwrap();
