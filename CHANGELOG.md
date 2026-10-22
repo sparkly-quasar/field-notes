@@ -17,6 +17,10 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   the app appeared, so Today opened empty and filled in piece by piece. Now
   it stays until your entries, what's still active and the chart are ready,
   on the phone and the computer.
+- **No white flash when the iPhone app opens.** Field Notes on your Home
+  Screen now opens straight onto the loading screen, in your light or dark
+  colours. To get it, remove Field Notes from your Home Screen and add it again
+  from Safari; iOS only picks this up when the app is added.
 
 ## v0.34.1
 
