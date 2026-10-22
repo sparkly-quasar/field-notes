@@ -11,16 +11,22 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.2
+
+- **The loading screen waits for your journal.** It used to lift as soon as
+  the app appeared, so Today opened empty and filled in piece by piece. Now
+  it stays until your entries, what's still active and the chart are ready,
+  on the phone and the computer.
+
 ## v0.34.1
 
 - **Moments sit on the right line.** On the Today chart, the moments you add
   now sit on the line for a dose in the session you're in, the one you'd have
   been feeling most when you added it. Before, they could land on another dose
   still active from earlier in the day, or on a dose taken after the moment.
-- **A loading screen.** While Field Notes loads, you see its name instead of a
-  blank white screen, in light, dark or night colours to match. It stays until
-  your journal is in, so Today opens whole rather than filling in piece by
-  piece. If a phone takes a while, it says to check that it's on your tailnet.
+- **A loading screen on the phone.** While Field Notes loads, you see its name
+  instead of a blank white screen, in light, dark or night colours to match.
+  If it takes a while, it says to check that the phone is on your tailnet.
 - **The substance box on the computer** now looks like the other fields when
   you log or edit a dose, instead of a plain white box.
 
