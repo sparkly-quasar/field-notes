@@ -277,18 +277,22 @@
       return { ...base, ticks: tick };
     });
 
-    // Moments sit on their own entry's line, at the time they were added: the
-    // first line with a dose from that entry, else the first line. Other recent
-    // entries' doses are drawn too, and may come first.
-    const lineFor = (mo: TimelineEvent) =>
-      drawn.find((s) => s.doses.some((d) => d.dose.experience_id === mo.experience_id)) ?? drawn[0];
+    // Moments sit on their own entry's line, at the time they were added: of
+    // the lines with a dose from that entry, the highest then, so a dose taken
+    // later doesn't pull a moment down to nothing. Other recent entries' doses
+    // are drawn too; with none from this entry, the first line.
+    const heightAt = (s: Series, t: number) => (s.kind === "marker" ? 0.5 : heightFor(s, amountAt(s, t, t)));
+    const lineFor = (mo: TimelineEvent, t: number) => {
+      const own = drawn.filter((s) => s.doses.some((d) => d.dose.experience_id === mo.experience_id));
+      return own.length ? own.reduce((a, b) => (heightAt(b, t) > heightAt(a, t) ? b : a)) : drawn[0];
+    };
     const dots = drawn.length
       ? moments
-          .map((mo) => ({ t: Date.parse(mo.at), mo, s: lineFor(mo) }))
+          .map((mo) => ({ t: Date.parse(mo.at), mo }))
           .filter(({ t }) => Number.isFinite(t) && t >= t0 && t <= t1)
-          .map(({ t, mo, s }) => ({
+          .map(({ t, mo }) => ({
             x: x(t),
-            y: y(s.kind === "marker" ? 0.5 : heightFor(s, amountAt(s, t, t))),
+            y: y(heightAt(lineFor(mo, t), t)),
             title: `${clock(t)} ${[mo.mood, mo.note].filter(Boolean).join(" · ")}`,
           }))
       : [];
@@ -442,7 +446,7 @@
       <div class="about" id="arcs-about" role="status">
         {#if open === "moments"}
           <strong>Moments</strong>
-          <p>Each dot is a moment you added, on its entry's line at the time you added it. Point at one to read it.</p>
+          <p>Each dot is a moment you added, at the time you added it, on the highest of its entry's lines then. Point at one to read it.</p>
         {:else if l}
           <strong>{titleOf(l.s)}{l.s.roa ? `, ${l.s.roa.name.toLowerCase()}` : ""}</strong>
           {#each aboutLines(l.s, minute, !past) as line}<p>{line}</p>{/each}
