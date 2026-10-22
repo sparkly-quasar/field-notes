@@ -21,8 +21,76 @@
     <meta name="theme-color" content="#14120f" />
     <title>Field Notes</title>
     %sveltekit.head%
+    <!-- The loading splash: shown until the app draws, so a slow phone connection
+         isn't a blank white screen. Colours match the app's: the desktop is always
+         dark, the phone follows the system, and night mode stays dim red so a
+         reload mid-session doesn't flash bright. -->
+    <style>
+      #splash {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+        background: #14120f; color: #eee7dc;
+        font-family: "Atkinson Hyperlegible", system-ui, sans-serif;
+        transition: opacity 0.2s ease;
+      }
+      #splash .name { font-size: 1.6rem; font-weight: 700; letter-spacing: 0.01em; }
+      #splash .dots { display: flex; gap: 0.45rem; }
+      #splash .dots span {
+        width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #b9a3c9; opacity: 0.3;
+        animation: splash-pulse 1.2s ease-in-out infinite;
+      }
+      #splash .dots span:nth-child(2) { animation-delay: 0.2s; }
+      #splash .dots span:nth-child(3) { animation-delay: 0.4s; }
+      #splash .slow { margin: 0 1.5rem; max-width: 22rem; text-align: center; color: #b8ad9c; visibility: hidden; }
+      #splash.slow .slow { visibility: visible; }
+      #splash.gone { opacity: 0; pointer-events: none; }
+      @keyframes splash-pulse { 50% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { #splash .dots span { animation: none; opacity: 0.7; } }
+      @media (prefers-color-scheme: light) {
+        :root.phone #splash { background: #f6f1e8; color: #211b13; }
+        :root.phone #splash .dots span { background: #5f4a72; }
+        :root.phone #splash .slow { color: #5a5043; }
+      }
+      :root.phone.night #splash { background: #000; color: #ff7a5c; }
+      :root.phone.night #splash .dots span { background: #ff5a36; }
+      :root.phone.night #splash .slow { color: #d9533a; }
+    </style>
   </head>
   <body data-sveltekit-preload-data="hover">
-    <div style="display: contents">%sveltekit.body%</div>
+    <div id="splash" role="status" aria-label="Loading Field Notes">
+      <div class="name">Field Notes</div>
+      <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p class="slow">Still loading. If this doesn't finish, check that this device is connected to your tailnet.</p>
+    </div>
+    <div id="app" style="display: contents">%sveltekit.body%</div>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const splash = document.getElementById("splash");
+        const phone = location.pathname.startsWith("/m");
+        if (phone) root.classList.add("phone");
+        try {
+          if (localStorage.getItem("fieldnotes.night") === "1") root.classList.add("night");
+        } catch {}
+        // Only a phone loads over the network; the desktop loads from its own files.
+        const slow = phone ? setTimeout(() => splash.classList.add("slow"), 8000) : 0;
+        // The app has drawn once #app holds anything besides SvelteKit's start script.
+        const app = document.getElementById("app");
+        const drawn = () => [...app.children].some((el) => el.tagName !== "SCRIPT");
+        const done = () => {
+          clearTimeout(slow);
+          splash.classList.add("gone");
+          setTimeout(() => splash.remove(), 250);
+        };
+        if (drawn()) return done();
+        const watch = new MutationObserver(() => {
+          if (drawn()) {
+            watch.disconnect();
+            done();
+          }
+        });
+        watch.observe(app, { childList: true });
+      })();
+    </script>
   </body>
 </html>

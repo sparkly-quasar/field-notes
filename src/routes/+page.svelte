@@ -4869,6 +4869,9 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .prereq-status { font-weight: 600; }
 
   input { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem; }
+  /* The substance box lives in its own component, so the rule above doesn't
+     reach it: without this it's the browser's default white box. */
+  :global(.sub-suggest input) { box-sizing: border-box; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem; }
   input.narrow { width: 5.5rem; }
 
   .exp-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.8rem; }

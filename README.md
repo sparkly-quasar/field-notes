@@ -178,35 +178,38 @@ show you how to get past it.
 
 ## Screenshots
 
-All screenshots use a fictional demo journal.
+All screenshots use a fictional demo journal. To regenerate them, see
+[`scripts/screenshots/`](scripts/screenshots/README.md).
 
 ### Desktop
 
 | | |
 |:---:|:---:|
 | ![Journal home](docs/screenshots/journal-home.png) | ![Live trip report](docs/screenshots/live-session.png) |
-| **Journal**: experiences and notes by month, actions in one quiet bar | **Live trip report**: last dose, quick log and one-tap moments |
+| **Journal**: experiences and notes by month, with what's likely still active on top | **Live trip report**: each dose's likely arc, now, and your moments on the line |
 | ![Experience detail](docs/screenshots/session-detail.png) | ![Stats](docs/screenshots/stats.png) |
-| **Experience detail**: what you took, when, and how it went | **Stats**: dose over time against reference ranges, spacing, frequency, calendar |
-| ![Companion chat](docs/screenshots/companion-chat.png) | ![Substance log](docs/screenshots/substance-log.png) |
-| **Companion**: local AI support chat with selectable support styles | **Every dose, by substance**: the full history, under Stats |
+| **Experience detail**: what you took, when, how it went, and its arcs | **Stats**: frequency, spacing and calendar, by class or substance |
+| ![Dose over time](docs/screenshots/stats-dose-chart.png) | ![Substance log](docs/screenshots/substance-log.png) |
+| **Dose over time**: each dose against the reference's ranges | **Every dose, by substance**: the full history, under Stats |
 | ![Check](docs/screenshots/substances-reference.png) | ![Reference search](docs/screenshots/reference-search.png) |
-| **Check**: test a combination, search the reference, keep your own catalogue | **Reference search**: thousands of DoseWiki passages, searchable offline |
-| ![Emergency help](docs/screenshots/emergency-help.png) | ![Updates](docs/screenshots/settings-updates.png) |
-| **Get help now**: real crisis and peer-support contacts, always one tap away | **Updates**: automatic, or check by hand any time |
-| ![Devices and server](docs/screenshots/settings-phone-access.png) | ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) |
-| **Devices & server**: optional, built-in Tailscale, off by default | **Encryption & backups**: AES-256 at rest, one-file backup and restore |
-| ![Obsidian vault sync](docs/screenshots/settings-obsidian-sync.png) | ![Erase and uninstall](docs/screenshots/settings-data-location.png) |
-| **Obsidian sync**: two-way Markdown export, fully offline | **Your data, one folder**: everything lives on your device, erase anytime |
+| **Check**: test a combination, see what's still active, keep your own catalogue | **Reference search**: thousands of DoseWiki passages, searchable offline |
+| ![Companion chat](docs/screenshots/companion-chat.png) | ![Emergency help](docs/screenshots/emergency-help.png) |
+| **Companion**: local AI support chat with selectable support styles | **Get help now**: real crisis and peer-support contacts, always one tap away |
+| ![Updates](docs/screenshots/settings-updates.png) | ![Devices and server](docs/screenshots/settings-phone-access.png) |
+| **Updates**: automatic, or check by hand any time | **Devices & server**: optional, built-in Tailscale, off by default |
+| ![Encryption and backup](docs/screenshots/settings-encryption-backup.png) | ![Obsidian vault sync](docs/screenshots/settings-obsidian-sync.png) |
+| **Encryption & backups**: AES-256 at rest, one-file backup and restore | **Obsidian sync**: two-way Markdown export, fully offline |
+| ![Erase and uninstall](docs/screenshots/settings-data-location.png) | |
+| **Your data, one folder**: everything lives on your device, erase anytime | |
 
 ### Phone
 
 | | | |
 |:---:|:---:|:---:|
 | ![Today](docs/screenshots/phone-today.png) | ![Journal](docs/screenshots/phone-journal.png) | ![Entry](docs/screenshots/phone-entry.png) |
-| **Today**: the live trip report at your thumb | **Journal**: search and filter everything | **Entry**: a past experience, editable |
-| ![Stats](docs/screenshots/phone-stats.png) | ![Stats chart](docs/screenshots/phone-stats-chart.png) | ![Combo check](docs/screenshots/phone-check.png) |
-| **Stats**: range, substances, totals | **Dose over time**: tap a dose for details | **Check**: combinations, from the deterministic checker |
+| **Today**: the live trip report, its arcs and moments, at your thumb | **Journal**: search and filter everything | **Entry**: a past experience, editable |
+| ![Entry arcs](docs/screenshots/phone-entry-arcs.png) | ![Dose over time](docs/screenshots/phone-stats-chart.png) | ![Combo check](docs/screenshots/phone-check.png) |
+| **Arcs**: how a past experience likely went, with its moments | **Dose over time**: tap a dose for details | **Check**: combinations, from the deterministic checker |
 
 ## Install & update
 
