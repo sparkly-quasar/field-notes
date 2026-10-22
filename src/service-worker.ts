@@ -17,7 +17,9 @@ import { build, files, version } from "$service-worker";
 const sw = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `fieldnotes-app-${version}`;
 const PAGE = "/m";
-const ASSETS = new Set([...build, ...files]);
+// Not the iOS launch images (static/splash/): iOS reads only the one for its own
+// screen, once, when the app is added to the Home Screen.
+const ASSETS = new Set([...build, ...files.filter((f) => !f.startsWith("/splash/"))]);
 
 sw.addEventListener("install", (event) => {
   event.waitUntil(
