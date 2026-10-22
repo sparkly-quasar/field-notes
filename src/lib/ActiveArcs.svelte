@@ -277,15 +277,18 @@
       return { ...base, ticks: tick };
     });
 
-    // Moments sit on the first line, at the time they were added.
-    const firstLine = drawn[0];
-    const dots = firstLine
+    // Moments sit on their own entry's line, at the time they were added: the
+    // first line with a dose from that entry, else the first line. Other recent
+    // entries' doses are drawn too, and may come first.
+    const lineFor = (mo: TimelineEvent) =>
+      drawn.find((s) => s.doses.some((d) => d.dose.experience_id === mo.experience_id)) ?? drawn[0];
+    const dots = drawn.length
       ? moments
-          .map((mo) => ({ t: Date.parse(mo.at), mo }))
+          .map((mo) => ({ t: Date.parse(mo.at), mo, s: lineFor(mo) }))
           .filter(({ t }) => Number.isFinite(t) && t >= t0 && t <= t1)
-          .map(({ t, mo }) => ({
+          .map(({ t, mo, s }) => ({
             x: x(t),
-            y: y(firstLine.kind === "marker" ? 0.5 : heightFor(firstLine, amountAt(firstLine, t, t))),
+            y: y(s.kind === "marker" ? 0.5 : heightFor(s, amountAt(s, t, t))),
             title: `${clock(t)} ${[mo.mood, mo.note].filter(Boolean).join(" · ")}`,
           }))
       : [];
@@ -439,7 +442,7 @@
       <div class="about" id="arcs-about" role="status">
         {#if open === "moments"}
           <strong>Moments</strong>
-          <p>Each dot is a moment you added, on the first line at the time you added it. Point at one to read it.</p>
+          <p>Each dot is a moment you added, on its entry's line at the time you added it. Point at one to read it.</p>
         {:else if l}
           <strong>{titleOf(l.s)}{l.s.roa ? `, ${l.s.roa.name.toLowerCase()}` : ""}</strong>
           {#each aboutLines(l.s, minute, !past) as line}<p>{line}</p>{/each}
