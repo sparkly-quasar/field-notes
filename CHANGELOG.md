@@ -11,6 +11,12 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.1
+
+- **Moments sit on the right line.** On the Today chart, the moments you add
+  now sit on the line for the dose in the session you're in. Before, they could
+  land on another dose that was still active from earlier in the day.
+
 ## v0.34.0
 
 - **Tag someone in a dose you already logged.** Open Edit dose, pick who to
