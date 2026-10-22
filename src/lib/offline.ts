@@ -219,6 +219,15 @@ async function reachable(): Promise<boolean> {
   }
 }
 
+/** Ask the computer now rather than at the next tick ("Try again"), and send
+ *  what's waiting if it answers. */
+export async function checkNow(): Promise<boolean> {
+  downUntil = 0;
+  const ok = await reachable();
+  if (ok && ob.pending(load()).length) await flush();
+  return ok;
+}
+
 // ---------- the reference files and the checker ----------
 
 async function filesCache(): Promise<Cache | null> {
