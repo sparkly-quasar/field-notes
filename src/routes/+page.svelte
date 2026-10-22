@@ -142,6 +142,7 @@
   import { inTauri } from "$lib/portal";
   import NameHint from "$lib/NameHint.svelte";
   import SubstanceInput, { forgetSubstanceNames } from "$lib/SubstanceInput.svelte";
+  import { holdSplash } from "$lib/splash";
   import DoseDetailFields from "$lib/DoseDetailFields.svelte";
   import KindQuestion from "$lib/KindQuestion.svelte";
   import SubstanceQuestion from "$lib/SubstanceQuestion.svelte";
@@ -647,6 +648,10 @@
   const isoToLocalInput = (iso: string) => localOffset(new Date(iso)).toISOString().slice(0, 16);
   const localInputToIso = (local: string) => (local ? new Date(local).toISOString() : nowIso());
 
+  // The splash stays up until the journal is open and, past the disclaimer,
+  // loaded (src/lib/splash.ts).
+  const splashBoot = holdSplash();
+
   onMount(() => {
     // A phone browsing to the server's root gets the desktop page, which needs
     // Tauri; its page is /m (and that's what works offline).
@@ -661,7 +666,7 @@
     dontShowDisclaimer = localStorage.getItem(HIDE_DISCLAIMER_KEY) === "1";
     companionChoiceMade = localStorage.getItem(COMPANION_CHOICE_KEY) === "1";
     vaultFolder = localStorage.getItem(VAULT_KEY) ?? "";
-    loadDbStatus();
+    loadDbStatus().finally(splashBoot);
     const un = listen<string>("ai-progress", (e) => {
       aiLog = [...aiLog.slice(-200), e.payload];
     });
@@ -1028,9 +1033,11 @@
   async function loadJournal() {
     experiences = await listExperiences();
     loadTags();
+    const splash = holdSplash();
     recentDoses(experiences, Date.now(), selected ? [selected] : [])
       .then((d) => (activeDoses = d))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(splash);
   }
   async function loadSubstances() {
     substances = await listSubstances();

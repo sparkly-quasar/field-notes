@@ -40,6 +40,7 @@
   } from "$lib/arcs";
   import { shown as nameShown } from "$lib/discreet.svelte";
   import MyTimings from "$lib/MyTimings.svelte";
+  import { holdSplash } from "$lib/splash";
 
   let {
     doses,
@@ -85,6 +86,13 @@
     }
   });
   const ready = $derived(doses.every((d) => !d.substance_name.trim() || d.substance_name.trim().toLowerCase() in infos));
+  // At startup, the loading splash waits for these lookups, so the chart is there
+  // when it lifts rather than popping in after.
+  const releaseSplash = holdSplash();
+  $effect(() => {
+    if (ready) releaseSplash();
+  });
+  $effect(() => releaseSplash);
 
   // Redrawn once a minute, not on every second the live clock ticks. A finished
   // trip report is drawn as of its last dose at the earliest, so every arc is whole.

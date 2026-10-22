@@ -74,22 +74,28 @@
         } catch {}
         // Only a phone loads over the network; the desktop loads from its own files.
         const slow = phone ? setTimeout(() => splash.classList.add("slow"), 8000) : 0;
-        // The app has drawn once #app holds anything besides SvelteKit's start script.
+        // Gone once the app has drawn (#app holds more than SvelteKit's start
+        // script) and its first screen has its data (src/lib/splash.ts), or 15
+        // seconds after it drew, whichever comes first.
         const app = document.getElementById("app");
         const drawn = () => [...app.children].some((el) => el.tagName !== "SCRIPT");
-        const done = () => {
+        let ready = false;
+        let capped = false;
+        let cap = 0;
+        const check = () => {
+          if (!drawn()) return;
+          if (!cap) cap = setTimeout(() => ((capped = true), check()), 15000);
+          if (!ready && !capped) return;
+          watch.disconnect();
           clearTimeout(slow);
+          clearTimeout(cap);
           splash.classList.add("gone");
           setTimeout(() => splash.remove(), 250);
         };
-        if (drawn()) return done();
-        const watch = new MutationObserver(() => {
-          if (drawn()) {
-            watch.disconnect();
-            done();
-          }
-        });
+        const watch = new MutationObserver(check);
         watch.observe(app, { childList: true });
+        addEventListener("fieldnotes:ready", () => ((ready = true), check()), { once: true });
+        check();
       })();
     </script>
   </body>

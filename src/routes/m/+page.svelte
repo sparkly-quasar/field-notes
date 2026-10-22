@@ -157,6 +157,7 @@
     DRINK_PICKS,
     recentDoses,
   } from "$lib/quicklog";
+  import { holdSplash } from "$lib/splash";
 
   type View = "today" | "journal" | "check" | "talk";
   type Sheet =
@@ -439,6 +440,9 @@
     else if (wake) { wake.release().catch(() => {}); wake = null; }
   });
 
+  // The splash stays up until Today has its first journal (src/lib/splash.ts).
+  const splashBoot = holdSplash();
+
   onMount(() => {
     const tick = () => (nowTick = Date.now());
     const clock = setInterval(tick, 30_000);
@@ -480,9 +484,11 @@
     if (paired) {
       // Help first and regardless: it needs no journal.
       loadResources();
-      loadMe().then(() => {
-        if (!locked) startJournal();
-      });
+      loadMe()
+        .then(() => (locked ? undefined : startJournal()))
+        .finally(splashBoot);
+    } else {
+      splashBoot();
     }
     return () => {
       stopNet();
@@ -494,12 +500,13 @@
     };
   });
 
-  /** Everything that reads the journal, once it's open. */
-  function startJournal() {
-    refresh();
+  /** Everything that reads the journal, once it's open. Done when Today has it. */
+  function startJournal(): Promise<void> {
+    const first = refresh();
     loadAi();
     loadServerUpdate();
     loadTags();
+    return first;
   }
 
   // ---------- tagging someone else on this server (src-tauri/src/tagging.rs) ----------
@@ -946,9 +953,11 @@
       session = live ? await getExperience(live.id) : null;
       if (open) open = await getExperience(open.id).catch(() => null);
       if (target) target = await getExperience(target.id).catch(() => null);
+      const splash = holdSplash();
       recentDoses(recent, Date.now(), session ? [session] : [])
         .then((d) => (activeDoses = d))
-        .catch(() => {});
+        .catch(() => {})
+        .finally(splash);
     } catch (e) {
       if (!(e instanceof LockedError)) err = e instanceof Error ? e.message : String(e);
     }
