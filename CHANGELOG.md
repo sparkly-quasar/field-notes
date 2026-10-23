@@ -11,6 +11,14 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.4
+
+- **Fuller timings for zolpidem, kratom and 1,4-butanediol.** Their lines on
+  Today now show how they build up, and for zolpidem and 1,4-butanediol how
+  long they peak and wear off, instead of a flat block. Kratom's come-up is
+  set by when its main alkaloid peaks in the blood in a human study.
+  1,4-butanediol keeps its longer total, so its line doesn't end early.
+
 ## v0.34.3
 
 - **Help getting your computer back.** When the phone says your computer

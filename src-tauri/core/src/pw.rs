@@ -693,6 +693,35 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
             Patch::Stages("oral", Stages { total: Some("4–8 hours"), ..NO_STAGES }),
         ],
     ),
+    // Reference suggestions from issue #23 (2026-10-16), decided by the owner
+    // 2026-10-23. Erowid's pages couldn't be checked for these; the drug label and
+    // a human PK study were.
+    (
+        "Zolpidem",
+        "Oral timings from the Field Notes maintainer's own use, not a study. They fit the label's pharmacokinetics (blood levels peak 1.4–1.6 hours after a tablet, half-life about 2.5 hours), but the label also warns that driving and other tasks can be impaired the next morning, especially after a full dose or with less than 7–8 hours in bed. Dose ranges are DoseWiki's.",
+        &[Patch::Stages("oral", Stages {
+            onset: Some("15 minutes"), come_up: Some("10 minutes"), peak: Some("1–2 hours"),
+            offset: Some("2 hours"), after_effects: Some("1–2 hours"), total: Some("4–6 hours"),
+        })],
+    ),
+    (
+        "Kratom",
+        "Mitragynine, kratom's main alkaloid, peaks in the blood about 1–1.3 hours after a dose of leaf powder (Huestis et al. 2024, a placebo-controlled human study), so the come-up is set to reach that. Onset, total duration and after-effects are DoseWiki's; how long the peak lasts isn't known well enough to give. Products vary a lot in strength. Dose ranges are DoseWiki's.",
+        // Come-up = time to peak plasma (60–80 min) less DoseWiki's onset
+        // (10–40 min), so onset and come-up together reach the measured peak.
+        &[Patch::Stages("oral", Stages {
+            onset: Some("10–40 minutes"), come_up: Some("20–70 minutes"),
+            after_effects: Some("1–12 hours"), total: Some("2–5 hours"), ..NO_STAGES
+        })],
+    ),
+    (
+        "1,4-Butanediol",
+        "How it builds, peaks and wears off is from the Field Notes maintainer's own use, not a study. The total and after-effects are DoseWiki's longer figures, kept so the line doesn't end early: the body turns 1,4-butanediol into GHB, more slowly with alcohol, and redosing too soon is how GHB overdoses usually happen. Dose ranges are DoseWiki's.",
+        &[Patch::Stages("oral", Stages {
+            onset: Some("10 minutes"), come_up: Some("15 minutes"), peak: Some("1 hour"),
+            offset: Some("1 hour"), after_effects: Some("2–4 hours"), total: Some("3–5 hours"),
+        })],
+    ),
 ];
 
 /// A substance DoseWiki has no entry for, added on load (see [`EXTRA_SUBSTANCES`]).
@@ -958,6 +987,27 @@ mod tests {
         assert_eq!((rec.onset.as_deref(), rec.total.as_deref()), (Some("5–20 minutes"), Some("1–2 hours")));
         let d = route(&subs, "Dextromethorphan", "oral");
         assert_eq!((d.total.as_deref(), d.peak.as_deref()), (Some("4–8 hours"), None));
+    }
+
+    /// Issue #23's suggestions, as the owner decided them.
+    #[test]
+    fn suggested_timings_are_applied() {
+        let subs = bundled();
+        let note = |n: &str| subs.iter().find(|s| s.name == n).unwrap().dose_note.clone().unwrap();
+
+        let z = route(&subs, "Zolpidem", "oral");
+        assert_eq!((z.come_up.as_deref(), z.total.as_deref()), (Some("10 minutes"), Some("4–6 hours")));
+        assert_eq!(z.common.max, Some(10.0), "DoseWiki's bands are kept");
+        assert!(note("Zolpidem").contains("maintainer's own use") && note("Zolpidem").contains("next morning"));
+
+        let k = route(&subs, "Kratom", "oral");
+        assert_eq!((k.onset.as_deref(), k.come_up.as_deref()), (Some("10–40 minutes"), Some("20–70 minutes")));
+        assert_eq!((k.peak.as_deref(), k.offset.as_deref()), (None, None), "no source for how long it peaks");
+        assert!(note("Kratom").contains("Huestis"));
+
+        let b = route(&subs, "1,4-Butanediol", "oral");
+        assert_eq!((b.peak.as_deref(), b.total.as_deref()), (Some("1 hour"), Some("3–5 hours")), "DoseWiki's longer total is kept");
+        assert!(note("1,4-Butanediol").contains("redosing"));
     }
 
     #[test]
