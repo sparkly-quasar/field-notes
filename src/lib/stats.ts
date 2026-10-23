@@ -260,6 +260,9 @@ export function rhythm(times: number[], now = Date.now(), minTimes = 4): { gapDa
  *   monthly, three sessions.
  * - cannabinoids: D'Souza et al. 2016 and Hirvonen et al. 2012 (CB1 availability
  *   recovers from about 2 days, near normal by about 4 weeks).
+ * - dissociatives: one note for the whole family (ketamine, PCP analogues such
+ *   as 3-MeO-PCP, DXM...), so only ketamine is named for bladder damage, the
+ *   one with the evidence for it.
  * - kratom (in place of the opioid note): Hiranita et al. 2020 and Hill et al.
  *   2022 (mitragynine's ceiling on respiratory depression in rodents); Olsen et
  *   al. 2019, CDC MMWR (kratom-positive overdose deaths almost all involved
@@ -271,7 +274,7 @@ export const SPACING_NOTE: Record<string, string> = {
   entactogens:
     "A common harm-reduction guide is at least a month between MDMA experiences, and three months is widely recommended. The three-month rule is a community convention rather than a tested limit. It allows time for serotonin to recover and for the experience not to dull. Clinical MDMA trials spaced dosing sessions about a month apart.",
   dissociatives:
-    "Tolerance to ketamine builds quickly, and frequent use, more than any single dose, is what's tied to bladder damage and dependence. A common guide is to keep experiences days apart rather than back to back, and to notice if the gaps are shrinking.",
+    "Tolerance to dissociatives builds quickly, and frequent use, more than any single dose, is what's tied to dependence. With ketamine, the best studied, frequent use is also tied to bladder damage. A common guide is to keep experiences days apart rather than back to back, and to notice if the gaps are shrinking.",
   cannabinoids:
     "With regular use, the brain's cannabinoid receptors turn down. They begin recovering within about 2 days of stopping and are close to normal after about 4 weeks, so a few days off eases tolerance and a month resets it.",
   opioids:
