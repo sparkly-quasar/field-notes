@@ -131,6 +131,17 @@ doesn't. The same three non-negotiables, each with a test:
   into the bundled reference (`ROUTE_OVERRIDES` and friends) until it has been
   reviewed by hand, ideally with more than one report or a citable source.
 
+**Issue #23, the first batch (decided by the owner 2026-10-23).** Erowid's pages
+couldn't be fetched to check, so the drug label and a human PK study were used.
+Zolpidem: the owner's oral timings in full; they fit the label's PK, and the
+note carries the label's next-morning warning. Kratom: the come-up set to reach
+mitragynine's measured peak (Huestis et al. 2024, 1–1.3 h), less DoseWiki's
+onset; no peak length or wearing-off, since nothing gives them. 1,4-Butanediol:
+the owner's onset-to-wearing-off, with DoseWiki's longer total and after-effects
+kept so the line doesn't invite an early redose. Ketamine IM: no change, the
+suggestion sits inside Erowid's figures already there. SR-17018: already added
+(`00bea61`). Nurtec: declined, not psychoactive; it stays the owner's own.
+
 Each item is shared (never asked about again; if edited, listed in Settings as
 changed but not counted by the reminder, since v0.33.1; tracked in
 `ref_suggestions` by its exact content) or kept private (never offered again). The reminder on
