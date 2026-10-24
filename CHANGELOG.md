@@ -13,6 +13,11 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
 ## v0.34.4
 
+- **The phone app opens when your computer is off.** Reopening the Home
+  Screen app while the computer was asleep or Field Notes was closed could
+  leave a dark screen and then a blank white one. It now waits a few seconds
+  for the computer and then opens the copy saved on the phone, so offline
+  mode works from a fresh start, not only when the app was already open.
 - **Fuller timings for zolpidem, kratom and 1,4-butanediol.** Their lines on
   Today now show how they build up, and for zolpidem and 1,4-butanediol how
   long they peak and wear off, instead of a flat block. Kratom's come-up is
