@@ -49,7 +49,51 @@
   let done = $state("");
   let err = $state("");
 
+  // A phone's browser can put this page to sleep the moment GitHub opens, or
+  // have just lost the computer, so a "shared" sent then can be lost and the
+  // same thing asked about again. It's written down here first, before the page
+  // goes anywhere, and sent until the computer has it. Only the item keys, and
+  // only until then.
+  const UNSENT_KEY = "fieldnotes.refSuggestUnsent";
+  type Unsent = { keys: string[]; today: string };
+  function readUnsent(): Unsent[] {
+    try {
+      return JSON.parse(localStorage.getItem(UNSENT_KEY) ?? "[]");
+    } catch {
+      return [];
+    }
+  }
+  function writeUnsent(list: Unsent[]) {
+    try {
+      if (list.length) localStorage.setItem(UNSENT_KEY, JSON.stringify(list));
+      else localStorage.removeItem(UNSENT_KEY);
+    } catch {
+      // No storage (a private window): it's sent straight away, as before.
+    }
+  }
+  async function sendUnsent() {
+    const sent = new Set<string>();
+    for (const u of readUnsent()) {
+      try {
+        await refSuggestionMark(u.keys, false, u.today);
+        sent.add(JSON.stringify(u));
+      } catch {
+        // Still waiting on the computer: kept for next time.
+      }
+    }
+    // Re-read: another open copy of this (Today and Settings) may have added one.
+    if (sent.size) writeUnsent(readUnsent().filter((u) => !sent.has(JSON.stringify(u))));
+  }
+  $effect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void sendUnsent();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  });
+
   async function load() {
+    await sendUnsent();
     try {
       const s = await refSuggestions(mode === "prompt" ? today : null);
       items = s.items;
@@ -111,13 +155,15 @@
   /** Opening the page is the person's own action; remember it so the same thing
    *  isn't offered again. It doesn't mean they submitted it. */
   async function openIssue(ev: MouseEvent, issue: RefIssue) {
+    // Before anything that waits: on a phone the page may not run again until later.
+    writeUnsent([...readUnsent(), { keys: issue.keys, today }]);
     if (inTauri()) {
       ev.preventDefault();
       const { openUrl } = await import("@tauri-apps/plugin-opener");
       await openUrl(issue.url).catch(() => {});
     }
     opened[issue.url] = true;
-    await refSuggestionMark(issue.keys, false, today).catch(() => {});
+    await sendUnsent();
     if (issues && issues.every((i) => opened[i.url])) {
       const left = items.filter((i) => !issues!.some((x) => x.keys.includes(i.key)));
       items = left;

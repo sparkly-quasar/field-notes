@@ -11,6 +11,18 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.5
+
+- **Timings you've shared stay shared, from the phone too.** Suggesting your
+  own timings or a missing substance from the phone could be forgotten if the
+  phone put Field Notes to sleep as GitHub opened, or the computer wasn't
+  answering just then, so Today asked about the same thing again a month
+  later. The phone now holds on to it and tells your computer as soon as it
+  can.
+- **A reference update isn't your edit.** Timings you'd shared no longer show
+  in Settings as "changed since you shared it" just because a newer dose
+  reference added that substance. Only changes to what you typed count.
+
 ## v0.34.4
 
 - **The phone app opens when your computer is off.** Reopening the Home
