@@ -351,6 +351,13 @@ pub fn builtin_classes(name: &str) -> Vec<String> {
     if n.contains("cocaine") || n.contains("coke") || n.contains("alcohol") || n.contains("ethanol") || DRINKS.contains(&n.trim()) {
         add("qt_prolonging", &mut c);
     }
+    // Ondansetron lengthens QT, more at higher doses (FDA label, section 5.2), and
+    // is often taken for nausea with ibogaine. Its label also reports serotonin
+    // syndrome, mostly alongside other serotonergic drugs; the owner chose not to
+    // flag that (issue #32), so it isn't "danger" with an ayahuasca it's taken for.
+    if n.contains("ondansetron") || n.contains("zofran") {
+        add("qt_prolonging", &mut c);
+    }
     if n.contains("cannabis") || n.contains("weed") || n.contains("thc") || n.contains("marijuana") {
         add("cannabinoid", &mut c);
     }
@@ -370,6 +377,13 @@ mod tests {
     fn sr_17018_is_an_opioid() {
         for n in ["SR-17018", "sr17018", "SR 17018"] {
             assert_eq!(builtin_classes(n), ["opioid"], "{n}");
+        }
+    }
+
+    #[test]
+    fn ondansetron_is_flagged_with_ibogaine_only() {
+        for n in ["Ondansetron", "zofran"] {
+            assert_eq!(builtin_classes(n), ["qt_prolonging"], "{n}");
         }
     }
 

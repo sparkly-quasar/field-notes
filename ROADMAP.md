@@ -142,6 +142,18 @@ kept so the line doesn't invite an early redose. Ketamine IM: no change, the
 suggestion sits inside Erowid's figures already there. SR-17018: already added
 (`00bea61`). Nurtec: declined, not psychoactive; it stays the owner's own.
 
+**Issues #32 and #33, the second batch (decided by the owner 2026-10-28).** Most
+of both repeated #23 word for word: its "shared" marks had never reached the
+computer from the phone (fixed in v0.34.5), so the app offered them again. The
+three new items: San Pedro powder is Mescaline, so the cactus names now match it,
+its total is Klaiber et al. 2024's 6.4–14 h (100–800 mg, longer at higher doses),
+and it has the owner's come-up and wearing-off. Syrian rue: added with no dose
+figures and the owner's timings, sharing Ayahuasca's interactions (the same
+harmala MAOIs); no human timing or dose study was found. Ondansetron: not added,
+not psychoactive, but classed QT-prolonging so it's flagged with ibogaine (FDA
+label); its label's serotonin-syndrome reports aren't flagged, by the owner's
+choice, so it isn't "danger" with the ayahuasca it's often taken for.
+
 Each item is shared (never asked about again; if edited, listed in Settings as
 changed but not counted by the reminder, since v0.33.1; tracked in
 `ref_suggestions` by the person's own words, so a reference update isn't a

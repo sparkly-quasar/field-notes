@@ -11,6 +11,19 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.34.6
+
+- **San Pedro is found as mescaline.** Logging San Pedro powder, huachuma or
+  Peruvian torch now finds mescaline's dose ranges and interaction warnings.
+  Its line on Today lasts 6 to 14 hours, as a human study measured, longer at
+  higher doses, and now shows how it builds up and wears off.
+- **Syrian rue is in the reference.** It's an MAOI, so it carries the same
+  interaction warnings as ayahuasca, and a reminder that the MAOI effect lasts
+  longer than you feel it. It has timings but no dose figures, since it hasn't
+  been dosed in human studies.
+- **Ondansetron is checked with ibogaine.** Both lengthen the heart's QT
+  interval, so taking them together is now flagged as dangerous.
+
 ## v0.34.5
 
 - **Timings you've shared stay shared, from the phone too.** Suggesting your

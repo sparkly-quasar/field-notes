@@ -67,6 +67,7 @@ Lorazepam: route "intramuscular" renamed IM
 MDAI [oral]: dropped heavy band (from 150), out of order with the bands around it
 Mdphp: route "Inhaled" renamed vaporized
 Meclofenoxate [oral]: dropped heavy band (from 600), out of order with the bands around it
+Mescaline [oral]: timings replaced (see ROUTE_PATCHES)
 MET: route "smoked" renamed vaporized
 Methamphetamine: route "smoked" renamed vaporized
 Methamphetamine: route "intravenous" renamed IV
@@ -107,3 +108,4 @@ Zolazepam: route "Intramuscular" renamed IM
 Zolpidem [oral]: timings replaced (see ROUTE_PATCHES)
 Psilocybin: added (see EXTRA_SUBSTANCES), sharing Psilocybin Mushrooms's interactions
 SR-17018: added (see EXTRA_SUBSTANCES)
+Syrian Rue: added (see EXTRA_SUBSTANCES), sharing Ayahuasca's interactions
