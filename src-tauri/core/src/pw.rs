@@ -23,6 +23,8 @@ const EXTRA_ALIASES: &[(&str, &[&str])] = &[
     ("Mephedrone", &["4mmc", "4-MMC", "meph", "m-cat"]),
     ("1,4-Butanediol", &["14b", "1,4b"]),
     ("Dextroamphetamine", &["dexamp"]),
+    // Mescaline cacti by the names people log them under (issue #32).
+    ("Mescaline", &["San Pedro powder", "huachuma", "Peruvian torch"]),
 ];
 
 /// A route's name as one spelling, for matching a logged route against the
@@ -722,6 +724,17 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
             offset: Some("1 hour"), after_effects: Some("2–4 hours"), total: Some("3–5 hours"),
         })],
     ),
+    // Reference suggestions from issues #32 and #33 (2026-10-28), decided by the
+    // owner the same day. The rest of those two issues repeated #23, already done.
+    (
+        "Mescaline",
+        "How long it lasts in total is from Klaiber et al. 2024, a placebo-controlled study of 100–800 mg mescaline hydrochloride in healthy people: effects lasted 6.4 to 14 hours, longer at higher doses, and blood levels peaked about 2 hours after a dose. How it builds up and wears off is from the Field Notes maintainer's own use of San Pedro powder, not a study. Cactus varies a lot in how much mescaline it holds, so a weight of cactus can't be read against these mg figures. Onset, peak, after-effects and dose ranges are DoseWiki's.",
+        // Onset, peak and after-effects as DoseWiki has them: `Stages::set` replaces all six.
+        &[Patch::Stages("oral", Stages {
+            onset: Some("60–180 minutes"), come_up: Some("60 minutes"), peak: Some("1.9–4 hours"),
+            offset: Some("3–6 hours"), after_effects: Some("3–5 hours"), total: Some("6–14 hours"),
+        })],
+    ),
 ];
 
 /// A substance DoseWiki has no entry for, added on load (see [`EXTRA_SUBSTANCES`]).
@@ -754,6 +767,12 @@ struct ExtraSubstance {
 /// web monitoring, 2025-11-14 (people's reports: slow onset, very different doses
 /// from person to person, redosing, and overdose on going back to other opioids
 /// after tolerance fell).
+///
+/// Syrian rue (issue #33, owner's decision 2026-10-28): Peganum harmala seed, an
+/// MAOI-A from its harmala alkaloids (harmine, harmaline), taken as a tea or with
+/// DMT as an ayahuasca analogue. No human timing or dose studies were found, so
+/// no dose figures; the oral timings are the owner's. It shares Ayahuasca's
+/// interactions, which come from the same harmala alkaloids.
 const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
     name: "Psilocybin",
     aliases: &["pure psilocybin", "synthetic psilocybin", "COMP360"],
@@ -781,6 +800,21 @@ const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
         name: "oral",
         stages: Stages {
             onset: Some("20 minutes"), come_up: Some("30 minutes"), peak: Some("2–3 hours"), offset: Some("2–3 hours"), total: Some("6 hours"),
+            ..NO_STAGES
+        },
+        ..BLANK
+    }],
+}, ExtraSubstance {
+    name: "Syrian Rue",
+    aliases: &["Syrian Rue Tea", "Peganum harmala", "harmal", "harmala", "esfand", "espand"],
+    like: Some("Ayahuasca"),
+    psychoactive: &[],
+    chemical: &[],
+    note: "No dose figures: Syrian rue seed varies in strength and hasn't been dosed in human studies. Its oral timings are from the Field Notes maintainer's own use, not a study. Its harmala alkaloids are an MAOI, so it shares Ayahuasca's interactions, and the MAOI effect lasts longer than what you feel: allow a day or more before anything that interacts with an MAOI.",
+    routes: &[RouteSpec {
+        name: "oral",
+        stages: Stages {
+            onset: Some("15 minutes"), come_up: Some("30 minutes"), peak: Some("1–2 hours"), offset: Some("3 hours"), total: Some("6–8 hours"),
             ..NO_STAGES
         },
         ..BLANK
@@ -987,6 +1021,33 @@ mod tests {
         assert_eq!((rec.onset.as_deref(), rec.total.as_deref()), (Some("5–20 minutes"), Some("1–2 hours")));
         let d = route(&subs, "Dextromethorphan", "oral");
         assert_eq!((d.total.as_deref(), d.peak.as_deref()), (Some("4–8 hours"), None));
+    }
+
+    /// Issues #32 and #33's new suggestions, as the owner decided them.
+    #[test]
+    fn second_batch_of_suggestions_is_applied() {
+        let subs = bundled();
+        let reference: Vec<(String, Vec<String>)> = subs.iter().map(|s| (s.name.clone(), s.common_names.clone())).collect();
+        let names = crate::names::NameIndex::new(&[], &reference);
+        let note = |n: &str| subs.iter().find(|s| s.name == n).unwrap().dose_note.clone().unwrap();
+
+        let m = route(&subs, "Mescaline", "oral");
+        assert_eq!((m.come_up.as_deref(), m.offset.as_deref()), (Some("60 minutes"), Some("3–6 hours")));
+        assert_eq!(m.total.as_deref(), Some("6–14 hours"), "Klaiber 2024's range");
+        assert_eq!(m.onset.as_deref(), Some("60–180 minutes"), "DoseWiki's onset is kept");
+        assert!(note("Mescaline").contains("Klaiber") && note("Mescaline").contains("maintainer's own use"));
+        assert_eq!(names.canonical("San Pedro Powder").as_deref(), Some("Mescaline"));
+
+        let r = route(&subs, "Syrian Rue", "oral");
+        assert_eq!((r.peak.as_deref(), r.total.as_deref()), (Some("1–2 hours"), Some("6–8 hours")));
+        assert_eq!((r.threshold, r.common.min, r.heavy), (None, None, None), "no dose figures without a study");
+        let rue = subs.iter().find(|s| s.name == "Syrian Rue").unwrap();
+        let aya = subs.iter().find(|s| s.name == "Ayahuasca").unwrap();
+        let named = |s: &PwInfo| s.interactions.iter().map(|i| (i.name.clone(), i.severity.clone())).collect::<Vec<_>>();
+        assert!(!rue.interactions.is_empty());
+        assert_eq!(named(rue), named(aya), "shares Ayahuasca's MAOI interactions");
+        assert_eq!(names.canonical("Syrian Rue Tea").as_deref(), Some("Syrian Rue"));
+        assert!(note("Syrian Rue").contains("MAOI"));
     }
 
     /// Issue #23's suggestions, as the owner decided them.
