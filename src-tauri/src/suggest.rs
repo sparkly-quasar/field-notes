@@ -205,7 +205,7 @@ pub fn pending(conn: &Connection) -> rusqlite::Result<Vec<Item>> {
         match seen {
             None => out.push(item),
             Some((_, state)) if state == "private" => {}
-            Some((content, _)) if content != value.to_string() => {
+            Some((content, _)) if !same_words(&content, &value) => {
                 item.changed = true;
                 out.push(item);
             }
@@ -213,6 +213,20 @@ pub fn pending(conn: &Connection) -> rusqlite::Result<Vec<Item>> {
         }
     }
     Ok(out)
+}
+
+/// What was shared still says what the person says now. Only their own words
+/// count: whether the reference has the substance (`in_reference`) moves with
+/// the reference, and isn't the person changing anything.
+fn same_words(shared: &str, now: &Value) -> bool {
+    let strip = |v: &Value| {
+        let mut v = v.clone();
+        if let Some(o) = v.as_object_mut() {
+            o.remove("in_reference");
+        }
+        v
+    };
+    serde_json::from_str::<Value>(shared).is_ok_and(|s| strip(&s) == strip(now))
 }
 
 /// The pending list, and whether to ask about it on `today` (the local date).
@@ -419,6 +433,15 @@ mod tests {
         let p = pending(&conn).unwrap();
         assert_eq!(keys(&p), ["timings:nurtec"], "private stays private, even edited");
         assert!(p[0].changed);
+    }
+
+    #[test]
+    fn the_reference_catching_up_is_not_a_change() {
+        let conn = setup();
+        mark(&conn, &["timings:nurtec".into()], false).unwrap();
+        // A newer reference now has Nurtec (without timings): the person changed nothing.
+        conn.execute("INSERT INTO pw_substances (name, data) VALUES ('Nurtec', '{}')", []).unwrap();
+        assert_eq!(keys(&suggestions(&conn, None).unwrap().items), ["substance:ethylphenidate"]);
     }
 
     #[test]
