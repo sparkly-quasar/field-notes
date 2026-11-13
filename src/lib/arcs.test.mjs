@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DRINKS_PER_HOUR,
+  amountsText,
   amountAt,
   buildSeries,
   drinksAt,
@@ -292,4 +293,28 @@ test("a sitter report never draws the sitter's own doses", async () => {
   const mush = { id: 2, substance_name: "Psilocybin Mushrooms" };
   const coffee = { id: 1, substance_name: "Caffeine" };
   assert.deepEqual(arcDosesFor({ doses: [mush], sitting: true }, [coffee]), [mush]);
+});
+
+// ---- cactus: only its mescaline estimate is a dose
+
+test("a cactus dose is drawn by its mescaline estimate, on mescaline's ranges", () => {
+  const stages = { onset: "60–180 minutes", come_up: "60 minutes", peak: "1.9–4 hours", offset: "3–6 hours", after_effects: "3–5 hours", total: "6–14 hours", half_life: null };
+  const MESC = { name: "Mescaline", common_names: [], psychoactive: ["Psychedelic"], chemical: [], interactions: [],
+    roas: [{ name: "oral", units: "mg", threshold: 100, light: range(100, 200), common: range(200, 400), strong: range(400, 700), heavy: 700, ...stages }] };
+  const SP = { name: "San Pedro", common_names: ["San Pedro powder"], psychoactive: ["Psychedelic"], chemical: [], interactions: [],
+    roas: [{ name: "oral", units: null, threshold: null, light: range(null, null), common: range(null, null), strong: range(null, null), heavy: null, ...stages }] };
+  const ref = (n) => ({ mescaline: MESC, "san pedro": SP, "san pedro powder": SP })[n.trim().toLowerCase()] ?? null;
+
+  const est = dose("San Pedro powder", 20, "g", 0, "oral", { estimate: 250, estimate_unit: "mg mescaline" });
+  const [s] = buildSeries([est], ref);
+  assert.equal(s.doses[0].amount, 250, "the estimate, not 20 g read as 20,000 mg");
+  assert.ok(s.tiers, "it gets a height");
+  assert.equal(tierOf(s.roa, 250), "common");
+  assert.equal(s.unit, "mg mescaline");
+  assert.equal(s.stages.total[1], 14, "San Pedro's own timings");
+  assert.equal(amountsText(s), "20 g (about 250 mg mescaline)");
+
+  const [plain] = buildSeries([dose("San Pedro powder", 1.5, "g", 0)], ref);
+  assert.equal(plain.doses[0].amount, null, "a weight of cactus alone is never compared");
+  assert.equal(plain.tiers, null, "no height, timing only");
 });

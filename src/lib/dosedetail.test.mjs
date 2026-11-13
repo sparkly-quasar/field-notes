@@ -88,3 +88,14 @@ test("microdose cutoffs: the table, a psychedelic's threshold, or never", async 
   assert.equal(microCutoff("25I-NBOMe", true, 50, "µg"), null);
   assert.equal(microCutoff("Caffeine", false, 10, "mg"), null);
 });
+
+test("cactus is its mescaline estimate or nothing, never its weight", async () => {
+  const { isCactus } = await import("./dosedetail.ts");
+  for (const n of ["San Pedro", "san pedro powder", "Huachuma", "Peruvian torch", "Peyote", "cactus"]) assert.ok(isCactus(n), n);
+  for (const n of ["Mescaline", "Psilocybin mushrooms", "Prickly pear"]) assert.ok(!isCactus(n), n);
+  assert.equal(measure("San Pedro", 1500, "mg", {}), null);
+  assert.deepEqual(measure("San Pedro", 20, "g", { estimate: 150, estimate_unit: "mg mescaline" }), { amount: 150, unit: "mg", approx: true });
+  assert.equal(measure("San Pedro", 20, "g", { estimate: 150, estimate_unit: "g" }), null, "only a mescaline estimate counts");
+  assert.equal(describeAmount("San Pedro", 20, "g", { estimate: 150, estimate_unit: "mg mescaline" }), "20 g (about 150 mg mescaline)");
+  assert.equal(describeAmount("San Pedro", 1.5, "g", {}), "1.5 g");
+});

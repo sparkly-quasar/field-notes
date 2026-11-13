@@ -162,7 +162,11 @@ cactus, sharing Mescaline's interactions and timings, with no dose figures:
 mescaline content runs from 0.05% to 4.7% across San Pedro-type cacti
 (Ogunbodede et al. 2010), and DoseWiki's own note says its figures are for the
 pure HCl. Doses already saved as Mescaline stay as they are; edit the name to
-San Pedro to move one.
+San Pedro to move one. v0.35.1 (owner's choice, 2026-11-13): a cactus dose can
+carry the person's own estimate of its mescaline (mg, or worked out from the
+batch's %), saved as the dose's estimate in "mg mescaline". Only that estimate
+is tiered, against Mescaline's ranges, and shown as "about"; Stats charts it on
+its own "mg mescaline" axis. The weight of cactus is still never compared.
 
 Each item is shared (never asked about again; if edited, listed in Settings as
 changed but not counted by the reminder, since v0.33.1; tracked in

@@ -97,6 +97,22 @@ export function isMushroom(substance: string): boolean {
   return !s.includes("truffle") && /mushroom|shroom|mushies/.test(s);
 }
 
+/**
+ * Mescaline cacti (San Pedro and the other torch cacti, peyote), by any name
+ * they're logged under. A weight of cactus says nothing about the dose, so the
+ * only amount compared with ranges is the person's own estimate of the
+ * mescaline in it, read against Mescaline's (`CACTUS_ESTIMATE`).
+ */
+export function isCactus(substance: string): boolean {
+  return /san pedro|peyote|huachuma|wachuma|\btorch\b|pachanoi|peruvian|lageniformis|bridgesii|lophophora|mescal buttons|^cactus$|^buttons$/.test(
+    substance.trim().toLowerCase(),
+  );
+}
+
+/** A cactus dose's estimate unit, and the reference entry its ranges come from. */
+export const CACTUS_ESTIMATE = "mg mescaline";
+export const CACTUS_RANGES_FROM = "Mescaline";
+
 /** Fresh psilocybin mushrooms are about 90% water: `FRESH_TO_DRIED` in stats.rs. */
 export const FRESH_TO_DRIED = 10;
 
@@ -149,6 +165,12 @@ export function measure(
   unit: string,
   d: DoseDetail = {},
 ): Measured | null {
+  // Cactus: only an estimate of its mescaline is a dose; its own weight isn't.
+  if (isCactus(substance)) {
+    return d.estimate != null && Number.isFinite(d.estimate) && d.estimate_unit === CACTUS_ESTIMATE
+      ? { amount: d.estimate, unit: "mg", approx: true }
+      : null;
+  }
   if (amount == null || !Number.isFinite(amount)) {
     if (d.form === "edible" && d.estimate != null && isMassUnit(d.estimate_unit ?? "")) {
       return { amount: d.estimate, unit: massUnit(d.estimate_unit!)!, approx: true };
@@ -197,6 +219,10 @@ export function describeAmount(
       const of = d.estimate_unit === "g" ? "g dried mushroom" : d.estimate_unit;
       text += ` (about ${fmt(d.estimate)} ${of})`;
     }
+    return text;
+  }
+  if (isCactus(substance)) {
+    if (d.estimate != null && d.estimate_unit === CACTUS_ESTIMATE) text += ` (about ${fmt(d.estimate)} mg mescaline)`;
     return text;
   }
   const m = measure(substance, amount, unit, d);

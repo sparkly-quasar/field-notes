@@ -438,6 +438,9 @@ fn is_mushroom(key: &str) -> bool {
     !key.contains("truffle") && (key.contains("mushroom") || key.contains("shroom") || key.contains("mushies"))
 }
 
+/// A cactus dose's estimate of its mescaline (`CACTUS_ESTIMATE` in dosedetail.ts).
+const CACTUS_ESTIMATE: &str = "mg mescaline";
+
 /// Fresh psilocybin mushrooms are about 90% water, so a fresh weight is about
 /// ten times its dried weight. Water content varies (roughly 85 to 92%), which
 /// is why the result is always shown as "about".
@@ -467,6 +470,20 @@ struct Measure {
 fn measure(key: &str, r: &Row) -> Measure {
     let d = &r.detail;
     let as_logged = |unit: String| Measure { unit, amount: r.amount, logged_amount: None, logged_unit: None, approx: false };
+    // Cactus with the person's estimate of its mescaline (`isCactus` in
+    // dosedetail.ts): the estimate is the dose, on its own axis. Without one,
+    // the weight of cactus stays as logged, never compared with mescaline's.
+    if d.estimate_unit == CACTUS_ESTIMATE {
+        if let Some(e) = d.estimate {
+            return Measure {
+                unit: CACTUS_ESTIMATE.into(),
+                amount: Some(e),
+                logged_amount: r.amount,
+                logged_unit: Some(r.unit.trim().to_string()),
+                approx: true,
+            };
+        }
+    }
     match canon_unit(&d.form).as_str() {
         "7-oh" => return as_logged(format!("{} (7-OH)", r.unit)),
         "extract" => return as_logged(format!("{} (extract)", r.unit)),
@@ -938,6 +955,25 @@ mod tests {
         assert_eq!(
             shown(&c),
             vec![("g".to_string(), vec![(Some(0.3), Some("3 g fresh".into()), true), (Some(0.5), None, false)])]
+        );
+    }
+
+    #[test]
+    fn a_cactus_dose_with_a_mescaline_estimate_charts_the_estimate() {
+        let c = journal();
+        let e = session(&c, "session", "2026-11-01T20:00:00Z");
+        let e2 = session(&c, "session", "2026-11-08T20:00:00Z");
+        let est = db::DoseDetail { estimate: Some(150.0), estimate_unit: "mg mescaline".into(), ..Default::default() };
+        dose_with(&c, e, "San Pedro", Some(20.0), "g", "2026-11-01T20:00:00Z", est);
+        dose_with(&c, e2, "San Pedro", Some(1.5), "g", "2026-11-08T20:00:00Z", db::DoseDetail::default());
+        let mut got = shown(&c);
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            got,
+            vec![
+                ("g".to_string(), vec![(Some(1.5), None, false)]),
+                ("mg mescaline".to_string(), vec![(Some(150.0), Some("20 g".into()), true)]),
+            ]
         );
     }
 
