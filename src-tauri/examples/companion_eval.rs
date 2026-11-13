@@ -224,6 +224,7 @@ fn seed_session(dbh: &Db, spec: &Value) -> Result<Option<i64>, String> {
             intention: String::new(),
             setting: String::new(),
             started_at,
+            sitting: false,
         })
     })?;
 

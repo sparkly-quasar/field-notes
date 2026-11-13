@@ -11,6 +11,23 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.35.0
+
+- **Sitting for someone.** Start a live trip report as their sitter, or tick
+  "I was sitting for someone" in Edit on one you've already started. Its doses
+  are theirs: its active doses and combination warnings show only what they
+  took, and none of it counts as yours on Today, in Check, in your combination
+  checks or in Stats. Anything you take while sitting goes in its own entry
+  (on the phone, **+ Log my own dose** on the live card). The Companion knows
+  the doses aren't yours, and won't log a dose into a report you're sitting for.
+- **San Pedro and peyote are cactus, not pure mescaline.** San Pedro powder,
+  huachuma, Peruvian torch and peyote now have their own entries, logged in
+  grams, with mescaline's timings and interaction warnings. They have no dose
+  ranges, because how much mescaline a cactus holds varies too much for a
+  weight to say how strong a dose is, so a few grams of San Pedro is no longer
+  shown as a heavy dose of mescaline. A dose you already saved as Mescaline
+  stays as it is: open it and change the name to San Pedro to move it.
+
 ## v0.34.6
 
 - **San Pedro is found as mescaline.** Logging San Pedro powder, huachuma or
