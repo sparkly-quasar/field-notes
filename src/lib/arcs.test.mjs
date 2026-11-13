@@ -276,3 +276,20 @@ test("a block's height counts only the doses still felt, not yesterday's", () =>
   assert.equal(heightFor(s, amountAt(s, now, now)), TIER_HEIGHT.strong);
   assert.equal(tierOf(s.roa, 3), "strong");
 });
+
+// ---- a sitter report's arcs are only the person being sat for
+
+test("a live report draws its own doses with whatever else is still active in you", async () => {
+  const { arcDosesFor } = await import("./arcs.ts");
+  const mush = { id: 2, substance_name: "Psilocybin Mushrooms" };
+  const coffee = { id: 1, substance_name: "Caffeine" };
+  assert.deepEqual(arcDosesFor({ doses: [mush] }, [coffee, mush]), [mush, coffee], "own report: one body, the same dose once");
+  assert.deepEqual(arcDosesFor(null, [coffee]), [coffee], "no live report: what's active in you");
+});
+
+test("a sitter report never draws the sitter's own doses", async () => {
+  const { arcDosesFor } = await import("./arcs.ts");
+  const mush = { id: 2, substance_name: "Psilocybin Mushrooms" };
+  const coffee = { id: 1, substance_name: "Caffeine" };
+  assert.deepEqual(arcDosesFor({ doses: [mush], sitting: true }, [coffee]), [mush]);
+});

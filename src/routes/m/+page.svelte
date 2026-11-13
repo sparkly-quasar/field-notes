@@ -138,6 +138,7 @@
   import DateTimeField from "$lib/DateTimeField.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
   import ActiveArcs from "$lib/ActiveArcs.svelte";
+  import { arcDosesFor } from "$lib/arcs";
   import { discreet, hiding, setDiscreet, shown as nameShown } from "$lib/discreet.svelte";
   import DiscreetToggle from "$lib/DiscreetToggle.svelte";
   import Icon from "$lib/Icon.svelte";
@@ -262,6 +263,8 @@
   // start a live session
   let sTitle = $state("");
   let sIntention = $state("");
+  /** Starting it as someone's sitter: their doses, kept apart from yours. */
+  let sSitting = $state(false);
 
   // log a past session, step 1
   let pWhen = $state("");
@@ -290,6 +293,7 @@
   let enRating = $state("");
   let enIntention = $state("");
   let enSetting = $state("");
+  let enSitting = $state(false);
   let wuText = $state("");
   let endAt = $state("");
   let endRating = $state("");
@@ -976,10 +980,7 @@
     }
   }
   /** The live entry's doses (fresh right after logging) with everything else recent. */
-  const arcDoses = $derived.by(() => {
-    const own = session?.doses ?? [];
-    return [...own, ...activeDoses.filter((d) => !own.some((o) => o.id === d.id))];
-  });
+  const arcDoses = $derived.by(() => arcDosesFor(session, activeDoses));
   /** Fill the combination check with what's still active, ready for one more name. */
   function checkActive(names: string[]) {
     comboText = names.join(", ") + ", ";
@@ -1340,9 +1341,10 @@
   // after the first substance logged into it (`name_after_first_dose` in db.rs).
   const submitStart = () =>
     run("start", async () => {
-      await createExperience({ title: sTitle.trim(), intention: sIntention.trim(), started_at: new Date().toISOString() });
+      await createExperience({ title: sTitle.trim(), intention: sIntention.trim(), started_at: new Date().toISOString(), sitting: sSitting });
       sTitle = "";
       sIntention = "";
+      sSitting = false;
       closeSheet();
       await refresh();
       view = "today";
@@ -1473,6 +1475,7 @@
     enRating = open.rating != null ? String(open.rating) : "";
     enIntention = open.intention;
     enSetting = open.setting;
+    enSitting = !!open.sitting;
     sheet = "details";
   }
 
@@ -1486,6 +1489,8 @@
       rating: patch.rating !== undefined ? patch.rating : e.rating,
       started_at: patch.started_at ?? e.started_at,
       ended_at: patch.ended_at !== undefined ? patch.ended_at : e.ended_at,
+      // Only when changing it: left out, the computer keeps what it has.
+      ...(patch.sitting !== undefined ? { sitting: patch.sitting } : {}),
     });
 
   const saveDetails = () =>
@@ -1501,6 +1506,7 @@
         rating: num(enRating, "rating"),
         started_at: start,
         ended_at: open.kind === "note" ? null : end,
+        ...(open.kind === "session" && enSitting !== !!open.sitting ? { sitting: enSitting } : {}),
       });
       closeSheet();
       await refresh();
@@ -2082,6 +2088,7 @@
         {titleOf(e, e.kind === "note" ? "Untitled note" : "Untitled")}
         {#if e.kind === "note"}<span class="tag">note</span>{/if}
         {#if e.kind === "session" && !e.ended_at}<span class="tag live">live</span>{/if}
+        {#if e.sitting && !hiding()}<span class="tag">sitting</span>{/if}
       </span>
       {#if e.kind === "session"}
         <span class="meta">
@@ -2335,7 +2342,7 @@
       {#if session}
         {@const live = session}
         <section class="pane live-card">
-          <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Live trip report</p>
+          <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>{live.sitting ? "Live trip report · sitting" : "Live trip report"}</p>
           <h1 class="entry-title">{titleOf(live, "Untitled experience")}</h1>
           <p class="muted">
             Started {hhmm(live.started_at)}{#if t0Of(live)}{" · now "}{rel(new Date(nowTick).toISOString(), t0Of(live))}{/if}
@@ -2356,6 +2363,10 @@
             <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
             <button class="moment log" onclick={() => startMoment(live)}>+ Moment</button>
           </div>
+          {#if live.sitting}
+            <!-- The sitter's own coffee goes in its own entry, never into theirs. -->
+            <button class="ghost small open-link" onclick={() => startDose(null)}>+ Log my own dose</button>
+          {/if}
           <button class="ghost small open-link" onclick={openLive}>Open trip report ›</button>
           <!-- Ending sits apart from logging and from Help, so it isn't hit by accident. -->
           <div class="end-row">
@@ -2449,6 +2460,9 @@
           <p class="facts">
             {span(e)}{e.rating != null ? ` · Rated ${e.rating}/10` : ""}
           </p>
+          {#if e.sitting}
+            <p class="muted">You sat for someone in this one. Its doses are theirs, not counted as yours.</p>
+          {/if}
 
           {#if warnFor[e.id]?.length}
             {@render warnings(warnFor[e.id])}
@@ -2792,9 +2806,17 @@
             <li>
               <button onclick={() => startDose(session)}>
                 <strong>Log a dose</strong>
-                <span class="muted">{session ? "Into the live trip report" : "A substance and roughly when — any day"}</span>
+                <span class="muted">{session ? (session.sitting ? "Into the trip report you're sitting for" : "Into the live trip report") : "A substance and roughly when — any day"}</span>
               </button>
             </li>
+            {#if session?.sitting}
+              <li>
+                <button onclick={() => startDose(null)}>
+                  <strong>Log my own dose</strong>
+                  <span class="muted">Something you took, kept apart from theirs</span>
+                </button>
+              </li>
+            {/if}
             {#if session}
               <li>
                 <button onclick={() => startMoment(session!)}>
@@ -2980,6 +3002,10 @@
           <label for="s-title">Title (optional)</label>
           <input id="s-title" bind:value={sTitle} />
           <p class="hint">Leave it blank and it takes the name of the first substance you log.</p>
+          <label class="check"><input type="checkbox" bind:checked={sSitting} /> I'm sitting for someone. Their doses stay separate from mine</label>
+          {#if sSitting}
+            <p class="hint">Log their doses here. Anything you take goes in its own entry with + Log my own dose, and the two are never mixed in active doses, combination checks or Stats.</p>
+          {/if}
           <label class="check"><input type="checkbox" checked={night} onchange={(e) => setNight(e.currentTarget.checked)} /> Dim (red) screen for this trip report</label>
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={submitStart}>{busyKey === "start" ? "Starting…" : "Start"}</button>
@@ -3072,6 +3098,7 @@
             <textarea id="en-int" class="reflect" rows="2" bind:value={enIntention}></textarea>
             <label for="en-set">Setting</label>
             <textarea id="en-set" class="reflect" rows="2" bind:value={enSetting}></textarea>
+            <label class="check"><input type="checkbox" bind:checked={enSitting} /> I was sitting for someone. These doses are theirs, not mine</label>
           {/if}
           <div class="sheet-actions">
             <button class="primary" disabled={busy} onclick={saveDetails}>{busyKey === "details" ? "Saving…" : "Save"}</button>

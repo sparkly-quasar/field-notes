@@ -172,11 +172,17 @@ export async function allWarnings(
 ): Promise<Warning[]> {
   const t = new Date(at).getTime();
   const minutes = (iso: string) => (Number.isFinite(Date.parse(iso)) ? Date.parse(iso) / 60_000 : null);
+  const all = await listExperiences();
   // The entry's own check (`own`) already covers it, and knows when each dose was
   // taken; checking its doses again here would bring back pairs that never met.
-  const nearby = (await listExperiences()).filter(
-    (e) => e.id !== entryId && Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000,
-  );
+  // Bodies don't mix across a sitter report: one is only checked against itself,
+  // and your own doses are never checked against the person you sat for.
+  const sitting = !!all.find((e) => e.id === entryId)?.sitting;
+  const nearby = sitting
+    ? []
+    : all.filter(
+        (e) => e.id !== entryId && !e.sitting && Math.abs(new Date(e.started_at).getTime() - t) < NEARBY_HOURS * 3600_000,
+      );
   const parts = (d: { amount?: number | null; unit?: string } & DoseDetail) => ({
     amount: d.amount ?? null,
     unit: d.unit ?? "",
@@ -238,7 +244,8 @@ export function groupWarnings(list: Warning[]): WarningGroup[] {
 
 /** What you've logged lately, most recent first — the list worth offering as a tap. */
 export function recentSubstances(entries: ExperienceSummary[], limit = 8): string[] {
-  return [...new Set(entries.flatMap((e) => e.substances))].slice(0, limit);
+  // Your own, not what you logged for someone you sat for.
+  return [...new Set(entries.filter((e) => !e.sitting).flatMap((e) => e.substances))].slice(0, limit);
 }
 
 /**
@@ -425,15 +432,16 @@ export async function saveTripLog(title: string, lines: TripLine[], writeup = ""
 }
 
 /**
- * Every dose that may still be active now, from any trip report: the live one
- * and any started or ended in the last two days (arcs.ts `recentEntries`). What's
- * in you doesn't depend on which entry it was logged in. `have` are entries
- * already loaded, so the live one isn't fetched twice; an entry that can't be
- * read is skipped.
+ * Every dose that may still be active in you now, from any trip report: the live
+ * one and any started or ended in the last two days (arcs.ts `recentEntries`).
+ * What's in you doesn't depend on which entry it was logged in, but it does
+ * depend on whose body it was: a sitter report holds the other person's doses,
+ * so it's left out. `have` are entries already loaded, so the live one isn't
+ * fetched twice; an entry that can't be read is skipped.
  */
 export async function recentDoses(entries: ExperienceSummary[], now = Date.now(), have: ExperienceDetail[] = []): Promise<Dose[]> {
   const out: Dose[] = [];
-  for (const e of recentEntries(entries, now)) {
+  for (const e of recentEntries(entries.filter((x) => !x.sitting), now)) {
     const known = have.find((h) => h.id === e.id);
     try {
       out.push(...(known ?? (await getExperience(e.id))).doses);

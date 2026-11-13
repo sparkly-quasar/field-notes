@@ -1552,6 +1552,7 @@ mod tests {
                 intention: "unwind".into(),
                 setting: "home".into(),
                 started_at: "2026-07-10T20:00:00Z".into(),
+                sitting: false,
             },
         )
         .unwrap();

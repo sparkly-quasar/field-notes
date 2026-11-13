@@ -50,7 +50,7 @@ fn doses(conn: &Connection, key: &str, now: DateTime<Utc>) -> rusqlite::Result<V
         "SELECT d.substance_name, s.name, d.amount, d.unit, d.taken_at, d.form
          FROM doses d JOIN experiences e ON e.id = d.experience_id
          LEFT JOIN substances s ON s.id = d.substance_id
-         WHERE e.kind = 'session'",
+         WHERE e.kind = 'session' AND e.sitting = 0",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((

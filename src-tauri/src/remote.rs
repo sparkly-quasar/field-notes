@@ -511,7 +511,7 @@ fn upload_one(base: &str, token: &str, d: &db::ExperienceDetail) -> Result<i64, 
     let e = &d.experience;
     let created = send(base, token, "create_experience", json!({ "input": {
         "kind": e.kind, "title": e.title, "intention": e.intention,
-        "setting": e.setting, "started_at": e.started_at,
+        "setting": e.setting, "started_at": e.started_at, "sitting": e.sitting,
     }}))
     .map_err(|e| (e, None))?;
     let sid = created["id"].as_i64().ok_or(("The server didn't return an ID.".to_string(), None))?;

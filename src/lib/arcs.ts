@@ -603,3 +603,15 @@ export function recentEntries<E extends Pick<Experience, "id" | "kind" | "starte
     .sort((a, b) => t(b.started_at) - t(a.started_at))
     .slice(0, limit);
 }
+
+/**
+ * What a live trip report's arcs draw: its own doses (fresh right after logging),
+ * then, for your own report, everything else still active in you. A sitter
+ * report draws only its own: the coffee you had before sitting isn't in the
+ * person you're sitting for.
+ */
+export function arcDosesFor(live: { doses: Dose[]; sitting?: boolean } | null, active: Dose[]): Dose[] {
+  const own = live?.doses ?? [];
+  if (live?.sitting) return own;
+  return [...own, ...active.filter((d) => !own.some((o) => o.id === d.id))];
+}

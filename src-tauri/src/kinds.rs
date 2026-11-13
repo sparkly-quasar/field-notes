@@ -212,7 +212,7 @@ pub fn routine_pattern(conn: &Connection, key: &str, now: DateTime<Utc>) -> rusq
         "SELECT d.substance_name, s.name, d.amount, d.unit, d.taken_at, e.intention, e.rating
          FROM doses d JOIN experiences e ON e.id = d.experience_id
          LEFT JOIN substances s ON s.id = d.substance_id
-         WHERE e.kind = 'session'",
+         WHERE e.kind = 'session' AND e.sitting = 0",
     )?;
     let mut doses: Vec<(Option<f64>, String, DateTime<Local>)> = Vec::new();
     let rows = stmt.query_map([], |r| {
@@ -307,7 +307,7 @@ pub fn question(conn: &Connection, substance: &str, now: DateTime<Utc>) -> rusql
         }
         let doses: i64 = conn.query_row(
             "SELECT COUNT(*) FROM doses d JOIN experiences e ON e.id = d.experience_id
-             WHERE e.kind = 'session' AND lower(trim(d.substance_name)) IN (?1, ?2)",
+             WHERE e.kind = 'session' AND e.sitting = 0 AND lower(trim(d.substance_name)) IN (?1, ?2)",
             params![key, typed.to_lowercase()],
             |x| x.get(0),
         )?;
