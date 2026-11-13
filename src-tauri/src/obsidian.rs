@@ -364,6 +364,7 @@ pub fn import_all(conn: &Connection, vault: &Path) -> Result<ImportResult, Strin
                         rating: note.rating,
                         started_at: note.started_at.clone(),
                         ended_at: note.ended_at.clone(),
+                        sitting: None,
                     },
                 )
                 .map_err(err)?;
@@ -379,6 +380,7 @@ pub fn import_all(conn: &Connection, vault: &Path) -> Result<ImportResult, Strin
                         intention: note.intention.clone(),
                         setting: note.setting.clone(),
                         started_at: note.started_at.clone(),
+                        sitting: false,
                     },
                 )
                 .map_err(err)?;
@@ -394,6 +396,7 @@ pub fn import_all(conn: &Connection, vault: &Path) -> Result<ImportResult, Strin
                         rating: note.rating,
                         started_at: note.started_at.clone(),
                         ended_at: note.ended_at.clone(),
+                        sitting: None,
                     },
                 )
                 .map_err(err)?;
@@ -431,6 +434,7 @@ mod tests {
                 intention: String::new(),
                 setting: String::new(),
                 started_at: "2026-07-01T20:00:00Z".into(),
+                sitting: false,
             },
         )
         .unwrap();
@@ -446,6 +450,7 @@ mod tests {
                 intention: String::new(),
                 setting: String::new(),
                 started_at: "2026-07-02T09:00:00Z".into(),
+                sitting: false,
             },
         )
         .unwrap();
@@ -468,6 +473,7 @@ mod tests {
                 intention: "learn".into(),
                 setting: "home".into(),
                 started_at: "2026-07-01T20:00:00Z".into(),
+                sitting: false,
             },
         )
         .unwrap();
@@ -530,6 +536,7 @@ mod tests {
                 intention: String::new(),
                 setting: String::new(),
                 started_at: "2026-07-03T09:00:00Z".into(),
+                sitting: false,
             },
         )
         .unwrap();
@@ -544,6 +551,7 @@ mod tests {
                 rating: None,
                 started_at: "2026-07-03T09:00:00Z".into(),
                 ended_at: None,
+                sitting: None,
             },
         )
         .unwrap();

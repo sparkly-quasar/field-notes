@@ -175,6 +175,7 @@
   import TripImport from "$lib/TripImport.svelte";
   import RiskNotes from "$lib/RiskNotes.svelte";
   import ActiveArcs from "$lib/ActiveArcs.svelte";
+  import { arcDosesFor } from "$lib/arcs";
   import DateTimeField from "$lib/DateTimeField.svelte";
   import UsageStats from "$lib/UsageStats.svelte";
   import { lastDose as latestDose, span as gapText } from "$lib/livefacts";
@@ -261,10 +262,7 @@
     return () => clearInterval(t);
   });
   /** The open entry's doses (fresh right after logging) with everything else recent. */
-  const arcDoses = $derived.by(() => {
-    const own = liveSession && selected ? selected.doses : [];
-    return [...own, ...activeDoses.filter((d) => !own.some((o) => o.id === d.id))];
-  });
+  const arcDoses = $derived.by(() => arcDosesFor(liveSession && selected ? selected : null, activeDoses));
   /** Fill the combination check with what's still active, ready for one more name. */
   function checkActive(names: string[]) {
     comboText = names.join(", ") + ", ";
@@ -284,6 +282,8 @@
   // "This already happened" — when set, the session is created already ended
   // (with `neEnd`) so it reads as history rather than an ongoing session.
   let nePast = $state(false);
+  /** Starting it as someone's sitter: their doses, kept apart from yours. */
+  let neSitting = $state(false);
   let neEnd = $state("");
   let showNewExp = $state(false);
   // plain note (kind: "note") — title, body, date; nothing else
@@ -411,6 +411,7 @@
   let eTitle = $state("");
   let eIntention = $state("");
   let eSetting = $state("");
+  let eSitting = $state(false);
   let eNotes = $state("");
   let eRating = $state("");
   let eStart = $state("");
@@ -1239,6 +1240,7 @@
       intention: neIntention,
       setting: neSetting,
       started_at: startIso,
+      sitting: neSitting,
     });
     // A past experience is over the moment it's logged — mark it ended so it's
     // history, not a live session (no "ongoing", no live-session controls). If
@@ -1247,7 +1249,7 @@
       await endExperience(e.id, neEnd ? localInputToIso(neEnd) : startIso, null, "");
     }
     neTitle = neIntention = neSetting = neStart = neEnd = "";
-    nePast = false;
+    nePast = neSitting = false;
     showNewExp = false;
     await loadJournal();
     await openExperience(e.id);
@@ -1279,6 +1281,7 @@
     eTitle = selected.title;
     eIntention = selected.intention;
     eSetting = selected.setting;
+    eSitting = !!selected.sitting;
     eNotes = selected.notes;
     eRating = selected.rating != null ? String(selected.rating) : "";
     eStart = isoToLocalInput(selected.started_at);
@@ -1295,6 +1298,7 @@
       rating: eRating ? parseInt(eRating) : null,
       started_at: localInputToIso(eStart),
       ended_at: selected.ended_at,
+      ...(selected.kind === "session" ? { sitting: eSitting } : {}),
     });
     editExp = false;
     await openExperienceKeepWarnings(selected.id);
@@ -2800,6 +2804,9 @@
             </span>
           </div>
           <span class="muted small">{fmtDate(selected.started_at)} · {fmtTime(selected.started_at)}{selected.ended_at ? " → " + fmtTime(selected.ended_at) : " · ongoing"}</span>
+          {#if selected.sitting}
+            <p class="muted small sitting-note">You sat for someone in this one. Its doses are theirs: they aren't counted as yours in Stats, active doses or combination checks.</p>
+          {/if}
 
           {#if editExp}
             <div class="edit-form">
@@ -2807,6 +2814,10 @@
               <label>Started<DateTimeField bind:value={eStart} /></label>
               <label>Intention<input class="reflect" bind:value={eIntention} /></label>
               <label>Setting<input bind:value={eSetting} /></label>
+              <label class="past-toggle">
+                <input type="checkbox" bind:checked={eSitting} />
+                I was sitting for someone. These doses are theirs, not mine
+              </label>
               <label>Write-up<textarea id="exp-writeup" class="reflect" bind:value={eNotes} rows="6"></textarea></label>
               <label>Rating (0–10)<input type="number" min="0" max="10" bind:value={eRating} /></label>
               <div class="row-actions">
@@ -3079,6 +3090,10 @@
               <input type="checkbox" bind:checked={nePast} onchange={onPastToggle} />
               This already happened — I'm logging a past experience
             </label>
+            <label class="past-toggle">
+              <input type="checkbox" bind:checked={neSitting} />
+              I'm sitting for someone. Their doses stay separate from mine
+            </label>
           {/if}
 
           {#if showNewNote}
@@ -3200,6 +3215,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                         {/if}
                       </div>
                       <div class="exp-meta">
+                        {#if e.sitting && !hiding()}<span class="pill note-pill">sitting</span>{/if}
                         {#each e.substances as s}<span class="pill">{nameShown(s)}</span>{/each}
                         <span class="muted small">{e.dose_count} dose{e.dose_count === 1 ? "" : "s"}</span>
                       </div>
@@ -4625,6 +4641,10 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                  wants at a glance, against which every row below is read. -->
             {#if sessionT0}<span class="rel live-rel">· now {relTime(new Date(lsNow).toISOString(), sessionT0)}</span>{/if}
           </div>
+          {#if selected.sitting}
+            <!-- Whose doses these are, said once, so the arcs aren't read as the sitter's own. -->
+            <div class="muted small">You're sitting. Only their doses are shown and checked here.</div>
+          {/if}
           {#if latestDose(selected.doses)}
             {@const ld = latestDose(selected.doses)!}
             <!-- The question before any redose, answered without looking for it. -->
@@ -4944,6 +4964,7 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
   .new-sub-timings { margin: 0.8rem 0; display: grid; gap: 0.5rem; }
   .past-toggle { display: flex; align-items: center; gap: 0.45rem; margin: -0.3rem 0 0.8rem; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
   .past-toggle input { cursor: pointer; }
+  .sitting-note { margin: 0.35rem 0 0; }
   .new-note { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
   .new-note textarea { width: 100%; resize: vertical; }
   .note-pill { font-style: italic; }

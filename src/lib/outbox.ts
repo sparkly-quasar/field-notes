@@ -198,6 +198,7 @@ export function queue(s: State, cmd: string, args: Record<string, any>, check: S
         started_at: input.started_at ?? nowIso,
         ended_at: null,
         created_at: nowIso,
+        sitting: input.kind !== "note" && !!input.sitting,
       };
       result = preview;
       break;

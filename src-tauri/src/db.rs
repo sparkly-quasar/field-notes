@@ -49,6 +49,15 @@ pub fn open(path: &Path, key: Option<&str>) -> rusqlite::Result<Connection> {
     if has_skip == 0 {
         conn.execute_batch("ALTER TABLE experiences ADD COLUMN writeup_skipped INTEGER NOT NULL DEFAULT 0")?;
     }
+    // Migration (v0.35): a trip report kept as someone's sitter.
+    let has_sitting: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('experiences') WHERE name = 'sitting'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_sitting == 0 {
+        conn.execute_batch("ALTER TABLE experiences ADD COLUMN sitting INTEGER NOT NULL DEFAULT 0")?;
+    }
     // Migration (v0.24): what a dose was (form, per-capsule amount, an edible's
     // estimate). All default to "not said", so older doses read as before.
     for (col, ty) in [
@@ -168,7 +177,12 @@ CREATE TABLE IF NOT EXISTS experiences (
     -- The person said this one doesn't need a write-up (owner's decision
     -- 2026-10-02: a reflection is never owed). A preference, not content, so it
     -- is left out of `fingerprint`.
-    writeup_skipped INTEGER NOT NULL DEFAULT 0
+    writeup_skipped INTEGER NOT NULL DEFAULT 0,
+    -- Kept as a sitter: the doses in it are the person being sat for, not the
+    -- journal's owner. They count for that report's own arcs and warnings, and
+    -- never toward the owner's: not what's active in them, not their combination
+    -- checks, not Stats.
+    sitting     INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS doses (
@@ -527,6 +541,8 @@ pub struct Experience {
     pub created_at: String,
     /// Marked as not needing a write-up. It leaves "Waiting for a write-up".
     pub writeup_skipped: bool,
+    /// Kept as a sitter, for someone else: its doses aren't the person's own.
+    pub sitting: bool,
 }
 
 /// An experience plus the substances used in it — for list views.
@@ -579,6 +595,9 @@ pub struct ExperienceInput {
     #[serde(default)]
     pub setting: String,
     pub started_at: String,
+    /// Kept as a sitter (see `Experience::sitting`). Older clients leave it out.
+    #[serde(default)]
+    pub sitting: bool,
 }
 
 fn default_kind() -> String {
@@ -693,6 +712,7 @@ fn row_to_experience(r: &rusqlite::Row) -> rusqlite::Result<Experience> {
         ended_at: r.get("ended_at")?,
         created_at: r.get("created_at")?,
         writeup_skipped: r.get::<_, i64>("writeup_skipped")? != 0,
+        sitting: r.get::<_, i64>("sitting")? != 0,
     })
 }
 
@@ -700,9 +720,11 @@ pub fn create_experience(conn: &Connection, input: &ExperienceInput) -> rusqlite
     // Normalize, don't validate-and-reject: unknown kinds mean an older client,
     // and an older client means a session (that was the only kind there was).
     let kind = if input.kind == "note" { "note" } else { "session" };
+    // A plain note has no doses, so there's nothing to keep apart.
+    let sitting = input.sitting && kind == "session";
     conn.execute(
-        "INSERT INTO experiences (kind, title, intention, setting, started_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![kind, input.title, input.intention, input.setting, input.started_at],
+        "INSERT INTO experiences (kind, title, intention, setting, started_at, sitting) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![kind, input.title, input.intention, input.setting, input.started_at, sitting as i64],
     )?;
     let id = conn.last_insert_rowid();
     get_experience_row(conn, id)
@@ -933,6 +955,7 @@ pub struct SubstanceUsage {
 pub fn usage_by_substance(conn: &Connection) -> rusqlite::Result<Vec<SubstanceUsage>> {
     let mut stmt = conn.prepare(
         "SELECT substance_name, COUNT(*) c FROM doses
+         WHERE experience_id NOT IN (SELECT id FROM experiences WHERE sitting = 1)
          GROUP BY substance_name COLLATE NOCASE ORDER BY c DESC, substance_name",
     )?;
     let heads: Vec<(String, i64)> =
@@ -941,7 +964,9 @@ pub fn usage_by_substance(conn: &Connection) -> rusqlite::Result<Vec<SubstanceUs
     let mut out = Vec::with_capacity(heads.len());
     for (name, times) in heads {
         let mut ds = conn.prepare(
-            "SELECT * FROM doses WHERE substance_name = ?1 COLLATE NOCASE ORDER BY taken_at DESC",
+            "SELECT * FROM doses WHERE substance_name = ?1 COLLATE NOCASE
+               AND experience_id NOT IN (SELECT id FROM experiences WHERE sitting = 1)
+             ORDER BY taken_at DESC",
         )?;
         let doses: Vec<Dose> = ds
             .query_map([&name], dose_from_row)?
@@ -969,6 +994,9 @@ pub struct ExperienceUpdate {
     pub rating: Option<i64>,
     pub started_at: String,
     pub ended_at: Option<String>,
+    /// Kept as a sitter or not; left out (an older phone or laptop), it stays as it was.
+    #[serde(default)]
+    pub sitting: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1002,6 +1030,12 @@ pub fn update_experience(conn: &Connection, id: i64, u: &ExperienceUpdate) -> ru
              started_at=?7, ended_at=?8 WHERE id=?1",
         params![id, u.title, u.intention, u.setting, u.notes, u.rating, u.started_at, u.ended_at],
     )?;
+    if let Some(sitting) = u.sitting {
+        conn.execute(
+            "UPDATE experiences SET sitting = ?2 WHERE id = ?1 AND kind = 'session'",
+            params![id, sitting as i64],
+        )?;
+    }
     get_experience_row(conn, id)
 }
 
@@ -1666,6 +1700,7 @@ mod tests {
             kind: "session".into(),
             title: "test".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-01-01T20:00:00Z".into(),
+            sitting: false,
         }).unwrap();
 
         let (_d1, w1) = log_dose(&c, &DoseInput {
@@ -1706,6 +1741,7 @@ mod tests {
                 kind: "session".into(), title: title.into(),
                 intention: String::new(), setting: String::new(),
                 started_at: started_at.into(),
+                sitting: false,
             }).unwrap()
         };
         let dose = |exp: i64, name: &str, at: &str| {
@@ -1737,6 +1773,7 @@ mod tests {
             title: String::new(), intention: String::new(), setting: String::new(),
             notes: String::new(), rating: None,
             started_at: "2026-08-01T20:00:00Z".into(), ended_at: None,
+            sitting: None,
         }).unwrap();
         dose(auto.id, "caffeine", "2026-08-01T22:00:00Z");
         assert_eq!(get_experience_row(&c, auto.id).unwrap().title, "");
@@ -1749,6 +1786,7 @@ mod tests {
             kind: "session".into(),
             title: "test".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-01-01T20:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         let ev = add_timeline_event(&c, &TimelineInput {
             experience_id: exp.id, at: "2026-01-01T21:00:00Z".into(),
@@ -1781,6 +1819,7 @@ mod tests {
             kind: "diary".into(), title: "old client".into(),
             intention: String::new(), setting: String::new(),
             started_at: "2026-07-01T09:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         assert_eq!(weird.kind, "session");
 
@@ -1788,6 +1827,7 @@ mod tests {
             kind: "note".into(), title: "just a day".into(),
             intention: String::new(), setting: String::new(),
             started_at: "2026-07-02T09:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         assert_eq!(note.kind, "note");
 
@@ -1811,6 +1851,7 @@ mod tests {
             title: "just a day".into(), intention: String::new(), setting: String::new(),
             notes: "wrote some words".into(), rating: None,
             started_at: "2026-07-02T09:00:00Z".into(), ended_at: None,
+            sitting: None,
         }).unwrap();
         assert_eq!(edited.kind, "note");
     }
@@ -1846,11 +1887,59 @@ mod tests {
     }
 
     #[test]
+    fn a_sitter_report_keeps_its_doses_out_of_your_own() {
+        let c = mem();
+        let mk = |sitting: bool, at: &str| create_experience(&c, &ExperienceInput {
+            kind: "session".into(), title: String::new(), intention: String::new(),
+            setting: String::new(), started_at: at.into(), sitting,
+        }).unwrap();
+        let mine = mk(false, "2026-11-13T08:00:00Z");
+        let theirs = mk(true, "2026-11-13T10:00:00Z");
+        assert!(!mine.sitting && theirs.sitting);
+        dose(&c, mine.id, "Caffeine", "oral", "2026-11-13T08:00:00Z");
+        dose(&c, theirs.id, "Psilocybin Mushrooms", "oral", "2026-11-13T10:00:00Z");
+        // It's still a trip report in its own right: listed, with its doses.
+        assert_eq!(get_experience(&c, theirs.id).unwrap().doses.len(), 1);
+        assert!(list_experiences(&c).unwrap().iter().any(|e| e.experience.sitting));
+        // But not part of what you've taken.
+        let used: Vec<String> = usage_by_substance(&c).unwrap().into_iter().map(|u| u.substance_name).collect();
+        assert_eq!(used, vec!["Caffeine".to_string()]);
+    }
+
+    #[test]
+    fn an_edit_can_make_a_report_a_sitter_one_and_an_older_client_leaves_it_be() {
+        let c = mem();
+        let e = create_experience(&c, &ExperienceInput {
+            kind: "session".into(), title: "Sitting for M".into(), intention: String::new(),
+            setting: String::new(), started_at: "2026-11-13T10:00:00Z".into(), sitting: false,
+        }).unwrap();
+        let upd = |sitting: Option<bool>| ExperienceUpdate {
+            title: e.title.clone(), intention: String::new(), setting: String::new(), notes: String::new(),
+            rating: None, started_at: e.started_at.clone(), ended_at: None, sitting,
+        };
+        assert!(update_experience(&c, e.id, &upd(Some(true))).unwrap().sitting);
+        assert!(update_experience(&c, e.id, &upd(None)).unwrap().sitting, "left out, it stays");
+        assert!(!update_experience(&c, e.id, &upd(Some(false))).unwrap().sitting);
+        // A JSON edit from an older phone has no `sitting` at all.
+        let old: ExperienceUpdate = serde_json::from_value(serde_json::json!({
+            "title": "x", "started_at": "2026-11-13T10:00:00Z", "ended_at": null, "rating": null
+        })).unwrap();
+        assert_eq!(old.sitting, None);
+        // A plain note is never a sitter report: it has no doses to keep apart.
+        let note = create_experience(&c, &ExperienceInput {
+            kind: "note".into(), title: "n".into(), intention: String::new(),
+            setting: String::new(), started_at: "2026-11-13T10:00:00Z".into(), sitting: true,
+        }).unwrap();
+        assert!(!note.sitting);
+    }
+
+    #[test]
     fn a_write_up_can_be_skipped_and_unskipped_without_changing_the_entry() {
         let c = mem();
         let e = create_experience(&c, &ExperienceInput {
             kind: "session".into(), title: "Quick one".into(), intention: String::new(),
             setting: String::new(), started_at: "2026-10-01T20:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         assert!(!e.writeup_skipped);
         let before = fingerprint(&serde_json::to_value(get_experience(&c, e.id).unwrap()).unwrap());
@@ -1867,6 +1956,7 @@ mod tests {
             let e = create_experience(&c, &ExperienceInput {
                 kind: "session".into(), title: "Evening".into(), intention: String::new(),
                 setting: String::new(), started_at: at.into(),
+                sitting: false,
             }).unwrap();
             log_dose(&c, &DoseInput {
                 experience_id: e.id, substance_name: "Caffeine".into(), amount: Some(100.0),
@@ -1895,6 +1985,7 @@ mod tests {
             kind: "session".into(),
             title: "t".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-09-01T20:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         let fresh = DoseDetail { form: "fresh".into(), ..Default::default() };
         let (dose, _) = log_dose(&c, &DoseInput {
@@ -2016,6 +2107,7 @@ mod tests {
             kind: "session".into(),
             title: "t".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-09-01T20:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         (c, exp.id)
     }
@@ -2126,6 +2218,7 @@ mod tests {
             kind: "session".into(),
             title: "t".into(), intention: String::new(), setting: String::new(),
             started_at: "2026-01-01T00:00:00Z".into(),
+            sitting: false,
         }).unwrap();
         let mut last = Vec::new();
         for (name, at) in [("MDMA", "2026-01-01T00:00:00Z"), ("Tramadol", "2026-01-01T01:00:00Z")] {
@@ -2184,7 +2277,7 @@ mod tests {
     fn only_some_experiences_ask_for_a_write_up() {
         let c = bundled();
         let entry = |names: &[&str]| {
-            let e = create_experience(&c, &ExperienceInput { kind: "session".into(), title: names.join("+"), intention: String::new(), setting: String::new(), started_at: "2026-10-01T20:00:00Z".into() }).unwrap();
+            let e = create_experience(&c, &ExperienceInput { kind: "session".into(), title: names.join("+"), intention: String::new(), setting: String::new(), started_at: "2026-10-01T20:00:00Z".into(), sitting: false }).unwrap();
             for n in names {
                 dose(&c, e.id, n, "oral", "2026-10-01T20:00:00Z");
             }
@@ -2262,6 +2355,7 @@ mod tests {
         create_experience(c, &ExperienceInput {
             kind: "session".into(), title: "t".into(), intention: String::new(), setting: String::new(),
             started_at: "2025-12-31T17:30:00Z".into(),
+            sitting: false,
         }).unwrap().id
     }
 

@@ -54,6 +54,11 @@ show you how to get past it.
   range and what a redose does for it. Anything logged in the last two days that
   may still be active shows on Today and in Check, live trip report or not, and a
   finished trip report keeps its arcs with your moments on them.
+- **Sitting for someone** — start a trip report as their sitter (or tick it on
+  one you've already started) and its doses are kept as theirs: its arcs and
+  warnings show only what they took, and none of it counts as yours in Today,
+  combination checks or Stats. Anything you take while sitting is logged as your
+  own dose, in its own entry.
 - **Combination warnings** — every dose is checked against the others taken
   around the same time for well-documented risky combinations. Each shows as a
   quiet note you can tap for what the risk is and what lowers it, and there's a

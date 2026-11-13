@@ -733,7 +733,16 @@ fn session_context(conn: &rusqlite::Connection, id: i64) -> Option<String> {
     } else {
         ("CURRENT EXPERIENCE CONTEXT (from the user's private journal).", "Doses logged so far")
     };
-    let mut s = format!("{header}\nExperience: \"{title}\".\n{doses_label}:\n");
+    let mut s = format!("{header}\nExperience: \"{title}\".\n");
+    // Kept as a sitter: the doses are someone else's. Without this the model
+    // reads them as the person's own and asks how *they* are feeling on them.
+    if detail.experience.sitting {
+        s.push_str(
+            "The person is SITTING for someone else in this trip report. The doses below were \
+             taken by the person being sat for, not by the person you're talking with.\n",
+        );
+    }
+    s.push_str(&format!("{doses_label}:\n"));
     for d in &detail.doses {
         let amt = d.amount.map(|a| a.to_string()).unwrap_or_else(|| "?".into());
         let route = if d.route.is_empty() { String::new() } else { format!(" {}", d.route) };
@@ -852,6 +861,7 @@ pub fn import_experience(
             intention: parsed.intention.clone(),
             setting: parsed.setting.clone(),
             started_at: started.clone(),
+            sitting: false,
         },
     ).map_err(err)?;
 
@@ -864,6 +874,7 @@ pub fn import_experience(
             rating: None,
             started_at: started.clone(),
             ended_at: None,
+            sitting: None,
         }).map_err(err)?;
     }
 
@@ -1031,6 +1042,19 @@ fn run_companion_tool(
             let Some(id) = experience_id else {
                 return Ok(("No live trip report to log into.".into(), None, false));
             };
+            // In a report kept as a sitter, "I took" is the sitter's own dose and
+            // "she took" is someone else's: neither is the model's to sort out.
+            // Nothing is logged; the person does it themselves with + Dose.
+            if db.with(|c| db::get_experience(c, id)).map(|d| d.experience.sitting).unwrap_or(false) {
+                return Ok((
+                    "Not logged: the person is sitting for someone in this trip report. Tell them to log it \
+                     themselves with + Dose (into the report for the person they're sitting for, or as their \
+                     own dose), so the two aren't mixed up."
+                        .into(),
+                    None,
+                    false,
+                ));
+            }
             let substance = s("substance");
             if substance.trim().is_empty() {
                 return Ok(("Missing substance name; nothing logged.".into(), None, false));

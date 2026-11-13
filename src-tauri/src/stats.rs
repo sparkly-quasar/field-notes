@@ -17,6 +17,8 @@
 //!   not: the catalogue's current name when `substance_id` is set (so a rename
 //!   doesn't split a series), otherwise the logged name, case-folded.
 //! - **Plain journal notes are not use.** Only `kind = 'session'` entries count.
+//! - **Sitting for someone is not use.** A trip report kept as a sitter holds the
+//!   other person's doses, so it's left out (`sitting = 0`).
 //! - **Frequency counts sessions, not dose rows.** Three redoses in one night are
 //!   one session.
 //!
@@ -634,7 +636,7 @@ pub fn usage_stats(conn: &Connection, since: Option<&str>) -> rusqlite::Result<U
          FROM doses d
          JOIN experiences e ON e.id = d.experience_id
          LEFT JOIN substances s ON s.id = d.substance_id
-         WHERE e.kind = 'session'",
+         WHERE e.kind = 'session' AND e.sitting = 0",
     )?;
     let mut rows: Vec<Row> = stmt
         .query_map([], |r| {
@@ -937,6 +939,20 @@ mod tests {
             shown(&c),
             vec![("g".to_string(), vec![(Some(0.3), Some("3 g fresh".into()), true), (Some(0.5), None, false)])]
         );
+    }
+
+    #[test]
+    fn sitting_for_someone_is_not_your_use() {
+        let c = journal();
+        let mine = session(&c, "session", "2026-11-13T08:00:00Z");
+        let theirs = session(&c, "session", "2026-11-13T10:00:00Z");
+        c.execute("UPDATE experiences SET sitting = 1 WHERE id = ?1", [theirs]).unwrap();
+        dose(&c, mine, "Caffeine", Some(100.0), "mg", "2026-11-13T08:00:00Z");
+        dose(&c, theirs, "Psilocybin Mushrooms", Some(3.5), "g", "2026-11-13T10:00:00Z");
+        let s = usage_stats(&c, None).unwrap();
+        assert_eq!(s.total_sessions, 1);
+        assert_eq!(s.total_doses, 1);
+        assert_eq!(s.substances.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["Caffeine"]);
     }
 
     #[test]

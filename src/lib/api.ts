@@ -112,6 +112,9 @@ export interface Experience {
   created_at: string;
   /** Marked as not needing a write-up. Absent from servers older than v0.15. */
   writeup_skipped?: boolean;
+  /** Kept as a sitter, for someone else: its doses are theirs, not the journal
+   *  owner's. Absent from servers older than v0.35: treat as false. */
+  sitting?: boolean;
 }
 
 export type ExperienceSummary = Experience & {
@@ -221,6 +224,8 @@ export interface ExperienceInput {
   intention?: string;
   setting?: string;
   started_at: string;
+  /** Kept as a sitter (see `Experience.sitting`). */
+  sitting?: boolean;
 }
 
 export interface DoseInput extends DoseDetail {
@@ -249,6 +254,8 @@ export interface ExperienceUpdate {
   rating: number | null;
   started_at: string;
   ended_at: string | null;
+  /** Make it a sitter report or not. Left out, it stays as it was. */
+  sitting?: boolean;
 }
 
 export interface TimelineUpdate {
