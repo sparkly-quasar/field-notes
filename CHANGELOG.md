@@ -11,6 +11,13 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.35.1
+
+- **While you're sitting, the phone's Now screen is about you.** The chart of
+  what's still active now shows your own doses, under its own heading, and the
+  report you're sitting for keeps its chart inside it (**Open trip report**).
+  Check lists only what's active in you, too.
+
 ## v0.35.0
 
 - **Sitting for someone.** Start a live trip report as their sitter, or tick

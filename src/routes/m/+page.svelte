@@ -981,6 +981,9 @@
   }
   /** The live entry's doses (fresh right after logging) with everything else recent. */
   const arcDoses = $derived.by(() => arcDosesFor(session, activeDoses));
+  /** What's still active in you: the same as the live report's arcs for your own
+   *  report, but never the doses of someone you're sitting for. */
+  const myDoses = $derived.by(() => arcDosesFor(session?.sitting ? null : session, activeDoses));
   /** Fill the combination check with what's still active, ready for one more name. */
   function checkActive(names: string[]) {
     comboText = names.join(", ") + ", ";
@@ -2357,7 +2360,12 @@
             {@render warnings(warnFor[live.id])}
             <button class="ghost small" onclick={() => (warnFor = { ...warnFor, [live.id]: [] })}>Dismiss warnings</button>
           {/if}
-          <ActiveArcs doses={arcDoses} moments={live.timeline} now={nowTick} compact />
+          {#if !live.sitting}
+            <!-- Your own report: what's in you, this report's doses and everything
+                 else recent. A report you're sitting for keeps its chart inside it
+                 (Open trip report), and Now charts your own doses below. -->
+            <ActiveArcs doses={arcDoses} moments={live.timeline} now={nowTick} compact />
+          {/if}
           {@render timeline({ ...live, doses: live.doses.slice(-4), timeline: live.timeline.slice(-3) })}
           <div class="pair">
             <button class="primary log" onclick={() => startDose(live)}>+ Dose</button>
@@ -2374,6 +2382,13 @@
             <button class="ghost small" onclick={() => startEnd(live)}>End trip report…</button>
           </div>
         </section>
+        {#if live.sitting && myDoses.length}
+          <!-- While sitting, Now is still about you: your coffee, not their mushrooms. -->
+          <section class="pane">
+            <p class="eyebrow">Your own doses</p>
+            <ActiveArcs doses={myDoses} now={nowTick} compact onCheck={checkActive} />
+          </section>
+        {/if}
       {:else}
         <!-- One obvious action. Sessions, past sessions, pasted logs and notes
              all live under ＋ New, so they aren't repeated here. -->
@@ -2477,6 +2492,10 @@
                    against expected, for looking back. -->
               <h2 class="sec">Arcs</h2>
               <ActiveArcs doses={e.doses} moments={e.timeline} now={Date.parse(e.ended_at)} past />
+            {:else if !e.ended_at && e.sitting && e.doses.length}
+              <!-- A live report you're sitting for: its chart lives here, theirs alone. -->
+              <h2 class="sec">Likely still active in them</h2>
+              <ActiveArcs doses={e.doses} moments={e.timeline} now={nowTick} />
             {/if}
           {/if}
 
@@ -2601,10 +2620,10 @@
           <label for="combo">Two or more substances, separated by commas</label>
           <input id="combo" placeholder="e.g. MDMA, ketamine" bind:value={comboText} autocapitalize="none" enterkeyhint="go" onkeydown={(ev) => ev.key === "Enter" && runCombo()} />
           {#if session?.doses.length}
-            <button class="ghost small" onclick={useLiveInCombo}>Use what's in the live trip report</button>
+            <button class="ghost small" onclick={useLiveInCombo}>{session.sitting ? "Use what's in the report you're sitting for" : "Use what's in the live trip report"}</button>
           {/if}
-          {#if arcDoses.length}
-            <ActiveArcs doses={arcDoses} now={nowTick} showChart={false} onCheck={(names) => (comboText = names.join(", ") + ", ")} />
+          {#if myDoses.length}
+            <ActiveArcs doses={myDoses} now={nowTick} showChart={false} onCheck={(names) => (comboText = names.join(", ") + ", ")} />
           {/if}
           <button class="primary" disabled={busy} onclick={runCombo}>{busyKey === "combo" ? "Checking…" : "Check"}</button>
           {#if comboWarnings}
