@@ -23,9 +23,18 @@ const EXTRA_ALIASES: &[(&str, &[&str])] = &[
     ("Mephedrone", &["4mmc", "4-MMC", "meph", "m-cat"]),
     ("1,4-Butanediol", &["14b", "1,4b"]),
     ("Dextroamphetamine", &["dexamp"]),
-    // Mescaline cacti by the names people log them under (issue #32).
-    ("Mescaline", &["San Pedro powder", "huachuma", "Peruvian torch"]),
 ];
+
+/// Names DoseWiki gives an entry that mean something else when logged, taken off
+/// it on load. (name, aliases to drop)
+///
+/// Mescaline (owner's report, 2026-11-13): DoseWiki lists Peyote, San Pedro,
+/// Cactus and Buttons as other names for it, so "1500 mg San Pedro powder" was
+/// saved as 1500 mg of mescaline and drawn as a heavy dose, when it's dried
+/// cactus at perhaps a few percent mescaline. DoseWiki's own note says its
+/// figures are for mescaline HCl and cactus must not be dosed as if it were the
+/// pure compound. The cacti are their own entries now ([`EXTRA_SUBSTANCES`]).
+const DROP_ALIASES: &[(&str, &[&str])] = &[("Mescaline", &["Peyote", "San Pedro", "Cactus", "Buttons"])];
 
 /// A route's name as one spelling, for matching a logged route against the
 /// reference's: the form's "IM" and DoseWiki's "I.M." and "Intramuscular" are the
@@ -435,6 +444,13 @@ fn map_sub(s: DwSub, log: &mut Vec<String>) -> PwInfo {
     interactions.extend(interactions_of(&s.interactions.caution, "note"));
 
     let mut common_names = s.alternative_names;
+    for (_, drop) in DROP_ALIASES.iter().filter(|(n, _)| n.eq_ignore_ascii_case(&s.title)) {
+        let before = common_names.len();
+        common_names.retain(|c| !drop.iter().any(|d| d.eq_ignore_ascii_case(c)));
+        if common_names.len() < before {
+            log.push(format!("{}: other names dropped: {} (see DROP_ALIASES)", s.title, drop.join(", ")));
+        }
+    }
     for (_, extra) in EXTRA_ALIASES.iter().filter(|(n, _)| n.eq_ignore_ascii_case(&s.title)) {
         for a in extra.iter() {
             if !common_names.iter().any(|c| c.eq_ignore_ascii_case(a)) {
@@ -728,14 +744,18 @@ const ROUTE_PATCHES: &[(&str, &str, &[Patch])] = &[
     // owner the same day. The rest of those two issues repeated #23, already done.
     (
         "Mescaline",
-        "How long it lasts in total is from Klaiber et al. 2024, a placebo-controlled study of 100–800 mg mescaline hydrochloride in healthy people: effects lasted 6.4 to 14 hours, longer at higher doses, and blood levels peaked about 2 hours after a dose. How it builds up and wears off is from the Field Notes maintainer's own use of San Pedro powder, not a study. Cactus varies a lot in how much mescaline it holds, so a weight of cactus can't be read against these mg figures. Onset, peak, after-effects and dose ranges are DoseWiki's.",
-        // Onset, peak and after-effects as DoseWiki has them: `Stages::set` replaces all six.
-        &[Patch::Stages("oral", Stages {
-            onset: Some("60–180 minutes"), come_up: Some("60 minutes"), peak: Some("1.9–4 hours"),
-            offset: Some("3–6 hours"), after_effects: Some("3–5 hours"), total: Some("6–14 hours"),
-        })],
+        "How long it lasts in total is from Klaiber et al. 2024, a placebo-controlled study of 100–800 mg mescaline hydrochloride in healthy people: effects lasted 6.4 to 14 hours, longer at higher doses, and blood levels peaked about 2 hours after a dose. How it builds up and wears off is from the Field Notes maintainer's own use of San Pedro powder, not a study. The dose ranges are DoseWiki's, for pure mescaline hydrochloride: cactus (San Pedro, peyote) has its own entry, because a weight of cactus can't be read against them. Onset, peak and after-effects are DoseWiki's.",
+        &[Patch::Stages("oral", MESCALINE_ORAL)],
     ),
 ];
+
+/// Mescaline's oral timings (see its `ROUTE_PATCHES` note), shared by the cacti
+/// it comes from: what's felt, and for how long, is the mescaline. Onset, peak
+/// and after-effects as DoseWiki has them: `Stages::set` replaces all six.
+const MESCALINE_ORAL: Stages = Stages {
+    onset: Some("60–180 minutes"), come_up: Some("60 minutes"), peak: Some("1.9–4 hours"),
+    offset: Some("3–6 hours"), after_effects: Some("3–5 hours"), total: Some("6–14 hours"),
+};
 
 /// A substance DoseWiki has no entry for, added on load (see [`EXTRA_SUBSTANCES`]).
 struct ExtraSubstance {
@@ -773,6 +793,14 @@ struct ExtraSubstance {
 /// DMT as an ayahuasca analogue. No human timing or dose studies were found, so
 /// no dose figures; the oral timings are the owner's. It shares Ayahuasca's
 /// interactions, which come from the same harmala alkaloids.
+///
+/// San Pedro and Peyote (owner's report, 2026-11-13): mescaline cacti, logged by
+/// weight of cactus, not of mescaline. They were aliases of Mescaline, so a few
+/// grams of San Pedro powder were read against pure mescaline's mg ranges as a
+/// heavy dose (see [`DROP_ALIASES`]). Mescaline content varies too much from one
+/// cactus to the next for any gram figure to mean a dose (Ogunbodede et al. 2010,
+/// J. Ethnopharmacol. 131:356, found 0.05% to 4.7% across 14 Echinopsis taxa and cultivars), so
+/// neither has dose figures. They share Mescaline's interactions and timings.
 const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
     name: "Psilocybin",
     aliases: &["pure psilocybin", "synthetic psilocybin", "COMP360"],
@@ -819,6 +847,27 @@ const EXTRA_SUBSTANCES: &[ExtraSubstance] = &[ExtraSubstance {
         },
         ..BLANK
     }],
+}, ExtraSubstance {
+    name: "San Pedro",
+    aliases: &[
+        "San Pedro powder", "San Pedro cactus", "Cactus", "huachuma", "wachuma",
+        "Echinopsis pachanoi", "Trichocereus pachanoi",
+        "Peruvian torch", "Echinopsis peruviana", "Trichocereus peruvianus",
+        "Bolivian torch", "Echinopsis lageniformis", "Trichocereus bridgesii",
+    ],
+    like: Some("Mescaline"),
+    psychoactive: &[],
+    chemical: &[],
+    note: "No dose figures: San Pedro and the other torch cacti hold very different amounts of mescaline, from under 0.1% to over 4% of their dried weight in one study (Ogunbodede et al. 2010), so a weight of cactus can't be read as a dose, and never against pure mescaline's mg ranges. A light dose from one batch can be a strong one from another: a small amount first, and waiting, tells you more than the scale. Timings and interactions are Mescaline's: what you feel, and for how long, is the mescaline.",
+    routes: &[RouteSpec { name: "oral", stages: MESCALINE_ORAL, ..BLANK }],
+}, ExtraSubstance {
+    name: "Peyote",
+    aliases: &["Peyote buttons", "Buttons", "mescal buttons", "Lophophora williamsii"],
+    like: Some("Mescaline"),
+    psychoactive: &[],
+    chemical: &[],
+    note: "No dose figures: peyote's mescaline content varies with the plant, its age and how it was dried, so a weight or a count of buttons can't be read as a dose, and never against pure mescaline's mg ranges. Timings and interactions are Mescaline's: what you feel, and for how long, is the mescaline.",
+    routes: &[RouteSpec { name: "oral", stages: MESCALINE_ORAL, ..BLANK }],
 }];
 
 fn add_extra_substances(infos: &mut Vec<PwInfo>, log: &mut Vec<String>) {
@@ -1036,7 +1085,24 @@ mod tests {
         assert_eq!(m.total.as_deref(), Some("6–14 hours"), "Klaiber 2024's range");
         assert_eq!(m.onset.as_deref(), Some("60–180 minutes"), "DoseWiki's onset is kept");
         assert!(note("Mescaline").contains("Klaiber") && note("Mescaline").contains("maintainer's own use"));
-        assert_eq!(names.canonical("San Pedro Powder").as_deref(), Some("Mescaline"));
+        assert_eq!(names.canonical("San Pedro Powder").as_deref(), Some("San Pedro"));
+
+        // The cacti are their own entries, by weight of cactus with no dose
+        // figures, never read against pure mescaline's mg ranges.
+        for (cactus, alias) in [("San Pedro", "huachuma"), ("San Pedro", "Peruvian torch"), ("San Pedro", "cactus"), ("Peyote", "peyote buttons")] {
+            assert_eq!(names.canonical(alias).as_deref(), Some(cactus), "{alias}");
+            let c = route(&subs, cactus, "oral");
+            assert_eq!((c.threshold, c.common.min, c.heavy, c.units.as_deref()), (None, None, None, None), "{cactus}: no dose figures");
+            assert_eq!((c.come_up.as_deref(), c.total.as_deref()), (m.come_up.as_deref(), m.total.as_deref()), "{cactus}: mescaline's timings");
+            let s = subs.iter().find(|s| s.name == cactus).unwrap();
+            let mesc = subs.iter().find(|s| s.name == "Mescaline").unwrap();
+            assert_eq!(s.interactions.len(), mesc.interactions.len(), "{cactus}: mescaline's interactions");
+            assert_eq!(s.psychoactive, mesc.psychoactive);
+        }
+        let mesc = subs.iter().find(|s| s.name == "Mescaline").unwrap();
+        for gone in ["Peyote", "San Pedro", "Cactus", "Buttons", "San Pedro powder", "huachuma"] {
+            assert!(!mesc.common_names.iter().any(|c| c.eq_ignore_ascii_case(gone)), "Mescaline still answers to {gone}");
+        }
 
         let r = route(&subs, "Syrian Rue", "oral");
         assert_eq!((r.peak.as_deref(), r.total.as_deref()), (Some("1–2 hours"), Some("6–8 hours")));

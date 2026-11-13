@@ -154,6 +154,16 @@ not psychoactive, but classed QT-prolonging so it's flagged with ibogaine (FDA
 label); its label's serotonin-syndrome reports aren't flagged, by the owner's
 choice, so it isn't "danger" with the ayahuasca it's often taken for.
 
+**San Pedro and peyote are cactus, not mescaline (owner's report, 2026-11-13).**
+As aliases of Mescaline (ours from #32, and DoseWiki's own Peyote, San Pedro,
+Cactus and Buttons), 1500 mg of San Pedro powder was saved as 1500 mg of
+mescaline and drawn as a heavy dose. They're their own entries now, by weight of
+cactus, sharing Mescaline's interactions and timings, with no dose figures:
+mescaline content runs from 0.05% to 4.7% across San Pedro-type cacti
+(Ogunbodede et al. 2010), and DoseWiki's own note says its figures are for the
+pure HCl. Doses already saved as Mescaline stay as they are; edit the name to
+San Pedro to move one.
+
 Each item is shared (never asked about again; if edited, listed in Settings as
 changed but not counted by the reminder, since v0.33.1; tracked in
 `ref_suggestions` by the person's own words, so a reference update isn't a

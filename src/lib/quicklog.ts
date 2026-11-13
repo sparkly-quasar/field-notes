@@ -332,6 +332,9 @@ const DEFAULT_UNITS: Record<string, string> = Object.fromEntries([
   ...[
     "psilocybin mushrooms", "magic mushrooms", "mushrooms", "shrooms", "mushies",
     "psychedelic mushrooms", "magic truffles", "truffles",
+    // Mescaline cacti are weighed as cactus, never as mg of mescaline.
+    "san pedro", "san pedro powder", "san pedro cactus", "huachuma", "wachuma",
+    "peruvian torch", "bolivian torch", "peyote", "peyote buttons",
   ].map((n) => [n, "g"]),
   ...[
     "alcohol", "ethanol", "booze", "beer", "wine", "cider", "vodka", "whiskey", "whisky",
