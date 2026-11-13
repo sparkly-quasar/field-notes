@@ -17,6 +17,12 @@ The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
   what's still active now shows your own doses, under its own heading, and the
   report you're sitting for keeps its chart inside it (**Open trip report**).
   Check lists only what's active in you, too.
+- **San Pedro and peyote can show a dose height.** When you log cactus, you can
+  add about how much mescaline it held, in mg, or the batch's strength as a
+  percentage and let the app work out the mg. That estimate is read against
+  mescaline's ranges, so the chart shows light, common or strong, and says
+  "about 250 mg mescaline" beside the weight. Leave it blank and the chart shows
+  the timing only, as before: the weight of cactus is never compared.
 
 ## v0.35.0
 

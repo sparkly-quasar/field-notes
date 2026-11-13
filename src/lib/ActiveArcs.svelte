@@ -38,6 +38,7 @@
     nowWindow,
     type Series,
   } from "$lib/arcs";
+  import { CACTUS_RANGES_FROM, isCactus } from "$lib/dosedetail";
   import { shown as nameShown } from "$lib/discreet.svelte";
   import MyTimings from "$lib/MyTimings.svelte";
   import { holdSplash } from "$lib/splash";
@@ -74,9 +75,14 @@
   // drawn, so a substance never flashes up as "no duration data" while loading.
   let infos = $state<Record<string, PwInfo | null>>({});
   const asked = new Set<string>();
+  /** Names to look up: each dose's, and Mescaline's when there's cactus, whose
+   *  ranges a cactus dose's mescaline estimate is read against. */
+  const names = $derived([
+    ...doses.map((d) => d.substance_name.trim()),
+    ...(doses.some((d) => isCactus(d.substance_name)) ? [CACTUS_RANGES_FROM] : []),
+  ]);
   $effect(() => {
-    for (const d of doses) {
-      const n = d.substance_name.trim();
+    for (const n of names) {
       const k = n.toLowerCase();
       if (!k || asked.has(k)) continue;
       asked.add(k);
@@ -85,7 +91,7 @@
         .catch(() => (infos[k] = null));
     }
   });
-  const ready = $derived(doses.every((d) => !d.substance_name.trim() || d.substance_name.trim().toLowerCase() in infos));
+  const ready = $derived(names.every((n) => !n || n.toLowerCase() in infos));
   // At startup, the loading splash waits for these lookups, so the chart is there
   // when it lifts rather than popping in after.
   const releaseSplash = holdSplash();

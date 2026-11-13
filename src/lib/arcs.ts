@@ -13,7 +13,7 @@
 // than tapering, and DoseWiki has no figure for it.
 
 import type { Dose, Experience, PwInfo, PwRoa } from "./api";
-import { detailOf, inUnit, measure } from "./dosedetail.ts";
+import { CACTUS_RANGES_FROM, detailOf, inUnit, isCactus, measure } from "./dosedetail.ts";
 import { clockHour, clockTime } from "./clock.ts";
 
 const HOUR = 3_600_000;
@@ -210,7 +210,15 @@ export function buildSeries(doses: Dose[], infoFor: InfoFor): Series[] {
     const key = isDrink ? "drinks" : (info?.name ?? d.substance_name).trim().toLowerCase();
     let s = byKey.get(key);
     if (!s) {
-      const roa = isDrink ? routeFor(info, "oral") ?? info?.roas[0] ?? null : routeFor(info, d.route);
+      let roa = isDrink ? routeFor(info, "oral") ?? info?.roas[0] ?? null : routeFor(info, d.route);
+      // Cactus has no ranges of its own: its timings, with Mescaline's ranges,
+      // which a dose meets only through its estimate of mescaline (`measure`).
+      if (!isDrink && isCactus(d.substance_name)) {
+        const from = routeFor(infoFor(CACTUS_RANGES_FROM) ?? null, d.route);
+        if (from && roa) {
+          roa = { ...roa, units: from.units, threshold: from.threshold, light: from.light, common: from.common, strong: from.strong, heavy: from.heavy, heavy_max: from.heavy_max };
+        }
+      }
       const stages = stagesOf(roa);
       const kind: ArcKind = isDrink
         ? "drinks"
@@ -226,7 +234,7 @@ export function buildSeries(doses: Dose[], infoFor: InfoFor): Series[] {
         doses: [],
         roa,
         stages,
-        unit: isDrink ? "drinks" : roa?.units ?? d.unit,
+        unit: isDrink ? "drinks" : isCactus(d.substance_name) && roa?.units ? `${roa.units} mescaline` : roa?.units ?? d.unit,
         tiers: isDrink ? null : tierAnchors(roa),
         redose: redoseOf(info, d.substance_name, d),
       };
@@ -398,6 +406,11 @@ export function amountsText(s: Series, upTo = Infinity, live = false): string {
   // Counted units read as words: "2 hits", "1 pill".
   const unit = s.kind === "drinks" ? "" : ` ${/^(hit|pill|tab|capsule|piece)$/i.test(u) && total !== 1 ? `${u}s` : u}`;
   const parts = t.map((d) => (d.dose.amount == null ? "?" : `${+d.dose.amount.toFixed(3)}`));
+  // Cactus is tiered by its mescaline estimate, so say so beside the weight.
+  if (isCactus(t[0]?.dose.substance_name ?? "") && s.tiers) {
+    const est = t.reduce((a, d) => a + (d.amount ?? 0), 0);
+    return `${parts.join(" + ")}${unit} (about ${+est.toFixed(3)} mg mescaline)`;
+  }
   return s.kind === "drinks" ? `${parts.join(" + ")} ${total === 1 ? "drink" : "drinks"}` : `${parts.join(" + ")}${unit}`;
 }
 

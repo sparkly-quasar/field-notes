@@ -15,7 +15,7 @@
 -->
 <script lang="ts">
   import { listUnitKinds, saveUnitKind, type DoseDetail, type UnitKind } from "$lib/api";
-  import { COUNTED_UNITS, ESTIMATE_UNITS, formsFor, isMushroom, measure } from "$lib/dosedetail";
+  import { CACTUS_ESTIMATE, COUNTED_UNITS, ESTIMATE_UNITS, formsFor, inUnit, isCactus, isMushroom, measure } from "$lib/dosedetail";
 
   let {
     substance,
@@ -31,6 +31,7 @@
   const EDIBLE_NOTE = "fn.edibleNoteSeen";
 
   const forms = $derived(formsFor(substance));
+  const cactus = $derived(isCactus(substance));
   const counted = $derived(COUNTED_UNITS.includes(unit.trim().toLowerCase()));
   const form = $derived(detail.form ?? "");
   /** Not said reads as the first form: dried, or leaf. */
@@ -41,6 +42,12 @@
   $effect(() => {
     if (form && !forms.some((f) => f.value === form)) {
       detail = { ...detail, form: "", estimate: null, estimate_unit: "" };
+    }
+  });
+  // A mescaline estimate belongs to cactus only.
+  $effect(() => {
+    if (!cactus && detail.estimate_unit === CACTUS_ESTIMATE) {
+      detail = { ...detail, estimate: null, estimate_unit: "" };
     }
   });
   $effect(() => {
@@ -148,6 +155,21 @@
     form === "fresh" && amountNum != null && Number.isFinite(amountNum) ? measure(substance, amountNum, unit, detail) : null,
   );
 
+  // ---- cactus: about how much mescaline ----
+  /** The batch's strength, as a percentage of its dried weight: only a way to
+   *  work out the estimate, never saved. */
+  let pct = $state<number | null>(null);
+  const grams = $derived(amountNum != null && Number.isFinite(amountNum) ? inUnit(amountNum, unit, "g") : null);
+  function setMescaline(v: number | null) {
+    detail = v == null || !Number.isFinite(v)
+      ? { ...detail, estimate: null, estimate_unit: "" }
+      : { ...detail, estimate: v, estimate_unit: CACTUS_ESTIMATE };
+  }
+  function fromStrength(p: number | null) {
+    pct = p;
+    if (p != null && Number.isFinite(p) && grams != null) setMescaline(Math.round(grams * p * 10));
+  }
+
   let edibleNoteSeen = $state(false);
   try { edibleNoteSeen = localStorage.getItem(EDIBLE_NOTE) === "1"; } catch {}
   function dismissEdibleNote() {
@@ -191,6 +213,28 @@
   {:else if form === "extract"}
     <p class="dd-note">Extracts are stronger than leaf by weight, so they aren't compared with leaf's ranges.</p>
   {/if}
+{/if}
+
+{#if cactus}
+  <div class="dd-row">
+    <label class="dd-label" for="dd-mesc">About how much mescaline?</label>
+    <input id="dd-mesc" class="dd-num" type="number" step="any" min="0" placeholder="If you know"
+      value={detail.estimate_unit === CACTUS_ESTIMATE ? detail.estimate : null}
+      oninput={(e) => setMescaline(e.currentTarget.value === "" ? null : Number(e.currentTarget.value))} />
+    <span>mg</span>
+  </div>
+  {#if grams != null}
+    <div class="dd-row">
+      <label class="dd-label" for="dd-pct">Or this batch's strength</label>
+      <input id="dd-pct" class="dd-num" type="number" step="any" min="0" max="10" placeholder="%" value={pct}
+        oninput={(e) => fromStrength(e.currentTarget.value === "" ? null : Number(e.currentTarget.value))} />
+      <span>% mescaline</span>
+    </div>
+  {/if}
+  <p class="dd-note">
+    Cactus varies too much for its weight to say how strong a dose is, so only this estimate is compared with mescaline's ranges.
+    Leave it blank if you don't know: the chart then shows the timing, without a height.
+  </p>
 {/if}
 
 {#if counted && form !== "edible"}
