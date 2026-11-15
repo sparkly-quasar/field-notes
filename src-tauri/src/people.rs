@@ -204,6 +204,26 @@ impl People {
         Ok(self.info(&p))
     }
 
+    /// Change how a person appears to everyone else on this server. They do this
+    /// themselves, from their own device; `taken` is everyone else's name (the
+    /// owner's included), so two people never look the same in a tag.
+    pub fn rename(&self, id: u32, name: &str, taken: &[String]) -> Result<String, String> {
+        let name: String = name.trim().chars().take(40).collect();
+        if name.is_empty() {
+            return Err("Give a name others here will recognise.".into());
+        }
+        if taken.iter().any(|t| t.eq_ignore_ascii_case(&name)) {
+            return Err(format!("There's already someone called {name}."));
+        }
+        let mut reg = self.reg.lock().unwrap();
+        let Some(p) = reg.people.iter_mut().find(|p| p.id == id) else {
+            return Err("No such person.".into());
+        };
+        p.name = name.clone();
+        self.save(&reg)?;
+        Ok(name)
+    }
+
     /// Remove a person and delete their journal. The caller un-pairs their devices.
     pub fn remove(&self, id: u32) -> Result<(), String> {
         if id == OWNER {
@@ -633,6 +653,23 @@ mod tests {
         assert!(!p.db(2).unwrap().is_unlocked());
         p.unlock(2, 7, "correct horse battery").unwrap();
         assert!(p.db(2).unwrap().is_unlocked());
+    }
+
+    #[test]
+    fn a_person_renames_themselves_and_the_new_name_sticks() {
+        let p = people("rename");
+        p.add("Sam").unwrap();
+        p.add("Kit").unwrap();
+        assert_eq!(p.rename(2, "  Samira  ", &["Ari".into(), "Kit".into()]).unwrap(), "Samira");
+        assert_eq!(p.name(2).as_deref(), Some("Samira"));
+        assert_eq!(p.name(3).as_deref(), Some("Kit"), "nobody else is touched");
+        // Not someone else's name, any case, and not blank.
+        assert!(p.rename(2, "kit", &["Ari".into(), "Kit".into()]).is_err());
+        assert!(p.rename(2, "  ", &[]).is_err());
+        assert!(p.rename(OWNER, "Ari", &[]).is_err(), "the owner's name lives in tagging.rs");
+        // Saved: a restart still knows them by it.
+        let again = People::load(p.dir.as_path());
+        assert_eq!(again.name(2).as_deref(), Some("Samira"));
     }
 
     #[test]

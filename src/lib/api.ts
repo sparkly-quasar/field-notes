@@ -71,6 +71,7 @@ const ROUTED = new Set([
   "ai_start",
   "tag_people",
   "tag_allow",
+  "tag_set_my_name",
   "tag_send",
   "tag_inbox",
   "tag_answer",
@@ -1018,6 +1019,10 @@ export const tagPeople = () => invoke<{ people: TagPerson[]; owner_name: string 
 export const tagAllow = (other: number, allow: boolean) => invoke<TagPerson[]>("tag_allow", { other, allow });
 /** The owner only (their phone, or the server computer): the name everyone else sees them by. */
 export const tagSetOwnerName = (name: string) => invoke<string>("tag_set_owner_name", { name });
+/** Anyone: the name everyone else on this server sees you by. Renames whoever this
+ *  device belongs to (the owner at the desk), never anyone else; resolves to the
+ *  name as saved. */
+export const tagSetMyName = (name: string) => invoke<string>("tag_set_my_name", { name });
 /** Send a copy of one of your doses (by id) to each of `to`. Someone whose tag for
  *  it is still waiting gets this version in its place; resolves to how many were
  *  sent or refreshed. */

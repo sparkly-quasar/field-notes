@@ -29,7 +29,7 @@
   import {
     tagPeople,
     tagAllow,
-    tagSetOwnerName,
+    tagSetMyName,
     tagSend,
     tagInbox,
     tagAnswer,
@@ -561,8 +561,13 @@
 
   async function saveOwnerTagName() {
     try {
-      tagOwnerName = await tagSetOwnerName(tagOwnerDraft);
+      const name = await tagSetMyName(tagOwnerDraft);
       tagOwnerDraft = "";
+      // Someone other than the owner: their name is also the one this phone greets
+      // them by, and the one everyone else's list shows.
+      if (isOther) await loadMe();
+      else tagOwnerName = name;
+      await loadTags();
     } catch (e) {
       err = e instanceof Error ? e.message : String(e);
     }
@@ -1900,13 +1905,17 @@
         {#if p.you_allow && p.they_allow}You can tag each other.{:else if p.they_allow}{p.name} lets you tag them.{:else if p.you_allow}Waiting for {p.name} to allow it too.{/if}
       </p>
     {/each}
-    {#if !isOther}
-      <label for="tag-owner-name">Your name, as others here see it</label>
-      <div class="pair">
-        <input id="tag-owner-name" bind:value={tagOwnerDraft} placeholder={tagOwnerName} autocomplete="off" />
-        <button class="small" disabled={!tagOwnerDraft.trim()} onclick={saveOwnerTagName}>Save</button>
-      </div>
-    {/if}
+    <label for="tag-owner-name">Your name, as others here see it</label>
+    <div class="pair">
+      <input
+        id="tag-owner-name"
+        bind:value={tagOwnerDraft}
+        placeholder={isOther ? me?.person_name : tagOwnerName}
+        autocomplete="off"
+        maxlength="40"
+      />
+      <button class="small" disabled={!tagOwnerDraft.trim()} onclick={saveOwnerTagName}>Save</button>
+    </div>
     {#if tagOut.length}
       <p class="label">Tags you sent</p>
       <ul class="plain">
