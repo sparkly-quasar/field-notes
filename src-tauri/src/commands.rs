@@ -2752,6 +2752,13 @@ pub fn tag_set_owner_name(tagging: State<'_, Tagging>, name: String) -> Result<S
     tagging.set_owner_name(&name)
 }
 
+/// At the desk this is always the owner. A laptop connected to a server sends it
+/// there instead (`remote::ROUTED`), where it renames whoever the laptop belongs to.
+#[tauri::command]
+pub fn tag_set_my_name(app: AppHandle, name: String) -> Result<String, String> {
+    portal::set_my_name(&app, OWNER, &name)
+}
+
 /// Read from this journal, by id: what travels is what was logged.
 #[tauri::command]
 pub fn tag_send(db: State<'_, Db>, tagging: State<'_, Tagging>, dose_id: i64, to: Vec<u32>) -> Result<usize, String> {

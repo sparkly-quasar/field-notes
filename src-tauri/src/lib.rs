@@ -328,6 +328,7 @@ pub fn run() {
             commands::tag_people,
             commands::tag_allow,
             commands::tag_set_owner_name,
+            commands::tag_set_my_name,
             commands::tag_send,
             commands::tag_inbox,
             commands::tag_answer,

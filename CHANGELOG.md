@@ -11,6 +11,15 @@ after publishing — see RELEASING.md).
 
 The heading must be exactly `## vX.Y.Z`, matching the tag. Newest on top.
 
+## v0.35.2
+
+- **Everyone on a server can choose their own name.** Until now only the
+  server's owner could change how their name appears to everyone else; anyone
+  else kept the name the owner gave them when adding them. Now each person sets
+  it themselves, under **Tagging** in the phone's settings, or in Settings on a
+  laptop connected to the server. You can only rename yourself, and no two
+  people on a server can go by the same name.
+
 ## v0.35.1
 
 - **While you're sitting, the phone's Now screen is about you.** The chart of

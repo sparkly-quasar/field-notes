@@ -195,6 +195,20 @@ turns it off, and the list stays in Settings either way.
 
 ---
 
+## Shipped in v0.35.2: everyone names themselves
+
+- **Anyone on a server chooses the name others see them by** (owner's request,
+  2026-11-15). Until now only the owner could; everyone else kept the name the
+  owner typed when adding them. `tag_set_my_name` (`portal::set_my_name`)
+  renames whoever the device belongs to: the owner's name in `tagging.rs`,
+  anyone else's in `people.rs` (`People::rename`). It never takes a person from
+  the request, and refuses a blank name or one someone else here already goes
+  by (any case). On the phone the field shows for everyone; a laptop connected
+  to a server routes it there (`remote::ROUTED`) and renames its own person.
+  `tag_set_owner_name` stays, owner-only, for older phones.
+
+---
+
 ## Shipped in v0.34.0: tagging from Edit dose, and on the computer
 
 - **Tag someone in a dose already logged** (owner's request, 2026-10-17). Edit

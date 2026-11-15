@@ -409,6 +409,27 @@ fn tagging<R: Runtime>(app: &AppHandle<R>) -> Result<tauri::State<'_, crate::tag
     app.try_state::<crate::tagging::Tagging>().ok_or_else(|| DispatchError::Failed("Tagging isn't available.".into()))
 }
 
+/// Change how `person` appears to everyone else on this server: the owner's name
+/// in tagging.rs, anyone else's in people.rs. The caller says who from the device
+/// (or the desk, for the owner), never from the request. No two people may share a
+/// name, so a tag can't be sent to the wrong one by mistake.
+pub(crate) fn set_my_name<R: Runtime>(app: &AppHandle<R>, person: u32, name: &str) -> Result<String, String> {
+    let taken: Vec<String> = everyone(app).into_iter().filter(|(id, _)| *id != person).map(|(_, n)| n).collect();
+    if person == OWNER {
+        let trimmed: String = name.trim().chars().take(40).collect();
+        if trimmed.is_empty() {
+            return Err("Give a name others here will recognise.".into());
+        }
+        if taken.iter().any(|t| t.eq_ignore_ascii_case(&trimmed)) {
+            return Err(format!("There's already someone called {trimmed}."));
+        }
+        let tags = app.try_state::<crate::tagging::Tagging>().ok_or("Tagging isn't available.")?;
+        tags.set_owner_name(&trimmed)
+    } else {
+        app.state::<People>().rename(person, name, &taken)
+    }
+}
+
 /// Everyone on this server with the name others see them by, the owner first.
 pub(crate) fn everyone<R: Runtime>(app: &AppHandle<R>) -> Vec<(u32, String)> {
     let owner = app.try_state::<crate::tagging::Tagging>().map(|t| t.owner_name()).unwrap_or_default();
@@ -575,6 +596,9 @@ pub const EXPOSED: &[&str] = &[
     "tag_people",
     "tag_allow",
     "tag_set_owner_name",
+    // Anyone's own name, as everyone else here sees it: the owner's or another
+    // person's, whichever the device belongs to. Never someone else's.
+    "tag_set_my_name",
     "tag_send",
     "tag_inbox",
     "tag_answer",
@@ -916,6 +940,8 @@ pub fn dispatch_as<R: Runtime>(app: &AppHandle<R>, who: Caller, command: &str, a
             ok(tags.people(who.person, &all))
         }
         "tag_set_owner_name" => done(tagging(app)?.set_owner_name(&arg::<String>(&args, "name")?)),
+        // Renames whoever the device belongs to, so nobody can rename anyone else.
+        "tag_set_my_name" => done(set_my_name(app, who.person, &arg::<String>(&args, "name")?)),
         "tag_send" => {
             // Read from the sender's own journal, by id: what travels is what they
             // logged, never anything the request says it was.
@@ -1300,6 +1326,32 @@ mod tests {
         assert_eq!(theirs.trim(), "[]");
         // Only the owner names the owner.
         assert_eq!(post(port, "tag_set_owner_name", Some(&sam), json!({ "name": "x" })).0, 403);
+    }
+
+    #[test]
+    fn everyone_names_themselves_and_nobody_else() {
+        let (app, port, owner, sam) = serving_two();
+        let (status, body) = post(port, "person_unlock", Some(&sam), json!({ "password": "correct horse battery" }));
+        assert_eq!(status, 200, "{body}");
+
+        // Sam renames Sam, and that's what the owner sees Sam as.
+        let (status, body) = post(port, "tag_set_my_name", Some(&sam), json!({ "name": "  Samira " }));
+        assert_eq!((status, body.as_str()), (200, "\"Samira\""));
+        let (_, people) = post(port, "tag_people", Some(&owner), json!({}));
+        assert!(people.contains("Samira"), "{people}");
+        assert_eq!(app.state::<People>().name(2).as_deref(), Some("Samira"));
+
+        // The owner renames the owner, and Sam sees it; Sam's name is untouched.
+        let (status, _) = post(port, "tag_set_my_name", Some(&owner), json!({ "name": "Ari" }));
+        assert_eq!(status, 200);
+        let (_, people) = post(port, "tag_people", Some(&sam), json!({}));
+        assert!(people.contains("Ari"), "{people}");
+        assert_eq!(app.state::<People>().name(2).as_deref(), Some("Samira"));
+
+        // Nobody can take a name someone else here already goes by, or go blank.
+        assert_eq!(post(port, "tag_set_my_name", Some(&sam), json!({ "name": "ari" })).0, 400);
+        assert_eq!(post(port, "tag_set_my_name", Some(&owner), json!({ "name": "SAMIRA" })).0, 400);
+        assert_eq!(post(port, "tag_set_my_name", Some(&sam), json!({ "name": "   " })).0, 400);
     }
 
     #[test]

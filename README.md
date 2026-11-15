@@ -109,7 +109,10 @@ show you how to get past it.
   allowed it can tag each other in a dose, right after logging it on the phone
   or later from Edit dose on the phone or the computer. The other person gets a
   copy of that one dose to change and add to their own journal, or decline;
-  neither sees the rest of the other's journal.
+  neither sees the rest of the other's journal. Everyone on the server, not
+  just its owner, chooses the name the others see them by (in the phone's
+  settings, or Settings on a laptop connected to the server); no two people
+  can share one.
 - **Phone access** (optional, off by default) — Tailscale is built in, so the
   computer needs nothing else installed: press **Connect**, sign in to Tailscale
   in your browser, then install Tailscale on your phone, sign in with the same

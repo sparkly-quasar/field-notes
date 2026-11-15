@@ -84,6 +84,7 @@ pub const ROUTED: &[&str] = &[
     "ai_start",
     "tag_people",
     "tag_allow",
+    "tag_set_my_name",
     "tag_send",
     "tag_inbox",
     "tag_answer",

@@ -130,7 +130,7 @@
     type RemoteFailed,
     tagPeople,
     tagAllow,
-    tagSetOwnerName,
+    tagSetMyName,
     tagSend,
     tagInbox,
     tagAnswer,
@@ -431,6 +431,8 @@
   let tagWho = $state<TagPerson[]>([]);
   let tagOwnerName = $state("");
   let tagOwnerDraft = $state("");
+  /** Connected to a server: the name saved there just now, shown as the placeholder. */
+  let myTagName = $state("");
   let tagIn = $state<IncomingTag[]>([]);
   let tagOut = $state<SentTag[]>([]);
   let tagErr = $state("");
@@ -463,8 +465,10 @@
   async function saveOwnerTagName() {
     tagErr = "";
     try {
-      tagOwnerName = await tagSetOwnerName(tagOwnerDraft);
+      const name = await tagSetMyName(tagOwnerDraft);
       tagOwnerDraft = "";
+      if (!remote.connected) tagOwnerName = name;
+      else myTagName = name;
     } catch (e) {
       tagErr = typeof e === "string" ? e : String(e);
     }
@@ -4339,13 +4343,18 @@ Peak was intense and connected; gentle comedown by 1am. Drank lots of water, no 
                 </li>
               {/each}
             </ul>
-            {#if !remote.connected}
-              <form class="remote-form" onsubmit={(e) => { e.preventDefault(); saveOwnerTagName(); }}>
-                <label class="small" for="tag-owner-name">Your name, as others here see it</label>
-                <input id="tag-owner-name" bind:value={tagOwnerDraft} placeholder={tagOwnerName} autocomplete="off" maxlength="40" />
-                <button class="ghost small-btn" type="submit" disabled={!tagOwnerDraft.trim()}>Save</button>
-              </form>
-            {/if}
+            <!-- Connected to a server, this renames whoever this computer is paired as there. -->
+            <form class="remote-form" onsubmit={(e) => { e.preventDefault(); saveOwnerTagName(); }}>
+              <label class="small" for="tag-owner-name">Your name, as others here see it</label>
+              <input
+                id="tag-owner-name"
+                bind:value={tagOwnerDraft}
+                placeholder={remote.connected ? myTagName : tagOwnerName}
+                autocomplete="off"
+                maxlength="40"
+              />
+              <button class="ghost small-btn" type="submit" disabled={!tagOwnerDraft.trim()}>Save</button>
+            </form>
             {#if tagOut.length}
               <h3>Tags you sent</h3>
               <ul class="device-list">
